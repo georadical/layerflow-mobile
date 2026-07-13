@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
+import '../../core/jwt.dart';
 import '../providers.dart';
 
 /// Ajustes: URL del backend y field_token (MVP: emitido por operador).
@@ -42,11 +44,55 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final settings = ref.read(settingsStoreProvider);
     await settings.setBaseUrl(_baseUrlCtrl.text);
     await settings.setToken(_tokenCtrl.text);
+    // Refrescar los avisos de expiración con el token nuevo.
+    ref.invalidate(fieldTokenInfoProvider);
+    ref.invalidate(tokenStatusProvider);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Ajustes guardados.')),
     );
     Navigator.of(context).pop();
+  }
+
+  /// Muestra la expiración leída del JWT pegado (sin verificar la firma).
+  Widget _expiryInfo() {
+    final info = parseJwt(_tokenCtrl.text);
+    if (_tokenCtrl.text.trim().isEmpty) {
+      return const SizedBox.shrink();
+    }
+    if (info.isMalformed) {
+      return const Row(
+        children: [
+          Icon(Icons.error_outline, size: 16, color: Colors.red),
+          SizedBox(width: 6),
+          Expanded(child: Text('El token no tiene formato de JWT válido.')),
+        ],
+      );
+    }
+    if (info.expiresAt == null) {
+      return const Text('Token sin fecha de expiración legible.',
+          style: TextStyle(color: Colors.grey));
+    }
+    final fecha = DateFormat('yyyy-MM-dd HH:mm').format(info.expiresAt!);
+    final Color color;
+    final String texto;
+    if (info.isExpired) {
+      color = Colors.red;
+      texto = 'Vencido el $fecha.';
+    } else if (info.expiresSoon()) {
+      color = Colors.orange;
+      texto = 'Vence el $fecha (en ${info.daysLeft} días).';
+    } else {
+      color = Colors.green;
+      texto = 'Válido hasta $fecha (${info.daysLeft} días).';
+    }
+    return Row(
+      children: [
+        Icon(Icons.schedule, size: 16, color: color),
+        const SizedBox(width: 6),
+        Expanded(child: Text(texto, style: TextStyle(color: color))),
+      ],
+    );
   }
 
   @override
@@ -84,7 +130,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   autocorrect: false,
                   maxLines: 1,
+                  onChanged: (_) => setState(() {}),
                 ),
+                const SizedBox(height: 8),
+                _expiryInfo(),
                 const SizedBox(height: 24),
                 FilledButton.icon(
                   onPressed: _save,

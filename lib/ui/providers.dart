@@ -1,6 +1,7 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/jwt.dart';
 import '../core/location/location_source.dart';
 import '../data/api/api_client.dart';
 import '../data/db/database.dart';
@@ -77,6 +78,26 @@ class CurrentRouteNotifier extends StateNotifier<String?> {
     state = routeId;
   }
 }
+
+/// Estado del field_token pegado (para avisar de expiración en campo).
+enum TokenStatus { missing, malformed, expired, expiringSoon, ok }
+
+/// Info de expiración del field_token (claim `exp`, sin verificar firma).
+/// Invalida este provider tras guardar en Ajustes para refrescar.
+final fieldTokenInfoProvider = FutureProvider<JwtInfo>((ref) async {
+  final token = await ref.watch(settingsStoreProvider).getToken();
+  return parseJwt(token);
+});
+
+final tokenStatusProvider = FutureProvider<TokenStatus>((ref) async {
+  final token = await ref.watch(settingsStoreProvider).getToken();
+  if (token == null || token.trim().isEmpty) return TokenStatus.missing;
+  final info = parseJwt(token);
+  if (info.isMalformed) return TokenStatus.malformed;
+  if (info.isExpired) return TokenStatus.expired;
+  if (info.expiresSoon()) return TokenStatus.expiringSoon;
+  return TokenStatus.ok;
+});
 
 /// Stream de capturas de una ruta (ordenadas por `orden`).
 final capturesProvider =

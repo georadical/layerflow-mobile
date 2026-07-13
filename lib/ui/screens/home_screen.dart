@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers.dart';
+import '../widgets/token_warning_banner.dart';
 import 'capture_screen.dart';
 import 'settings_screen.dart';
 
@@ -94,6 +95,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           children: [
             _ConnectivityBanner(online: online),
             const SizedBox(height: 16),
+            const TokenWarningBanner(),
             const Text(
               'Abrir ruta',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),

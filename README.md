@@ -48,6 +48,17 @@ flutter build apk --release   # APK instalable (build\app\outputs\flutter-apk\)
 
 1. Abre **Ajustes** (ícono ⚙️): pon la **URL del backend** (sin barra final, p. ej.
    `http://192.168.1.10:8000`) y el **field_token** (JWT emitido por el operador).
+
+   El operador obtiene el `field_token` **fuera de la app** (el `operator_token`
+   nunca toca el equipo de campo):
+   ```
+   POST /field-workers/{worker_id}/field-token?tenant_id=<ESP>
+     Authorization: Bearer <operator_token>
+   → { "token": "<field_token>", "expires_in_days": 30 }
+   ```
+   Pega ese `<field_token>` en Ajustes. La app decodifica el claim `exp` del JWT
+   (sin verificar la firma) y **avisa** cuando el token está por vencer o venció,
+   en Ajustes y con un banner en Inicio/Captura.
 2. En **Abrir ruta**, pega el `route_id` (UUID) de la ruta congelada y pulsa
    **Abrir y reanudar** (con conexión trae el frame y restaura lo capturado).
 3. Captura domicilio por domicilio: **placa** + tipo de acceso/observación opcionales →

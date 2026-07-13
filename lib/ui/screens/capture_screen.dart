@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/db/database.dart';
 import '../providers.dart';
+import '../widgets/token_warning_banner.dart';
 import 'capture_list_screen.dart';
 
 /// Opciones de tipo de acceso (opcional). El valor guardado es la clave.
@@ -123,6 +124,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                const TokenWarningBanner(),
                 _LastCaptureCard(last: last, total: list.length),
                 const SizedBox(height: 16),
                 Row(
