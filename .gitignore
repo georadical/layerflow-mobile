@@ -1,0 +1,36 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+.pub-cache/
+.pub/
+*.lock.bak
+pubspec.lock  # app: dejar sin fijar hasta primer build estable; ver README
+
+# Codegen (se regenera con build_runner)
+*.g.dart
+*.freezed.dart
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Android
+android/.gradle/
+android/local.properties
+android/key.properties
+android/app/*.jks
+**/GeneratedPluginRegistrant.*
+
+# Scaffold temporal del setup
+.flutter_scaffold_tmp/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Claude Code (estado local de sesión)
+.claude/
