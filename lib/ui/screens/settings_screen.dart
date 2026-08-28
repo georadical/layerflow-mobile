@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/jwt.dart';
+import '../../data/api/api_client.dart';
 import '../providers.dart';
 
 /// Ajustes: URL del backend y field_token (MVP: emitido por operador).
@@ -16,8 +17,10 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _baseUrlCtrl = TextEditingController();
   final _tokenCtrl = TextEditingController();
+  final _testRouteCtrl = TextEditingController();
   bool _loading = true;
   bool _obscureToken = true;
+  bool _testing = false;
 
   @override
   void initState() {
@@ -37,6 +40,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void dispose() {
     _baseUrlCtrl.dispose();
     _tokenCtrl.dispose();
+    _testRouteCtrl.dispose();
     super.dispose();
   }
 
@@ -52,6 +56,51 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       const SnackBar(content: Text('Ajustes guardados.')),
     );
     Navigator.of(context).pop();
+  }
+
+  /// Prueba la conectividad haciendo un GET al frame de una ruta de prueba.
+  /// Persiste URL+token primero (el ApiClient los lee de Ajustes).
+  Future<void> _testConnection() async {
+    final base = _baseUrlCtrl.text.trim();
+    if (base.isEmpty) {
+      _snack('Falta la URL del backend.');
+      return;
+    }
+    final routeId = _testRouteCtrl.text.trim();
+    if (routeId.isEmpty) {
+      _snack('Ingresa un route_id de prueba.');
+      return;
+    }
+    final settings = ref.read(settingsStoreProvider);
+    await settings.setBaseUrl(base);
+    await settings.setToken(_tokenCtrl.text);
+    // Refrescar los avisos de expiración/token con lo recién guardado.
+    ref.invalidate(fieldTokenInfoProvider);
+    ref.invalidate(tokenStatusProvider);
+
+    setState(() => _testing = true);
+    try {
+      final frame = await ref.read(apiClientProvider).getRouteFrame(routeId);
+      if (!mounted) return;
+      _snack('✅ 200 — código ${frame.codigo ?? "?"}, '
+          '${frame.items.length} capturas en la ruta.');
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      final hint = switch (e.statusCode) {
+        401 => 'token ausente, inválido o expirado',
+        404 => 'ruta de otra ESP o inexistente',
+        400 => 'route_id inválido (¿es un UUID?)',
+        _ => e.message,
+      };
+      _snack('❌ ${e.statusCode ?? ''} — $hint');
+    } finally {
+      if (mounted) setState(() => _testing = false);
+    }
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   /// Muestra la expiración leída del JWT pegado (sin verificar la firma).
@@ -139,6 +188,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onPressed: _save,
                   icon: const Icon(Icons.save),
                   label: const Text('Guardar'),
+                ),
+                const Divider(height: 40),
+                const Text(
+                  'Probar conexión',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _testRouteCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'route_id de prueba',
+                    hintText: 'UUID de una ruta de tu ESP',
+                  ),
+                  autocorrect: false,
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _testing ? null : _testConnection,
+                  icon: _testing
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.wifi_tethering),
+                  label: Text(_testing ? 'Probando…' : 'Probar conexión'),
                 ),
                 const SizedBox(height: 16),
                 const Text(
