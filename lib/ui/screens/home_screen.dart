@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers.dart';
 import '../widgets/token_warning_banner.dart';
-import 'capture_screen.dart';
+import 'resume_route_screen.dart';
 import 'route_selector_screen.dart';
 import 'settings_screen.dart';
 
@@ -43,26 +43,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
 
     setState(() => _busy = true);
-    final online = ref.read(isOnlineProvider);
-    var resumedMsg = 'Ruta abierta (sin reanudar: offline).';
-
     try {
-      if (online) {
-        // Resume: fetch the frame and restore what was captured.
-        final frame = await ref.read(syncServiceProvider).pullFrame(routeId);
-        resumedMsg = 'Ruta abierta. ${frame.items.length} capturas reanudadas.';
-      }
       await ref.read(currentRouteIdProvider.notifier).setRoute(routeId);
       if (!mounted) return;
-      _snack(resumedMsg);
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => CaptureScreen(routeId: routeId)),
-      );
-    } catch (e) {
-      _snack('No se pudo reanudar: $e');
+      // Every way into a route lands on the resume view, which owns the pull
+      // and its states. This path is only a diagnostic shortcut past the
+      // selector; it must not behave differently once inside.
+      _openResume(routeId);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _openResume(String routeId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ResumeRouteScreen(routeId: routeId)),
+    );
   }
 
   void _snack(String msg) {
@@ -164,7 +160,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ? null
                       : () => Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => CaptureScreen(routeId: current),
+                              builder: (_) =>
+                                  ResumeRouteScreen(routeId: current),
                             ),
                           ),
                 ),

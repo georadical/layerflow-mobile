@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/db/database.dart';
 import '../providers.dart';
 import '../widgets/token_warning_banner.dart';
-import 'capture_list_screen.dart';
 
 /// tipo_acceso options (optional). The stored value is the key.
 const _tipoAccesoOptions = <String, String>{
@@ -100,15 +99,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
             },
             orElse: () => const SizedBox.shrink(),
           ),
-          IconButton(
-            icon: const Icon(Icons.list),
-            tooltip: 'Ver capturas',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => CaptureListScreen(routeId: widget.routeId),
-              ),
-            ),
-          ),
+          // No list action here: capture is always reached from the resume
+          // view, which is the single list of the route (Spec 1.1 BR5).
         ],
       ),
       body: capturesAsync.when(

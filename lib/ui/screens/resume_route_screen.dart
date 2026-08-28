@@ -261,13 +261,19 @@ class _FrameSummary extends StatelessWidget {
   }
 }
 
-class _UnitTile extends StatelessWidget {
+const _tipoAccesoLabels = <String, String>{
+  'puerta_calle': 'Puerta a la calle',
+  'area_comun': 'Área común',
+  'otro': 'Otro',
+};
+
+class _UnitTile extends ConsumerWidget {
   const _UnitTile({required this.row});
 
   final Capture row;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final placa = row.placa?.trim();
     final hasAddress = placa != null && placa.isNotEmpty;
@@ -279,41 +285,191 @@ class _UnitTile extends StatelessWidget {
       if (row.manzanaCatastral != null) 'mz ${row.manzanaCatastral}',
     ].join(' · ');
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // The address in plain language leads. A missing one keeps the
-                // size but goes muted and italic, so the gap reads as pending
-                // rather than as a shorter address.
-                Text(
-                  hasAddress ? placa : 'Sin dirección aún',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: hasAddress ? FontWeight.w600 : FontWeight.w400,
-                    fontStyle: hasAddress ? FontStyle.normal : FontStyle.italic,
-                    color: hasAddress
-                        ? theme.colorScheme.onSurface
-                        : theme.colorScheme.onSurfaceVariant,
+    // Spec 1.1: this row is the only way into the editor. There is no second
+    // list of the same route to hunt for.
+    return InkWell(
+      onTap: () => _edit(context, ref),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // The address in plain language leads. A missing one keeps
+                  // the size but goes muted and italic, so the gap reads as
+                  // pending rather than as a shorter address.
+                  Text(
+                    hasAddress ? placa : 'Sin dirección aún',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight:
+                          hasAddress ? FontWeight.w600 : FontWeight.w400,
+                      fontStyle:
+                          hasAddress ? FontStyle.normal : FontStyle.italic,
+                      color: hasAddress
+                          ? theme.colorScheme.onSurface
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  meta,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                  const SizedBox(height: 4),
+                  Text(
+                    meta,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          if (pending) const _PendingBadge(),
-        ],
+            if (pending) const _PendingBadge(),
+          ],
+        ),
       ),
+    );
+  }
+
+  /// Edits the unit's attributes. `orden` is shown but never editable (BR1):
+  /// it is the walking order the backend turns into `loc`.
+  ///
+  /// Saving marks the row `pending`; the push is idempotent by `client_id`, so
+  /// a unit that came from the server is updated in place, not duplicated.
+  Future<void> _edit(BuildContext context, WidgetRef ref) async {
+    final edit = await showDialog<_UnitEdit>(
+      context: context,
+      builder: (_) => _EditUnitDialog(row: row),
+    );
+    if (edit == null) return;
+
+    await ref.read(captureRepositoryProvider).editCapture(
+          clientId: row.clientId,
+          placa: edit.placa,
+          tipoAcceso: edit.tipoAcceso,
+          manzanaCatastral: edit.manzana,
+          observacion: edit.observacion,
+        );
+  }
+}
+
+/// What the editor hands back. Null means the worker cancelled.
+typedef _UnitEdit = ({
+  String placa,
+  String? tipoAcceso,
+  String manzana,
+  String observacion,
+});
+
+/// Editor for one captured unit.
+///
+/// Stateful on purpose: it owns its TextEditingControllers and disposes them
+/// with itself. Creating them in the caller and disposing right after
+/// `await showDialog` looks equivalent but is not — the route keeps rebuilding
+/// through its exit animation, and the rebuild hits controllers that were
+/// already disposed.
+class _EditUnitDialog extends StatefulWidget {
+  const _EditUnitDialog({required this.row});
+
+  final Capture row;
+
+  @override
+  State<_EditUnitDialog> createState() => _EditUnitDialogState();
+}
+
+class _EditUnitDialogState extends State<_EditUnitDialog> {
+  late final TextEditingController _placa;
+  late final TextEditingController _manzana;
+  late final TextEditingController _obs;
+  String? _tipo;
+
+  @override
+  void initState() {
+    super.initState();
+    _placa = TextEditingController(text: widget.row.placa ?? '');
+    _manzana = TextEditingController(text: widget.row.manzanaCatastral ?? '');
+    _obs = TextEditingController(text: widget.row.observacion ?? '');
+    _tipo = widget.row.tipoAcceso;
+  }
+
+  @override
+  void dispose() {
+    _placa.dispose();
+    _manzana.dispose();
+    _obs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      // orden is shown, never editable (BR1).
+      title: Text('Unidad · orden ${widget.row.orden}'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _placa,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Placa (dirección en la puerta)',
+                helperText: 'Opcional: puede quedar en blanco.',
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              // Not migrated to `initialValue`: FormFieldState ignores it
+              // after the first build, and this rebuilds on every selection.
+              // ignore: deprecated_member_use
+              value: _tipo,
+              decoration: const InputDecoration(
+                labelText: 'Tipo de acceso (opcional)',
+              ),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('—')),
+                for (final e in _tipoAccesoLabels.entries)
+                  DropdownMenuItem(value: e.key, child: Text(e.value)),
+              ],
+              onChanged: (v) => setState(() => _tipo = v),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _manzana,
+              decoration: const InputDecoration(
+                labelText: 'Manzana catastral (opcional)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _obs,
+              decoration: const InputDecoration(
+                labelText: 'Observación (opcional)',
+              ),
+              minLines: 1,
+              maxLines: 3,
+            ),
+            const SizedBox(height: 12),
+            const Text('El orden no se puede cambiar (append-only).'),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, (
+            placa: _placa.text,
+            tipoAcceso: _tipo,
+            manzana: _manzana.text,
+            observacion: _obs.text,
+          )),
+          child: const Text('Guardar'),
+        ),
+      ],
     );
   }
 }
