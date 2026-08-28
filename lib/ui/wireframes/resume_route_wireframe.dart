@@ -246,43 +246,129 @@ class _UnitTile extends StatelessWidget {
       if (unit.manzana != null) 'mz ${unit.manzana}',
     ].join(' · ');
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Protagonist: the address in plain language (BR5). A missing
-                // one keeps the same size but goes muted and italic, so the
-                // gap reads as "pending", never as a shorter address.
-                Text(
-                  hasAddress ? unit.placa! : 'Sin dirección aún',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: hasAddress ? FontWeight.w600 : FontWeight.w400,
-                    fontStyle: hasAddress ? FontStyle.normal : FontStyle.italic,
-                    color: hasAddress
-                        ? theme.colorScheme.onSurface
-                        : theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  meta,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Not an error: offline queueing is the normal field state, so the
-          // badge informs without competing with the address.
-          if (unit.pending) const _PendingBadge(),
-        ],
+    // Spec 1.1: the row is the way into the editor. Unstyled on purpose —
+    // this tap and the dialog it opens are the wireframe delta.
+    return InkWell(
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (_) => _EditorWireframe(unit: unit),
       ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Protagonist: the address in plain language (BR5). A missing
+                  // one keeps the same size but goes muted and italic, so the
+                  // gap reads as "pending", never as a shorter address.
+                  Text(
+                    hasAddress ? unit.placa! : 'Sin dirección aún',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight:
+                          hasAddress ? FontWeight.w600 : FontWeight.w400,
+                      fontStyle:
+                          hasAddress ? FontStyle.normal : FontStyle.italic,
+                      color: hasAddress
+                          ? theme.colorScheme.onSurface
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    meta,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Not an error: offline queueing is the normal field state, so
+            // the badge informs without competing with the address.
+            if (unit.pending) const _PendingBadge(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// WIREFRAME — Spec 1.1 editor. Plain fields, no styling of its own.
+///
+/// `orden` is shown but never editable (BR1): it is the walking order, and
+/// letting it be typed would break the append-only sequence the backend turns
+/// into `loc`.
+class _EditorWireframe extends StatelessWidget {
+  const _EditorWireframe({required this.unit});
+
+  final WireframeUnit unit;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Unidad · orden ${unit.orden}'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: TextEditingController(text: unit.placa ?? ''),
+              decoration: const InputDecoration(
+                labelText: 'Placa (dirección en la puerta)',
+                helperText: 'Opcional: puede quedar en blanco.',
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: null,
+              decoration: const InputDecoration(
+                labelText: 'Tipo de acceso (opcional)',
+              ),
+              items: const [
+                DropdownMenuItem(value: null, child: Text('—')),
+                DropdownMenuItem(
+                    value: 'puerta_calle', child: Text('Puerta a la calle')),
+                DropdownMenuItem(
+                    value: 'area_comun', child: Text('Área común')),
+                DropdownMenuItem(value: 'otro', child: Text('Otro')),
+              ],
+              onChanged: (_) {},
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: TextEditingController(text: unit.manzana ?? ''),
+              decoration: const InputDecoration(
+                labelText: 'Manzana catastral (opcional)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            const TextField(
+              decoration: InputDecoration(
+                labelText: 'Observación (opcional)',
+              ),
+              minLines: 1,
+              maxLines: 3,
+            ),
+            const SizedBox(height: 12),
+            const Text('El orden no se puede cambiar (append-only).'),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Guardar'),
+        ),
+      ],
     );
   }
 }
