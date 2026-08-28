@@ -4,7 +4,7 @@ Status: draft (ready for tickets). Revised against the shipped backend contract.
 Type: Mobile app (Flutter). No backend work left: every wire it needs already exists.
 Approach: spec-driven & wire-driven. The wire is real, so the wire wins: where this
 spec once guessed, it has been corrected to match what the backend actually returns.
-Chain: **Spec 1 (this one)** → 2 strict-order capture (local) → 3 batch push (`POST placas`) → 4 offline-first/retry.
+Chain: **Spec 1 (this one)** → 2 strict-order capture (local) → 3 batch push (`POST placas`) → 4 offline-first/retry. Spec 5 (field worker login) is in the backlog; see [README.md](README.md).
 
 > **Revision note.** The first draft of this spec was written before
 > `GET /field/routes` existed and guessed parts of its shape. Five things were
