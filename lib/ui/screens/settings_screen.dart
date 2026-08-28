@@ -51,6 +51,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // Refresh the expiry warnings with the new token.
     ref.invalidate(fieldTokenInfoProvider);
     ref.invalidate(tokenStatusProvider);
+    // Anything already fetched belongs to the previous credentials. Without
+    // this, a worker who fixes a bad token still sees the stale 401 when they
+    // walk back into the selector.
+    ref.invalidate(assignedRoutesProvider);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Ajustes guardados.')),
@@ -77,6 +81,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // Refresh the expiry/token warnings with what was just saved.
     ref.invalidate(fieldTokenInfoProvider);
     ref.invalidate(tokenStatusProvider);
+    // "Probar conexión" also persists the credentials, so the selector must
+    // forget whatever it fetched under the old ones.
+    ref.invalidate(assignedRoutesProvider);
 
     setState(() => _testing = true);
     try {

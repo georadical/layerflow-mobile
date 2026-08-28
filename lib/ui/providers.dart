@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/jwt.dart';
 import '../core/location/location_source.dart';
 import '../data/api/api_client.dart';
+import '../data/api/dtos.dart';
+import '../data/cache/assigned_routes_cache.dart';
 import '../data/db/database.dart';
 import '../data/repositories/capture_repository.dart';
 import '../data/settings/settings_store.dart';
@@ -99,6 +101,56 @@ final tokenStatusProvider = FutureProvider<TokenStatus>((ref) async {
   if (info.expiresSoon()) return TokenStatus.expiringSoon;
   return TokenStatus.ok;
 });
+
+final assignedRoutesCacheProvider =
+    Provider<AssignedRoutesCache>((ref) => AssignedRoutesCache());
+
+/// The assigned-route list plus where it came from.
+class AssignedRoutesState {
+  const AssignedRoutesState({required this.routes, required this.fromCache});
+
+  final AssignedRoutes routes;
+
+  /// True when the network failed and this is the last cached copy, so the
+  /// screen can say so instead of passing stale data off as fresh.
+  final bool fromCache;
+}
+
+/// Routes assigned to the worker: fetch, cache, and fall back to that cache.
+///
+/// The fallback is deliberately not applied to 401/403. Those mean the token
+/// is wrong, and showing a cached list would invite the worker to tap a route
+/// that cannot possibly load — the screen must send them to Ajustes instead.
+final assignedRoutesProvider =
+    AsyncNotifierProvider<AssignedRoutesNotifier, AssignedRoutesState>(
+  AssignedRoutesNotifier.new,
+);
+
+class AssignedRoutesNotifier extends AsyncNotifier<AssignedRoutesState> {
+  @override
+  Future<AssignedRoutesState> build() => _fetch();
+
+  /// Pull-to-refresh. Keeps the current list on screen while it reloads.
+  Future<void> refresh() async {
+    state = await AsyncValue.guard(_fetch);
+  }
+
+  Future<AssignedRoutesState> _fetch() async {
+    final api = ref.read(apiClientProvider);
+    final cache = ref.read(assignedRoutesCacheProvider);
+    try {
+      final routes = await api.getAssignedRoutes();
+      await cache.save(routes);
+      return AssignedRoutesState(routes: routes, fromCache: false);
+    } on ApiException catch (e) {
+      final isAuth = e.statusCode == 401 || e.statusCode == 403;
+      if (isAuth) rethrow;
+      final cached = await cache.load();
+      if (cached == null) rethrow;
+      return AssignedRoutesState(routes: cached, fromCache: true);
+    }
+  }
+}
 
 /// Stream of a route's captures (sorted by `orden`).
 final capturesProvider =

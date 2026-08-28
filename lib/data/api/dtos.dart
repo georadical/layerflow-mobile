@@ -156,6 +156,17 @@ class RouteSummary {
       totalCapturado: (json['total_capturado'] as num?)?.toInt(),
     );
   }
+
+  /// Round-trips through the local cache. Keeps the wire's snake_case so the
+  /// cached copy and a fresh response parse identically.
+  Map<String, dynamic> toJson() => {
+        'route_id': routeId,
+        'codigo': codigo,
+        'estado': estado,
+        'nombre': nombre,
+        // Written only when present: absent and zero mean different things.
+        if (totalCapturado != null) 'total_capturado': totalCapturado,
+      };
 }
 
 /// Response of GET /field/routes.
@@ -176,6 +187,11 @@ class AssignedRoutes {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'esp': esp,
+        'items': items.map((e) => e.toJson()).toList(),
+      };
 }
 
 /// Frame item (GET). What was already captured, used to resume.

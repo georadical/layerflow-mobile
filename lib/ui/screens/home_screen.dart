@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers.dart';
 import '../widgets/token_warning_banner.dart';
 import 'capture_screen.dart';
+import 'route_selector_screen.dart';
 import 'settings_screen.dart';
 
 /// Entry point: open/resume a route.
@@ -95,6 +96,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             _ConnectivityBanner(online: online),
             const SizedBox(height: 16),
             const TokenWarningBanner(),
+            // Preferred entry point: the worker picks from their assigned
+            // routes instead of typing a UUID. The manual field below stays
+            // for now as a diagnostic path.
+            FilledButton.icon(
+              icon: const Icon(Icons.alt_route),
+              label: const Text('Mis rutas'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const RouteSelectorScreen(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
             const Text(
               'Abrir ruta',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
