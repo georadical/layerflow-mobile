@@ -9,10 +9,28 @@ with a verifiable gate, a commit and explicit approval.
 | 1 | Open and resume route | [open-and-resume-route.md](open-and-resume-route.md) | In progress — spec, wireframes and design approved; wiring under way |
 | 1.1 | One editable list per route | [one-editable-route-list.md](one-editable-route-list.md) | Draft, awaiting approval |
 | 2 | Strict-order capture (local) | — | Not written |
-| 3 | Batch push (`POST /field/capture/placas`) | — | Not written |
+| 3 | Batch push (`POST /field/capture/placas`) | — | Not written, see notes below |
 | 4 | Offline-first queue and retry | — | Not written |
 | 5 | Field worker login | — | Backlog, see below |
 | 6 | Field worker across several ESPs | — | Backlog, see below |
+
+## Spec 3 — notes carried in from Spec 1.1
+
+Two placement problems found while testing the resume view. They belong to the
+push spec, not to Spec 1:
+
+- **The sync control sits in the wrong screen.** Today it is an icon in the
+  capture form's app bar. The resume view is where a worker sees which rows
+  read "sin enviar", yet it offers no way to send them: state is shown in one
+  place and acted on in another. That is the same split Spec 1.1 removed
+  between the two lists. The queue also belongs to the *route*, not to the
+  form that captures a single unit, so the control is hanging off the wrong
+  object. Move the pending indicator and the send action to the resume view.
+- **Auto-sync is invisible.** Saving a capture pushes the queue silently, so
+  an edit made minutes earlier can reach the backend without the worker doing
+  anything they would recognise as sending. With intermittent signal in the
+  field, that is an unseen effect on real data. Decide whether it stays
+  automatic and becomes visible, or becomes explicit.
 
 ## Spec 5 — Field worker login (backlog)
 
