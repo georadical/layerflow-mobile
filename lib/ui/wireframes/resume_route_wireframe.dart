@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 
-/// WIREFRAME — Spec 1, T1.3 "Resume route" view (read-only).
+/// WIREFRAME + DESIGN — Spec 1, T1.3 "Resume route" view (read-only).
 ///
-/// Layout only: flat widgets, no theme, no colors, dummy data. It validates
-/// element placement and hierarchy, not looks. Styling is the Design phase.
+/// Layout was approved in the wireframe phase; this file now carries the
+/// design pass on top of it. Structure and copy are unchanged: only
+/// typography, colour and spacing come from the app theme.
+///
+/// Design intent — the screen is read outdoors, at arm's length, often in
+/// sunlight: the address must win the page at a glance, and everything else
+/// recedes to theme-muted secondary text.
 ///
 /// Spec anchors (specs/open-and-resume-route.md):
 /// - BR4 order is `loc` ascending (loc = orden * 5, assigned by the backend).
@@ -63,13 +68,19 @@ class _Loading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    final theme = Theme.of(context);
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 16),
-          Text('Trayendo lo capturado…'),
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(
+            'Trayendo lo capturado…',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
     );
@@ -81,25 +92,34 @@ class _Error extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    final theme = Theme.of(context);
+    return Center(
       child: Padding(
-        padding: EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_off, size: 40),
-            SizedBox(height: 12),
+            Icon(
+              Icons.cloud_off,
+              size: 40,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
             Text(
               'Sin conexión con el backend.',
               textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium,
             ),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
               'Se muestra lo que haya guardado en el dispositivo.',
               textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-            SizedBox(height: 16),
-            OutlinedButton(onPressed: null, child: Text('Reintentar')),
+            const SizedBox(height: 16),
+            const OutlinedButton(onPressed: null, child: Text('Reintentar')),
           ],
         ),
       ),
@@ -112,19 +132,31 @@ class _Empty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    final theme = Theme.of(context);
+    return Center(
       child: Padding(
-        padding: EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.location_off, size: 40),
-            SizedBox(height: 12),
-            Text('Ruta sin capturas aún.', textAlign: TextAlign.center),
-            SizedBox(height: 4),
+            Icon(
+              Icons.location_off,
+              size: 40,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Ruta sin capturas aún.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
             Text(
               'Empieza a capturar la primera dirección del recorrido.',
               textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -141,16 +173,20 @@ class _UnitList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final ordered = [...units]..sort((a, b) => a.loc.compareTo(b.loc));
 
     return Column(
       children: [
         _FrameSummary(total: ordered.length),
-        const Divider(height: 1),
+        Divider(height: 1, color: theme.colorScheme.outlineVariant),
         Expanded(
           child: ListView.separated(
             itemCount: ordered.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
+            separatorBuilder: (_, __) => Divider(
+              height: 1,
+              color: theme.colorScheme.outlineVariant,
+            ),
             itemBuilder: (context, i) => _UnitTile(unit: ordered[i]),
           ),
         ),
@@ -167,12 +203,25 @@ class _FrameSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final theme = Theme.of(context);
+    return Container(
+      color: theme.colorScheme.surfaceContainerLow,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          Expanded(child: Text('$total direcciones capturadas')),
-          const Text('reanudado'),
+          Expanded(
+            child: Text(
+              '$total direcciones capturadas',
+              style: theme.textTheme.titleSmall,
+            ),
+          ),
+          // Quiet confirmation that the frame came back from the server.
+          Text(
+            'reanudado',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
     );
@@ -187,6 +236,7 @@ class _UnitTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final hasAddress = unit.placa != null && unit.placa!.trim().isNotEmpty;
 
     // Secondary metadata line: the code nobody speaks in the field.
@@ -205,18 +255,57 @@ class _UnitTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Protagonist: the address in plain language (BR5).
+                // Protagonist: the address in plain language (BR5). A missing
+                // one keeps the same size but goes muted and italic, so the
+                // gap reads as "pending", never as a shorter address.
                 Text(
                   hasAddress ? unit.placa! : 'Sin dirección aún',
-                  style: const TextStyle(fontSize: 20),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: hasAddress ? FontWeight.w600 : FontWeight.w400,
+                    fontStyle: hasAddress ? FontStyle.normal : FontStyle.italic,
+                    color: hasAddress
+                        ? theme.colorScheme.onSurface
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 4),
-                Text(meta, style: const TextStyle(fontSize: 12)),
+                Text(
+                  meta,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           ),
-          if (unit.pending) const Text('sin enviar'),
+          // Not an error: offline queueing is the normal field state, so the
+          // badge informs without competing with the address.
+          if (unit.pending) const _PendingBadge(),
         ],
+      ),
+    );
+  }
+}
+
+/// Pill marking a row that still lives only on the device.
+class _PendingBadge extends StatelessWidget {
+  const _PendingBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(left: 12, top: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        'sin enviar',
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.onTertiaryContainer,
+        ),
       ),
     );
   }

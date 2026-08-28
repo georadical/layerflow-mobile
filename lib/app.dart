@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'ui/screens/home_screen.dart';
+import 'ui/theme.dart';
 
 class LayerFlowCaptureApp extends StatelessWidget {
   const LayerFlowCaptureApp({super.key});
@@ -10,13 +11,7 @@ class LayerFlowCaptureApp extends StatelessWidget {
     return MaterialApp(
       title: 'LayerFlow — Captura',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1565C0)),
-        useMaterial3: true,
-        inputDecorationTheme: const InputDecorationTheme(
-          border: OutlineInputBorder(),
-        ),
-      ),
+      theme: buildAppTheme(),
       home: const HomeScreen(),
     );
   }

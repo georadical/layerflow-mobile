@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'ui/theme.dart';
 import 'ui/wireframes/resume_route_wireframe.dart';
 
 /// Wireframe gallery — separate entry point, does not touch the real app.
@@ -15,9 +16,12 @@ class WireframeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
       title: 'LayerFlow — Wireframes',
-      home: WireframeGallery(),
+      debugShowCheckedModeBanner: false,
+      // Same theme as the real app, so the design pass reviews what ships.
+      theme: buildAppTheme(),
+      home: const WireframeGallery(),
     );
   }
 }
