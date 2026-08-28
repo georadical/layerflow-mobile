@@ -7,6 +7,7 @@ with a verifiable gate, a commit and explicit approval.
 | # | Spec | File | Status |
 |---|------|------|--------|
 | 1 | Open and resume route | [open-and-resume-route.md](open-and-resume-route.md) | In progress — spec, wireframes and design approved; wiring under way |
+| 1.1 | One editable list per route | [one-editable-route-list.md](one-editable-route-list.md) | Draft, awaiting approval |
 | 2 | Strict-order capture (local) | — | Not written |
 | 3 | Batch push (`POST /field/capture/placas`) | — | Not written |
 | 4 | Offline-first queue and retry | — | Not written |
