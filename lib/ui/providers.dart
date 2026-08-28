@@ -164,6 +164,25 @@ final routeFrameProvider =
   await ref.read(syncServiceProvider).pullFrame(routeId);
 });
 
+/// A route's `codigo`, read from the device.
+///
+/// Only the selector knows the codigo up front; opening a route by its
+/// `route_id` or resuming the active one does not. It is stored locally as
+/// part of the frame merge, so the screen can recover it instead of falling
+/// back to an anonymous "Ruta".
+final routeCodigoProvider =
+    FutureProvider.autoDispose.family<String?, String>((ref, routeId) async {
+  // Wait for the pull when one is happening: the codigo lands with the merge.
+  // A failed or skipped pull still falls back to whatever is already stored.
+  try {
+    await ref.watch(routeFrameProvider(routeId).future);
+  } catch (_) {
+    // Offline or rejected: the local copy, if any, is still the best answer.
+  }
+  final route = await ref.read(databaseProvider).getRoute(routeId);
+  return route?.codigo;
+});
+
 /// Stream of a route's captures (sorted by `orden`).
 final capturesProvider =
     StreamProvider.family<List<Capture>, String>((ref, routeId) {
