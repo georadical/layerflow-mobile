@@ -152,6 +152,18 @@ class AssignedRoutesNotifier extends AsyncNotifier<AssignedRoutesState> {
   }
 }
 
+/// Pulls a route's frame and merges it locally, so the resume view owns its
+/// own loading and error states instead of the caller pre-fetching for it.
+///
+/// Offline it is a no-op: the screen still opens on whatever the device holds
+/// (A4). autoDispose so re-entering a route re-pulls rather than showing a
+/// frame from an earlier visit.
+final routeFrameProvider =
+    FutureProvider.autoDispose.family<void, String>((ref, routeId) async {
+  if (!ref.read(isOnlineProvider)) return;
+  await ref.read(syncServiceProvider).pullFrame(routeId);
+});
+
 /// Stream of a route's captures (sorted by `orden`).
 final capturesProvider =
     StreamProvider.family<List<Capture>, String>((ref, routeId) {

@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/api/api_client.dart';
 import '../../data/api/dtos.dart';
 import '../providers.dart';
-import 'capture_screen.dart';
+import 'resume_route_screen.dart';
 import 'settings_screen.dart';
 
 /// Route selector — Spec 1, T1.5. Wires the approved design to
@@ -245,65 +245,32 @@ class _EspHeader extends StatelessWidget {
   }
 }
 
-class _RouteTile extends ConsumerStatefulWidget {
+class _RouteTile extends ConsumerWidget {
   const _RouteTile({required this.route});
 
   final RouteSummary route;
 
-  @override
-  ConsumerState<_RouteTile> createState() => _RouteTileState();
-}
-
-class _RouteTileState extends ConsumerState<_RouteTile> {
-  bool _opening = false;
-
-  /// Pulls the frame, merges it locally and moves on to capture. Offline it
-  /// still opens, on whatever is already on the device (A4).
-  Future<void> _open() async {
-    if (_opening) return;
-    setState(() => _opening = true);
-
-    final route = widget.route;
-    final online = ref.read(isOnlineProvider);
-    var message = 'Ruta abierta (sin reanudar: offline).';
-
-    try {
-      if (online) {
-        final frame =
-            await ref.read(syncServiceProvider).pullFrame(route.routeId);
-        message = 'Ruta abierta. ${frame.items.length} capturas reanudadas.';
-      }
-      await ref.read(currentRouteIdProvider.notifier).setRoute(route.routeId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => CaptureScreen(routeId: route.routeId),
+  /// Marks the route active and hands over. Pulling the frame belongs to the
+  /// resume view, which owns the loading and error states for it.
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
+    await ref.read(currentRouteIdProvider.notifier).setRoute(route.routeId);
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ResumeRouteScreen(
+          routeId: route.routeId,
+          codigo: route.codigo,
         ),
-      );
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      final detail = switch (e.statusCode) {
-        401 => 'Token vencido o inválido — renuévalo en Ajustes.',
-        403 => 'Ese token no es de campo.',
-        404 => 'Esa ruta no existe o no es de tu ESP.',
-        _ => e.message,
-      };
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(detail)));
-    } finally {
-      if (mounted) setState(() => _opening = false);
-    }
+      ),
+    );
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final route = widget.route;
 
     return InkWell(
-      onTap: _opening ? null : _open,
+      onTap: () => _open(context, ref),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
@@ -339,17 +306,10 @@ class _RouteTileState extends ConsumerState<_RouteTile> {
             if (route.totalCapturado != null)
               _ProgressBadge(total: route.totalCapturado!),
             const SizedBox(width: 8),
-            if (_opening)
-              const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              Icon(
-                Icons.chevron_right,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+            Icon(
+              Icons.chevron_right,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ],
         ),
       ),
