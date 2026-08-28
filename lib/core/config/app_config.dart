@@ -20,6 +20,9 @@ class AppConfig {
   static String routeFramePath(String routeId) =>
       '/field/capture/route/$routeId';
 
+  /// Routes assigned to the authenticated field worker.
+  static const String assignedRoutesPath = '/field/routes';
+
   /// Local sync states.
   static const String syncPending = 'pending';
   static const String syncSynced = 'synced';

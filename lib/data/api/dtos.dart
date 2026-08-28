@@ -120,6 +120,64 @@ class PlacaBatchResponse {
   }
 }
 
+/// One route assigned to the authenticated field worker.
+///
+/// From `GET /field/routes`. The backend already filters to routes assigned to
+/// this worker (titular or pareja) in state `verificada`, and already orders
+/// them by `codigo`: the app renders what it is given (BR1).
+class RouteSummary {
+  const RouteSummary({
+    required this.routeId,
+    required this.codigo,
+    required this.estado,
+    this.nombre,
+    this.totalCapturado,
+  });
+
+  /// The same id consumed by `GET /field/capture/route/{route_id}`.
+  final String routeId;
+  final String codigo;
+
+  /// Domain is `borrador | verificada`. There is no "congelada" (BR2).
+  final String estado;
+
+  /// Optional route name; the wire sends null when there is none.
+  final String? nombre;
+
+  /// Units captured so far. Absent — not zero — when the wire omits it.
+  final int? totalCapturado;
+
+  factory RouteSummary.fromJson(Map<String, dynamic> json) {
+    return RouteSummary(
+      routeId: json['route_id'] as String,
+      codigo: json['codigo']?.toString() ?? '',
+      estado: json['estado']?.toString() ?? '',
+      nombre: json['nombre'] as String?,
+      totalCapturado: (json['total_capturado'] as num?)?.toInt(),
+    );
+  }
+}
+
+/// Response of GET /field/routes.
+class AssignedRoutes {
+  const AssignedRoutes({required this.esp, required this.items});
+
+  /// Display name of the ESP (tenant) the token belongs to.
+  final String esp;
+
+  /// Empty means "no routes assigned": a valid 200, never an error (A1).
+  final List<RouteSummary> items;
+
+  factory AssignedRoutes.fromJson(Map<String, dynamic> json) {
+    return AssignedRoutes(
+      esp: json['esp']?.toString() ?? '',
+      items: (json['items'] as List<dynamic>? ?? const [])
+          .map((e) => RouteSummary.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
 /// Frame item (GET). What was already captured, used to resume.
 class RouteFrameItem {
   const RouteFrameItem({

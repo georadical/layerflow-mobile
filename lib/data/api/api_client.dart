@@ -61,6 +61,22 @@ class ApiClient {
     }
   }
 
+  /// GET /field/routes — routes assigned to the authenticated field worker.
+  ///
+  /// The backend scopes and orders the list, so the app does not filter it.
+  /// An empty `items` is a valid answer, not an error.
+  Future<AssignedRoutes> getAssignedRoutes() async {
+    final base = await _baseUrl();
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '$base${AppConfig.assignedRoutesPath}',
+      );
+      return AssignedRoutes.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
   /// GET /field/capture/route/{route_id} — frame used to resume.
   Future<RouteFrame> getRouteFrame(String routeId) async {
     final base = await _baseUrl();
