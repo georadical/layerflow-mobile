@@ -126,6 +126,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   : const Icon(Icons.play_arrow),
               label: Text(online ? 'Abrir y reanudar' : 'Abrir (offline)'),
             ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.info_outline),
+              label: const Text('Acerca de LayerFlow'),
+              onPressed: () => showAboutDialog(
+                context: context,
+                applicationName: 'LayerFlow — Captura',
+                applicationVersion: '0.1.0',
+                children: const [
+                  Text('App de captura de placas (censo, coordinate-free).'),
+                ],
+              ),
+            ),
             if (current != null) ...[
               const SizedBox(height: 24),
               Card(
