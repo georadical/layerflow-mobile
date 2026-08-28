@@ -222,6 +222,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       : const Icon(Icons.wifi_tethering),
                   label: Text(_testing ? 'Probando…' : 'Probar conexión'),
                 ),
+                const Divider(height: 40),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.info_outline),
+                  label: const Text('Acerca de LayerFlow'),
+                  onPressed: () => showAboutDialog(
+                    context: context,
+                    applicationName: 'LayerFlow — Captura',
+                    applicationVersion: '0.1.0',
+                    children: const [
+                      Text(
+                          'App de captura de placas (censo, coordinate-free).'),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 16),
                 const Text(
                   'El token se guarda en el almacenamiento seguro del sistema. '

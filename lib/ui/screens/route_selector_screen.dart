@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/api/api_client.dart';
 import '../../data/api/dtos.dart';
 import '../providers.dart';
+import '../widgets/token_warning_banner.dart';
 import 'resume_route_screen.dart';
 import 'settings_screen.dart';
 
@@ -31,21 +32,35 @@ class RouteSelectorScreen extends ConsumerWidget {
           ),
         ],
       ),
-      // Wraps every state: a worker who was just assigned a route, or who just
-      // regained signal, can always pull to retry.
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(assignedRoutesProvider.notifier).refresh(),
-        child: async.when(
-          loading: () => const _Loading(),
-          error: (e, _) => _errorView(context, e),
-          data: (data) => data.routes.items.isEmpty
-              ? const _Message(
-                  icon: Icons.inbox,
-                  title: 'No tienes rutas asignadas en tu ESP.',
-                  body: 'Si te acaban de asignar una, desliza para actualizar.',
-                )
-              : _RouteList(state: data),
-        ),
+      body: Column(
+        children: [
+          // This is the first screen of the day, so an expiring token has to
+          // surface here: every request below it will fail without one.
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: TokenWarningBanner(),
+          ),
+          // The refresh gesture wraps every state: a worker who was just
+          // assigned a route, or who just regained signal, can always retry.
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () =>
+                  ref.read(assignedRoutesProvider.notifier).refresh(),
+              child: async.when(
+                loading: () => const _Loading(),
+                error: (e, _) => _errorView(context, e),
+                data: (data) => data.routes.items.isEmpty
+                    ? const _Message(
+                        icon: Icons.inbox,
+                        title: 'No tienes rutas asignadas en tu ESP.',
+                        body:
+                            'Si te acaban de asignar una, desliza para actualizar.',
+                      )
+                    : _RouteList(state: data),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
