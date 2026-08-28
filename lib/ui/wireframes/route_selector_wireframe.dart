@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 
-/// WIREFRAME — Spec 1, T1.1 "Route selector" (read-only entry point).
+/// WIREFRAME + DESIGN — Spec 1, T1.1/T1.2 "Route selector" (entry point).
 ///
-/// Layout only: plain widgets, dummy data, no styling of its own. It validates
-/// element placement and the state matrix, not looks. Styling is T1.2.
+/// Layout was approved in the wireframe phase; this file now carries the
+/// design pass on top of it. Structure and copy are unchanged: only
+/// typography, colour and spacing, all pulled from the app theme.
+///
+/// Design intent — this is the first screen of a working day, read outdoors:
+/// the route code must be identifiable at arm's length, and progress must be
+/// readable without counting rows.
 ///
 /// Spec anchors (specs/open-and-resume-route.md):
 /// - The wire returns routes assigned to THIS worker, already ordered by
@@ -109,13 +114,19 @@ class _Loading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    final theme = Theme.of(context);
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 16),
-          Text('Buscando tus rutas…'),
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(
+            'Buscando tus rutas…',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
     );
@@ -139,6 +150,7 @@ class _Message extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -150,11 +162,22 @@ class _Message extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, size: 40),
+                  Icon(icon,
+                      size: 40, color: theme.colorScheme.onSurfaceVariant),
                   const SizedBox(height: 12),
-                  Text(title, textAlign: TextAlign.center),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 4),
-                  Text(body, textAlign: TextAlign.center),
+                  Text(
+                    body,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                   if (action != null) ...[
                     const SizedBox(height: 16),
                     OutlinedButton(onPressed: () {}, child: Text(action!)),
@@ -177,12 +200,16 @@ class _RouteList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       // +1 for the ESP header: the worker should be able to tell at a glance
       // which tenant the pasted token belongs to.
       itemCount: routes.length + 1,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, __) => Divider(
+        height: 1,
+        color: theme.colorScheme.outlineVariant,
+      ),
       itemBuilder: (context, i) {
         if (i == 0) return _EspHeader(esp: esp, total: routes.length);
         return _RouteTile(route: routes[i - 1]);
@@ -199,12 +226,25 @@ class _EspHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final theme = Theme.of(context);
+    return Container(
+      color: theme.colorScheme.surfaceContainerLow,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          Expanded(child: Text(esp)),
-          Text('$total rutas'),
+          Expanded(
+            child: Text(
+              esp,
+              style: theme.textTheme.titleSmall,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Text(
+            '$total rutas',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
     );
@@ -218,6 +258,7 @@ class _RouteTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return InkWell(
       onTap: () {},
       child: Padding(
@@ -228,27 +269,75 @@ class _RouteTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // The code is what the worker actually says out loud.
-                  Text('Ruta ${route.codigo}',
-                      style: const TextStyle(fontSize: 20)),
+                  // The code is what the worker actually says out loud, so it
+                  // carries the weight of the row.
+                  Text(
+                    'Ruta ${route.codigo}',
+                    style: theme.textTheme.titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w600),
+                  ),
                   // `nombre` is nullable: when absent the code stands alone,
                   // with no placeholder and no empty parentheses.
                   if (route.nombre != null) ...[
                     const SizedBox(height: 2),
-                    Text(route.nombre!),
+                    Text(
+                      route.nombre!,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                   ],
                   const SizedBox(height: 4),
-                  Text(route.estado, style: const TextStyle(fontSize: 12)),
+                  Text(
+                    route.estado,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
             ),
             // A missing count hides the badge; a zero count still shows, so
             // "assigned but untouched" reads differently from "no data".
             if (route.totalCapturado != null)
-              Text('${route.totalCapturado} capturadas'),
+              _ProgressBadge(total: route.totalCapturado!),
             const SizedBox(width: 8),
-            const Icon(Icons.chevron_right),
+            Icon(
+              Icons.chevron_right,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Progress badge. An untouched route (zero) is deliberately muted so the
+/// eye lands on the routes already under way.
+class _ProgressBadge extends StatelessWidget {
+  const _ProgressBadge({required this.total});
+
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final started = total > 0;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: started
+            ? theme.colorScheme.secondaryContainer
+            : theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$total capturadas',
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: started
+              ? theme.colorScheme.onSecondaryContainer
+              : theme.colorScheme.onSurfaceVariant,
         ),
       ),
     );
