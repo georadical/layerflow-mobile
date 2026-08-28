@@ -1,199 +1,255 @@
 # Spec 1 — Open and resume route (mobile capture app)
 
-Status: draft (ready for tickets)
-Type: Mobile app (Flutter) + 1 backend dependency (new wire)
-Approach: spec-driven & wire-driven. The spec is the source of truth for the contract.
+Status: draft (ready for tickets). Revised against the shipped backend contract.
+Type: Mobile app (Flutter). No backend work left: every wire it needs already exists.
+Approach: spec-driven & wire-driven. The wire is real, so the wire wins: where this
+spec once guessed, it has been corrected to match what the backend actually returns.
 Chain: **Spec 1 (this one)** → 2 strict-order capture (local) → 3 batch push (`POST placas`) → 4 offline-first/retry.
+
+> **Revision note.** The first draft of this spec was written before
+> `GET /field/routes` existed and guessed parts of its shape. Five things were
+> wrong and are corrected here: the route state is `verificada` (the domain is
+> `borrador | verificada`; **`congelada` does not exist**), `manzana_catastral` is
+> per unit and never at route level, `nombre` exists and is nullable, a non-field
+> token answers **403** (not 401), and the list is scoped **per field worker**
+> (titular or pareja), not merely per ESP.
 
 ## User story
 **As** a LayerFlow field worker using the capture app (authenticated with my
-`field_token`, scoped to my ESP), **I want** to see the list of routes assigned to me
-(synchronized), open one and immediately see what has already been captured —with the
-**address** as the leading piece of data and ordered by the walking sequence—, **so
-that** I can resume from where I left off (or confirm that it is empty) without
-duplicating units or losing the strict order.
+`field_token`, scoped to my ESP), **I want** to see the routes assigned to me and open
+one to immediately see what has already been captured —with the **address** as the
+leading piece of data, ordered by the walking sequence—, **so that** I can resume from
+where I left off (or confirm that it is empty) without duplicating units or losing the
+strict order.
 
 ## Goal
-Provide the entry point that is usable in real field conditions: **sync assigned routes →
-open one → see the resumed state**. It is the foundation on which Specs 2–4 capture and
+Provide the entry point that is usable in real field conditions: **see my routes → open
+one → see the resumed state**. It is the foundation on which Specs 2–4 capture and
 synchronize.
 
 ## Scope
 
 **Includes**
-- List of **routes assigned** to the field worker, synchronized from the backend
-  (**new wire**, see Dependencies) and cached locally so it can be seen offline.
-- Opening a route (from the list) → `GET /field/capture/route/{route_id}` →
-  merge the frame with local data (without overwriting unsent edits).
-- **Resume (read-only)** view: units already captured, **address (`placa`)
-  as the lead**, ordered by ascending `loc` (the walking order).
-- Explicit empty state; loading states; error handling and translation
-  (401/404/400/no connection); token expiration warnings.
+- **Route selector** screen: the routes assigned to this field worker, from
+  `GET /field/routes`, with `codigo`, `estado` and a `total_capturado` progress badge.
+- Pull-to-refresh on the selector, which re-issues the request.
+- Opening a route (by tapping it) → `GET /field/capture/route/{route_id}` → merge the
+  frame with local data without overwriting unsent edits.
+- **Resume (read-only)** view: units already captured, **address (`placa`) as the
+  lead**, ordered by ascending `loc` (the walking order).
+- UI states on both screens: loading / list / empty / network error / 401 / 403.
+- Local cache of the route list so the selector is usable offline.
 - Persist the opened route as the **active route** (survives an app restart).
 
 **Does NOT include** (mandatory)
+- Any backend change. Every endpoint consumed here already exists and is frozen for
+  this spec.
 - Capturing, editing or deleting units (Spec 2).
 - Batch push `POST /field/capture/placas` (Spec 3) or queue retry (Spec 4).
-- Issuing/renewing the `field_token` (done on the backend/by the operator; the app only
-  stores it in Ajustes).
-- Design of the token issuing endpoint, the observation layer (`/sync/*`), PH/PV
-  expansion, media/photos and **any coordinate** (coordinate-free invariant).
+- **Route segments** (a `localizacion` range): the whole route is opened.
+- Issuing or renewing the `field_token`. There is **no login screen** in this app: the
+  operator issues the token and the worker pastes it into Ajustes.
+- The observation layer (`/sync/*`), PH/PV expansion, media/photos and **any
+  coordinate** (coordinate-free invariant).
 - Editing the order / reassigning `loc` (set by the backend: `loc = orden × 5`).
 
 ## Actors and permissions
-- **Field worker** (our team), authenticated with a `field_token` (`require_field`,
-  kind=`field`), scoped to **one ESP (tenant)** and to their worker. They only see routes
-  from their ESP; routes from another ESP are invisible (→ 404 when trying to open them by id).
+- **Field worker (encuestador)**, authenticated with a `field_token` (`require_field`,
+  kind=`field`), scoped to **one ESP (tenant)** and to themselves. The selector lists
+  only routes assigned to them —as **titular or pareja**— and only those in state
+  `verificada`. Routes in `borrador`, of another worker, or of another ESP simply do
+  not appear; opening one by id answers 404.
 
 ## Preconditions
 - The app has a **base URL** and a **field_token** stored in Ajustes (the token persists
   in `EncryptedSharedPreferences`).
 - The backend is reachable (emulator → `http://10.0.2.2:8000`).
-- The **new wire** for assigned routes exists (see Dependencies). While it does not exist,
-  alternative flow B applies (manual entry of a `route_id`).
-- The routes are **congelada** (validated) on the census backbone side.
+- The worker has at least one route in state `verificada` assigned to them (otherwise
+  the legitimate empty state applies).
 
-### Dependencies — new wire (to be specified/built on the backend)
-`GET /field/routes` (auth `require_field`, scoped to the token's ESP) →
+## Wire contracts consumed (source of truth — do not change from the app)
+
+### `GET /field/routes`
+Auth: `Authorization: Bearer <field_token>`. Missing token → **401**; a login (non-field)
+token → **403**.
+
 ```json
 {
-  "esp": "Isnos",
+  "esp": "ESP Isnos (muestra)",
   "items": [
-    { "route_id": "uuid", "codigo": "10", "manzana_catastral": "001",
-      "total_capturado": 12, "estado": "congelada" }
+    {
+      "route_id": "405ca862-e116-4a12-a920-a520c0d063ee",
+      "codigo": "10",
+      "nombre": null,
+      "estado": "verificada",
+      "total_capturado": 2
+    }
   ]
 }
 ```
-- Returns only the routes visible to that token (ESP + worker).
-- Ordered by `codigo`. `total_capturado` feeds the progress badge in the list.
-- No coordinates. It is a **prerequisite**: it is handled as a separate backend spec and
-  this Spec 1 consumes it.
+- `items` ordered by `codigo` ascending.
+- `items: []` when the worker has no assigned routes → **200, not an error**.
+- `route_id` is the very same id consumed by `GET /field/capture/route/{route_id}`.
+- No coordinates. No `manzana_catastral` at this level — it belongs to the unit.
+
+### `GET /field/capture/route/{route_id}`
+Unchanged, already in use. Returns `{route_id, codigo, items:[{client_id, orden, loc,
+placa, manzana_catastral}]}`.
 
 ## Trigger
-The worker opens the app (or enters the Home screen) and taps **"Sincronizar rutas"**, or
-selects a route already listed and taps **"Abrir y reanudar"**.
+The worker opens the app and lands on the route selector, or pulls to refresh it.
 
 ## Main flow (happy path)
-1. On the Home screen, the app shows the **list of assigned routes** (from the local
-   cache) and offers **"Sincronizar"**.
-2. The worker taps **"Sincronizar"** → `GET /field/routes` with `Bearer <field_token>`.
-3. The app stores/updates the local list and shows it ordered by `codigo`, each
-   item with `codigo`, `manzana_catastral` and a `total_capturado` badge.
-4. The worker **taps a route** in the list → the app calls `GET /field/capture/route/{route_id}`.
-5. The app **merges** the frame with local data (rule BR3) and **persists the active route**.
-6. It navigates to the **resume (read-only)** view, with:
-   - title = **route code** (e.g. "Ruta 10"),
-   - list of units ordered by **ascending `loc`**,
-   - per item: **`placa` as the large title (the address)**; small, secondary
-     subtitle with `orden` and `loc` (and `manzana` if present).
-7. If the frame has no items → it shows the **empty state** ("Ruta sin capturas aún;
-   empieza a capturar").
+1. The worker opens the app and reaches the **route selector**.
+2. On entry the app issues `GET /field/routes` with `Bearer <field_token>` and shows a
+   loading state.
+3. It renders the list ordered by `codigo`. Each item shows the **route code** as the
+   lead (`nombre` beside it when not null), its `estado`, and a badge with
+   `total_capturado`.
+4. The worker **taps a route** → the app calls `GET /field/capture/route/{route_id}`
+   with that exact `route_id`.
+5. The app **merges** the frame with local data (rule BR3) and **persists the active
+   route**.
+6. It navigates to the **resume (read-only)** view:
+   - title = route `codigo` (e.g. "Ruta 10"),
+   - units ordered by **ascending `loc`**,
+   - per item: **`placa` as the large title (the address)**; small secondary line with
+     `orden`, `loc` and `manzana` when present.
+7. If the frame has no items → **empty state** ("Ruta sin capturas aún; empieza a
+   capturar").
 
 ## Alternative flows (sad paths)
-- **A1 — No connection while syncing**: `GET /field/routes` fails on the network → the app
-  shows the **last cached list** with a "sin sincronizar (offline)" notice. It does not block.
-- **A2 — Opening offline**: the worker taps a route with no network → the app opens with
-  whatever is available **locally** and warns "abierta sin reanudar (offline)". When the
-  network comes back, reopening synchronizes (idempotent).
-- **B — Manual entry (fallback / while the new wire does not exist)**: the worker
-  types/pastes a `route_id` and **taps the "Abrir y reanudar" button**; the app validates the
-  UUID locally and continues from step 4. (A different interaction path from the happy
-  path, which opens by **tapping the list**.)
-- **C — 401 (missing/invalid/expired token)**: SnackBar "Token vencido o inválido —
-  renuévalo en Ajustes" + an "Ajustes" action; it stays on Home.
-- **D — 404 (route from another ESP or nonexistent)**: SnackBar "Esa ruta no existe o no es de
-  tu ESP"; it does not navigate.
-- **E — 400 (non-UUID route_id)**: in the manual fallback, it is detected **before** calling;
-  SnackBar "route_id inválido (debe ser UUID)".
-- **F — Timeout / unreachable host**: SnackBar "Sin conexión con el backend" + a
-  "Reintentar" action.
+- **A1 — Worker with no assigned routes**: `items: []` → empty state "No tienes rutas
+  asignadas en tu ESP". Not an error; pull-to-refresh stays available.
+- **A2 — No connection on the selector**: the request fails → the app shows the **last
+  cached list** with a "sin sincronizar (offline)" notice. If there is no cache either,
+  it shows the error state with a "Reintentar" action.
+- **A3 — Pull-to-refresh**: the worker **pulls down** on the list (an interaction
+  distinct from the entry request in the happy path) → the request is re-issued and the
+  list and badges are refreshed in place.
+- **A4 — Opening offline**: the worker taps a route with no network → the app opens with
+  whatever exists **locally** and warns "abierta sin reanudar (offline)". Reopening once
+  the network is back synchronizes (idempotent).
+- **B — 401 (missing, invalid or expired token)**: message "Token vencido o inválido —
+  renuévalo en Ajustes" with an **"Ajustes"** action. There is no login screen: Ajustes
+  *is* where credentials live, so that is where 401 sends the worker.
+- **C — 403 (a login token, not a field token)**: message "Ese token no es de campo —
+  pide un field_token al operador" with an **"Ajustes"** action. Distinct from 401: the
+  token is valid but of the wrong kind, and re-pasting the same one will not help.
+- **D — 404 when opening a route** (another ESP, another worker, or nonexistent):
+  message "Esa ruta no existe o no es de tu ESP"; it does not navigate.
+- **E — Timeout / unreachable host**: message "Sin conexión con el backend" +
+  "Reintentar".
 
 ## Business rules
-- **BR1** Authorization: `require_field`, scoped to the token's ESP; routes from another ESP
-  are invisible (404). The app never assumes cross-ESP access.
-- **BR2** The app **validates the UUID** of the `route_id` in the manual fallback before calling.
+- **BR1** Authorization: `require_field`. The selector shows only routes assigned to
+  this worker (titular or pareja) in their ESP and in state `verificada`. The app never
+  assumes cross-ESP or cross-worker access, and never filters by state itself — it
+  renders what the wire returns.
+- **BR2** Route state vocabulary is **`borrador | verificada`**. The app must not use
+  the word "congelada" anywhere, in code or in UI copy.
 - **BR3** Merge on resume (idempotent by `client_id`):
   - server item that does not exist locally → **insert as `synced`**;
-  - local `pending`/`error` (unsent) → **preserved** (the local edit is not overwritten);
+  - local `pending`/`error` (unsent) → **preserved** (never overwritten);
   - local `synced` → **updated** with `placa`/`loc`/`orden` from the server.
-- **BR4** **Strict display order** = ascending `loc` (`loc = orden × 5`,
-  set by the backend). The app never reorders or reassigns.
-- **BR5** **Address takes the lead**: the main data point per item is the **`placa`
-  (address in natural language)**; the `loc`/`orden` code is secondary metadata.
-  A null `placa` → show "Sin dirección aún" (a unit created without a placa, which is valid).
+- **BR4** **Strict display order** = ascending `loc` (`loc = orden × 5`, set by the
+  backend). The app never reorders or reassigns.
+- **BR5** **Address takes the lead**: the main data point per unit is the **`placa`
+  (address in natural language)**; `loc`/`orden` is secondary metadata. A null `placa` →
+  "Sin dirección aún" (a unit created without a placa, which is valid).
 - **BR6** **Coordinate-free**: no data shown or stored carries coordinates.
-- **BR7** The `field_token` travels **only** as an `Authorization: Bearer` header; never in
-  the URL, query, logs or telemetry.
-- **BR8** Opening a route sets it as the persisted **active route**; the Home screen offers
-  "Continuar ruta activa" and it survives a restart.
-- **BR9** The list of assigned routes is **cached locally** for offline use; it is
-  refreshed on every successful sync.
+- **BR7** The `field_token` travels **only** as an `Authorization: Bearer` header; never
+  in the URL, query, logs or telemetry.
+- **BR8** Opening a route sets it as the persisted **active route**; it survives a
+  restart.
+- **BR9** The route list is **cached locally** for offline use and refreshed on every
+  successful request.
+- **BR10** The whole route is opened. Segmenting by `localizacion` range is out of scope.
 
 ## Edge cases and error handling
-- Empty frame (`items: []`) → empty state, **not** an error.
+- `items: []` on the selector → empty state, **not** an error (A1).
+- Empty frame on resume (`items: []`) → empty state, **not** an error.
+- `nombre: null` → show the `codigo` alone; no placeholder, no empty parentheses.
+- `total_capturado: 0` → badge shows zero rather than hiding, so "assigned but untouched"
+  is distinguishable from "no data".
+- `total_capturado` absent from the payload → badge hidden, not an error.
+- A route disappears between two refreshes (unassigned, or moved to `borrador`) → it
+  vanishes from the list; if it was the active route, local captures are **kept** and
+  the worker is told it is no longer assigned.
 - Reopening the same route several times → no duplicates (BR3).
-- Route with local `pending` captures that do not yet exist on the server → they are kept and
-  shown alongside the `synced` ones (visually marked as pending).
+- Route with local `pending` captures not yet on the server → kept and shown next to the
+  `synced` ones, visually marked as pending.
 - Valid but soon-to-expire token → non-blocking warning banner (days remaining).
-- Response with `placa=null` on several items → all of them show "Sin dirección aún".
-- Empty route list (worker with no assigned routes) → empty state "No tienes rutas
-  asignadas en tu ESP".
-- `total_capturado` missing from the wire → badge hidden, not an error.
+- Several units with `placa=null` → all show "Sin dirección aún".
 
 ## Acceptance criteria
-- The app shows a list of assigned routes obtained from `GET /field/routes`, scoped to
-  the token's ESP, ordered by `codigo`, and caches it so it can be seen offline.
-- Tapping a route calls `GET /field/capture/route/{route_id}` and navigates to the resume
-  view.
-- The resume view orders by ascending `loc` and shows **`placa` as the leading
-  title**; `orden`/`loc` as secondary metadata; a null `placa` → "Sin dirección
-  aún".
-- Empty frame → explicit empty state (not a blank list, not an error).
-- 401 → token message + an action to Ajustes; 404 → route-not-visible message; 400
-  (manual) → prior local validation; no connection → message + "Reintentar". In all of them,
-  it does not navigate to resume.
+- The selector lists the routes from `GET /field/routes`, in the order the wire returns
+  them (`codigo` ascending), each with `codigo`, `estado` and a `total_capturado` badge.
+- Seeded data check: the worker sees route `codigo` "10" with badge 2, and routes 20 and
+  30 (state `borrador`) **do not appear**.
+- Pulling down re-issues the request and refreshes the list.
+- `items: []` → explicit empty state, not a blank list and not an error.
+- 401 → token message with an action to Ajustes. 403 → wrong-kind-of-token message,
+  worded differently from 401. Network failure → cached list, or error state with
+  "Reintentar". None of them navigates onward.
+- Tapping a route calls `GET /field/capture/route/{route_id}` with that route's id and
+  navigates to the resume view.
+- The resume view orders by ascending `loc` and shows **`placa` as the leading title**,
+  with `orden`/`loc` as secondary metadata; a null `placa` → "Sin dirección aún".
 - Reopening a route does not duplicate and preserves local `pending`/`error` captures.
 - The opened route becomes the active one and persists after restarting the app.
-- No coordinate field appears in the request, in storage or in the UI.
+- The word "congelada" appears nowhere in code or UI copy.
+- No coordinate field appears in any request, in storage or in the UI.
 
 ## BDD (Gherkin)
 ```gherkin
 Feature: Open and resume route
 
-  Scenario: Sync and list assigned routes
-    Given a field worker authenticated with a token from the ESP Isnos
-    When they tap "Sincronizar"
-    Then they see the list of their routes ordered by codigo, with its total capturado
-    And the list remains available offline
+  Scenario: List the routes assigned to the worker
+    Given a field worker authenticated with a field_token from the ESP Isnos
+    When they open the route selector
+    Then they see route codigo "10" with a total_capturado badge of 2
+    And routes in state borrador are not listed
+
+  Scenario: Worker with no assigned routes
+    Given the wire answers 200 with an empty items list
+    When the worker opens the route selector
+    Then they see the empty state "No tienes rutas asignadas en tu ESP"
+    And no error is reported
+
+  Scenario: Pull to refresh
+    Given the selector is showing a stale list
+    When the worker pulls down on the list
+    Then the app re-issues GET /field/routes
+    And the codigos and badges are refreshed in place
 
   Scenario: Open a route with captures, address taking the lead
     Given a route with 3 captured units (loc 5, 10, 15)
-    When the worker taps that route in the list
+    When the worker taps that route in the selector
     Then they see the 3 units ordered by ascending loc
-    And each unit shows its placa as the title and loc/orden as secondary metadata
+    And each unit shows its placa as the title and orden/loc as secondary metadata
 
-  Scenario: Open an empty route
-    Given a congelada route with no captures
+  Scenario: Open a verificada route with no captures
+    Given a verificada route with no captures
     When the worker opens it
     Then they see the empty state "Ruta sin capturas aún; empieza a capturar"
 
-  Scenario: Manual fallback with an invalid UUID
-    Given there is no assigned-routes wire available
-    When the worker types "ruta-123" and taps "Abrir y reanudar"
-    Then the app rejects it locally with "route_id inválido (debe ser UUID)"
-    And it does not call the backend
-
   Scenario: Expired token
     Given an expired field_token
-    When the worker opens a route
+    When the worker opens the route selector
     Then the API responds 401
     And the app shows "Token vencido o inválido — renuévalo en Ajustes" with an action to Ajustes
 
-  Scenario: Route from another ESP
-    Given a token from the ESP Isnos
-    When the worker tries to open a route from another ESP by id
-    Then the API responds 404
-    And the app shows "Esa ruta no existe o no es de tu ESP" and does not navigate
+  Scenario: A login token instead of a field token
+    Given a valid login token that is not of kind field
+    When the worker opens the route selector
+    Then the API responds 403
+    And the app shows "Ese token no es de campo — pide un field_token al operador"
+
+  Scenario: No connection with a cached list
+    Given a previously cached route list
+    When the request fails on the network
+    Then the app shows the cached list with the notice "sin sincronizar (offline)"
 
   Scenario: Reopening preserves what is pending
     Given a unit captured locally in pending state (not sent yet)
@@ -203,16 +259,19 @@ Feature: Open and resume route
 ```
 
 ## Suggested tickets
-- **T1.0 (backend, prerequisite) — `GET /field/routes`**: assigned routes scoped to the
-  token's ESP, with `codigo`, `manzana_catastral`, `total_capturado`, `estado`.
-  Gate: pytest (scoping by ESP, ordering by codigo, no coordinates).
-- **T1.1 (app) — Route list + sync**: consume `GET /field/routes`,
-  cache locally (drift), list UI with a progress badge, offline/empty states.
-- **T1.2 (app) — Open and resume**: `pullFrame` + `mergeFrame` (already exists), navigation
-  to the resume view; persist the active route.
-- **T1.3 (app) — Resume view (read-only)**: ordering by `loc`, **placa taking the
-  lead**, secondary metadata, empty state, pending marker.
-- **T1.4 (app) — Error/state handling**: map 401/404/400/timeout to messages and
-  actions (SnackBar + "Reintentar"/"Ajustes"); token expiration warning.
-- **T1.5 (app) — Manual fallback**: keep the manual entry of a `route_id` with UUID
-  validation while T1.0 does not exist.
+- **T1.0 (backend) — `GET /field/routes`**: ✅ done, commit `e4e7957` on
+  `feature/extended-census`.
+- **T1.1 (app) — Route selector, wireframe**: layout with dummy data covering loading /
+  list / empty / error / 401 / 403.
+- **T1.2 (app) — Route selector, design**: theme pass, no structural or copy change.
+- **T1.3 (app) — Resume view**: ✅ wireframe and design done. Wiring pending.
+- **T1.4 (app) — DTO + api_client for `GET /field/routes`**: `RouteSummary` DTO,
+  `getAssignedRoutes()`, unit tests over the documented payload including
+  `nombre: null` and `items: []`.
+- **T1.5 (app) — Wire the selector**: real request, local cache (drift), pull-to-refresh,
+  navigation to the resume view with the tapped `route_id`.
+- **T1.6 (app) — Wire the resume view**: `pullFrame` + `mergeFrame` behind the designed
+  screen; persist the active route.
+- **T1.7 (app) — Error mapping**: 401/403/404/timeout to their copy and actions.
+- **T1.8 (app) — Copy fix**: remove "ruta congelada" from the Home screen hint; the
+  domain word is `verificada` (BR2).
