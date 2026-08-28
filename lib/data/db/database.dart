@@ -7,7 +7,8 @@ part 'database.g.dart';
 
 /// Routes open on the device. Stores the minimum context needed to resume.
 class Routes extends Table {
-  /// Route UUID (validated and "frozen" in the office).
+  /// Route UUID. The route is in state `verificada` (the domain is
+  /// `borrador | verificada`; there is no "congelada").
   TextColumn get routeId => text()();
 
   /// Route census code (comes from the backend frame).

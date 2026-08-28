@@ -115,7 +115,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Ingresa el route_id (UUID) de la ruta congelada. Con conexión, '
+              'Ingresa el route_id (UUID) de la ruta verificada. Con conexión, '
               'se reanuda lo ya capturado.',
             ),
             const SizedBox(height: 16),
