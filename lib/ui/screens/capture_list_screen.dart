@@ -88,7 +88,7 @@ class CaptureListScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: tipo,
+                  initialValue: tipo,
                   decoration:
                       const InputDecoration(labelText: 'Tipo de acceso'),
                   items: [

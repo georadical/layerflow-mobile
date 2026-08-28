@@ -148,6 +148,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
+                  // Not migrated to `initialValue`: FormFieldState ignores it
+                  // after the first build, so the reset in _save() would leave
+                  // a stale access type on screen while the stored value is
+                  // null. Revisit if the framework starts honouring it.
+                  // ignore: deprecated_member_use
                   value: _tipoAcceso,
                   decoration: const InputDecoration(
                       labelText: 'Tipo de acceso (opcional)'),

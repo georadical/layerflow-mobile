@@ -2,7 +2,6 @@ import 'package:uuid/uuid.dart';
 
 import '../api/api_client.dart';
 import '../api/dtos.dart';
-import '../db/database.dart';
 import '../repositories/capture_repository.dart';
 
 /// Result of a sync push (for the UI).

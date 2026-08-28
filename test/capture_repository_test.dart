@@ -83,10 +83,10 @@ void main() {
     final repo = CaptureRepository(db);
 
     // The server already had 2 captures.
-    await repo.mergeFrame(RouteFrame(
+    await repo.mergeFrame(const RouteFrame(
       routeId: routeId,
       codigo: '10',
-      items: const [
+      items: [
         RouteFrameItem(clientId: 's1', orden: 1, loc: 5, placa: 'C 5 1 11'),
         RouteFrameItem(clientId: 's2', orden: 2, loc: 10, placa: 'C 5 1 15'),
       ],
@@ -100,9 +100,9 @@ void main() {
     expect(await repo.nextOrden(routeId), 3);
 
     // Re-merge of the same frame: idempotent (no duplicates).
-    await repo.mergeFrame(RouteFrame(
+    await repo.mergeFrame(const RouteFrame(
       routeId: routeId,
-      items: const [
+      items: [
         RouteFrameItem(clientId: 's1', orden: 1, loc: 5, placa: 'C 5 1 11'),
       ],
     ));
@@ -120,9 +120,9 @@ void main() {
     final repo = CaptureRepository(db);
 
     final localId = await repo.appendCapture(routeId: routeId, placa: 'LOCAL');
-    await repo.mergeFrame(RouteFrame(
+    await repo.mergeFrame(const RouteFrame(
       routeId: routeId,
-      items: const [
+      items: [
         RouteFrameItem(clientId: 's1', orden: 1, loc: 5, placa: 'SERVER'),
       ],
     ));
