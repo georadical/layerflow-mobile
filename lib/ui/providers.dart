@@ -164,6 +164,38 @@ final routeFrameProvider =
   await ref.read(syncServiceProvider).pullFrame(routeId);
 });
 
+/// Name of the ESP the current token belongs to.
+///
+/// Read from the cached route list rather than the network: the ESP is a
+/// property of the session, not of a route, and screens that show it must not
+/// pay for a request to do so. Null until the selector has run once.
+/// Reads the cache only. Watching `assignedRoutesProvider` here would make any
+/// screen that merely labels a route issue a request.
+final espNameProvider = FutureProvider.autoDispose<String?>((ref) async {
+  final cached = await ref.read(assignedRoutesCacheProvider).load();
+  return cached?.esp;
+});
+
+/// A route's `codigo` as already stored on the device. Pure local read: it
+/// never triggers a request, so screens like Home can label a route without
+/// going to the network.
+final storedRouteCodigoProvider =
+    FutureProvider.autoDispose.family<String?, String>((ref, routeId) async {
+  final route = await ref.read(databaseProvider).getRoute(routeId);
+  return route?.codigo;
+});
+
+/// Human label for a route: its codigo and the ESP it belongs to.
+///
+/// Joined with a separator rather than parentheses: the wire already sends
+/// names like "ESP Isnos (muestra)", so wrapping would nest brackets. Degrades
+/// gracefully — a missing ESP leaves the codigo alone, and a missing codigo
+/// leaves a plain "Ruta", never a raw UUID.
+String routeLabel({String? codigo, String? esp}) {
+  final base = codigo == null ? 'Ruta' : 'Ruta $codigo';
+  return esp == null || esp.isEmpty ? base : '$base · $esp';
+}
+
 /// A route's `codigo`, read from the device.
 ///
 /// Only the selector knows the codigo up front; opening a route by its

@@ -154,7 +154,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 child: ListTile(
                   leading: const Icon(Icons.history),
                   title: const Text('Continuar ruta activa'),
-                  subtitle: Text(current),
+                  // The route_id is a UUID: unreadable, and not how anyone
+                  // names a route out loud. Show the codigo and the ESP.
+                  subtitle: Text(
+                    routeLabel(
+                      codigo: ref
+                          .watch(storedRouteCodigoProvider(current))
+                          .valueOrNull,
+                      esp: ref.watch(espNameProvider).valueOrNull,
+                    ),
+                  ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: _busy
                       ? null

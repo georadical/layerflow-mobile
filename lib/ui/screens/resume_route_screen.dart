@@ -32,11 +32,16 @@ class ResumeRouteScreen extends ConsumerWidget {
 
     // The selector knows the codigo already; the other entry paths recover it
     // from the device once the frame has been merged.
-    final label = codigo ?? ref.watch(routeCodigoProvider(routeId)).valueOrNull;
+    final routeCodigo =
+        codigo ?? ref.watch(routeCodigoProvider(routeId)).valueOrNull;
+    final esp = ref.watch(espNameProvider).valueOrNull;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(label == null ? 'Ruta' : 'Ruta $label'),
+        title: Text(
+          routeLabel(codigo: routeCodigo, esp: esp),
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.of(context).push(
