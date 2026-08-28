@@ -1,13 +1,13 @@
-/// DTOs del contrato de captura (backend LayerFlow / FastAPI).
+/// DTOs for the capture contract (LayerFlow / FastAPI backend).
 ///
-/// Contrato (ver specs/field-capture-api.md):
-///   POST /field/capture/placas  -> upsert por lote (idempotente por client_id)
-///   GET  /field/capture/route/{route_id} -> frame para reanudar
+/// Contract (see specs/field-capture-api.md):
+///   POST /field/capture/placas  -> batch upsert (idempotent by client_id)
+///   GET  /field/capture/route/{route_id} -> frame used to resume
 ///
-/// INVARIANTE: CERO coordenadas. Ningún DTO lleva lat/lon.
+/// INVARIANT: ZERO coordinates. No DTO carries lat/lon.
 library;
 
-/// Item de captura en el request del POST.
+/// Capture item in the POST request.
 class PlacaItemRequest {
   const PlacaItemRequest({
     required this.clientId,
@@ -28,7 +28,7 @@ class PlacaItemRequest {
   Map<String, dynamic> toJson() => {
         'client_id': clientId,
         'orden': orden,
-        // placa opcional: se envía null si está en blanco (el server la permite).
+        // placa is optional: null is sent when blank (the server allows it).
         'placa': placa,
         if (manzanaCatastral != null) 'manzana_catastral': manzanaCatastral,
         if (tipoAcceso != null) 'tipo_acceso': tipoAcceso,
@@ -36,7 +36,7 @@ class PlacaItemRequest {
       };
 }
 
-/// Request del POST /field/capture/placas.
+/// Request for POST /field/capture/placas.
 class PlacaBatchRequest {
   const PlacaBatchRequest({
     required this.routeId,
@@ -55,7 +55,7 @@ class PlacaBatchRequest {
       };
 }
 
-/// Resultado por item en la respuesta del POST.
+/// Per-item result in the POST response.
 class PlacaItemResult {
   const PlacaItemResult({
     required this.clientId,
@@ -71,7 +71,7 @@ class PlacaItemResult {
   final String? id;
   final int? loc;
 
-  /// 'created' | 'updated' (cuando ok).
+  /// 'created' | 'updated' (when ok).
   final String? status;
   final String? error;
 
@@ -87,7 +87,7 @@ class PlacaItemResult {
   }
 }
 
-/// Respuesta del POST /field/capture/placas.
+/// Response of POST /field/capture/placas.
 class PlacaBatchResponse {
   const PlacaBatchResponse({
     required this.batchId,
@@ -120,7 +120,7 @@ class PlacaBatchResponse {
   }
 }
 
-/// Item del frame (GET). Lo ya capturado, para reanudar.
+/// Frame item (GET). What was already captured, used to resume.
 class RouteFrameItem {
   const RouteFrameItem({
     required this.clientId,
@@ -147,7 +147,7 @@ class RouteFrameItem {
   }
 }
 
-/// Respuesta del GET /field/capture/route/{route_id}.
+/// Response of GET /field/capture/route/{route_id}.
 class RouteFrame {
   const RouteFrame({
     required this.routeId,

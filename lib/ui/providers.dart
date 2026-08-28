@@ -9,7 +9,7 @@ import '../data/repositories/capture_repository.dart';
 import '../data/settings/settings_store.dart';
 import '../data/sync/sync_service.dart';
 
-/// Base de datos (drift). Vive lo que vive la app.
+/// Database (drift). Lives as long as the app does.
 final databaseProvider = Provider<AppDatabase>((ref) {
   final db = AppDatabase();
   ref.onDispose(db.close);
@@ -33,13 +33,14 @@ final syncServiceProvider = Provider<SyncService>(
   ),
 );
 
-/// Fuente de ubicación. MVP: NULA (coordinate-free). Aquí se enchufará la
-/// implementación Bluetooth/NMEA en la fase GNSS, sin tocar el resto.
+/// Location source. MVP: NULL (coordinate-free). The Bluetooth/NMEA
+/// implementation will plug in here during the GNSS phase, without touching
+/// the rest.
 final locationSourceProvider =
     Provider<LocationSource>((ref) => const NullLocationSource());
 
-/// Conectividad en vivo (para habilitar/deshabilitar sync). Emite primero el
-/// estado actual (checkConnectivity no se auto-emite) y luego los cambios.
+/// Live connectivity (to enable/disable sync). Emits the current state first
+/// (checkConnectivity does not self-emit) and then the changes.
 final connectivityProvider = StreamProvider<List<ConnectivityResult>>(
   (ref) async* {
     final connectivity = Connectivity();
@@ -56,7 +57,7 @@ final isOnlineProvider = Provider<bool>((ref) {
   return conn.maybeWhen(data: _isOnline, orElse: () => false);
 });
 
-/// Ruta activa (persistida en Ajustes).
+/// Active route (persisted in Settings).
 final currentRouteIdProvider =
     StateNotifierProvider<CurrentRouteNotifier, String?>(
   (ref) => CurrentRouteNotifier(ref.watch(settingsStoreProvider)),
@@ -79,11 +80,11 @@ class CurrentRouteNotifier extends StateNotifier<String?> {
   }
 }
 
-/// Estado del field_token pegado (para avisar de expiración en campo).
+/// State of the pasted field_token (to warn about expiry in the field).
 enum TokenStatus { missing, malformed, expired, expiringSoon, ok }
 
-/// Info de expiración del field_token (claim `exp`, sin verificar firma).
-/// Invalida este provider tras guardar en Ajustes para refrescar.
+/// field_token expiry info (`exp` claim, signature not verified).
+/// Invalidate this provider after saving in Settings to refresh it.
 final fieldTokenInfoProvider = FutureProvider<JwtInfo>((ref) async {
   final token = await ref.watch(settingsStoreProvider).getToken();
   return parseJwt(token);
@@ -99,7 +100,7 @@ final tokenStatusProvider = FutureProvider<TokenStatus>((ref) async {
   return TokenStatus.ok;
 });
 
-/// Stream de capturas de una ruta (ordenadas por `orden`).
+/// Stream of a route's captures (sorted by `orden`).
 final capturesProvider =
     StreamProvider.family<List<Capture>, String>((ref, routeId) {
   return ref.watch(captureRepositoryProvider).watchCaptures(routeId);

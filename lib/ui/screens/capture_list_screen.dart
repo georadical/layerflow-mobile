@@ -10,8 +10,8 @@ const _tipoAccesoLabels = <String, String>{
   'otro': 'Otro',
 };
 
-/// Lista de capturas de la ruta (orden estricto). Permite editar atributos
-/// (placa/tipo/observación), NUNCA el `orden` (append-only).
+/// List of the route's captures (strict order). Allows editing attributes
+/// (placa/tipo_acceso/observacion), NEVER the `orden` (append-only).
 class CaptureListScreen extends ConsumerWidget {
   const CaptureListScreen({super.key, required this.routeId});
   final String routeId;

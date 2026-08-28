@@ -6,7 +6,7 @@ import '../widgets/token_warning_banner.dart';
 import 'capture_screen.dart';
 import 'settings_screen.dart';
 
-/// Punto de entrada: abrir/reanudar una ruta.
+/// Entry point: open/resume a route.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -21,7 +21,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Prellenar con la última ruta activa, si existe.
+    // Prefill with the last active route, if any.
     Future.microtask(() {
       final current = ref.read(currentRouteIdProvider);
       if (current != null) _routeCtrl.text = current;
@@ -47,7 +47,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     try {
       if (online) {
-        // Reanudar: traer el frame y restaurar lo capturado.
+        // Resume: fetch the frame and restore what was captured.
         final frame = await ref.read(syncServiceProvider).pullFrame(routeId);
         resumedMsg = 'Ruta abierta. ${frame.items.length} capturas reanudadas.';
       }
@@ -66,8 +66,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   void _snack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override

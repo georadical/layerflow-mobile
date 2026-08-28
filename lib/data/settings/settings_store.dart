@@ -1,15 +1,16 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Almacén de configuración de la app.
-/// - `baseUrl` y `currentRouteId`: SharedPreferences (no sensible).
-/// - `field_token` (JWT): almacenamiento seguro del sistema.
+/// App settings store.
+/// - `baseUrl` and `currentRouteId`: SharedPreferences (not sensitive).
+/// - `field_token` (JWT): the system's secure storage.
 class SettingsStore {
   SettingsStore({FlutterSecureStorage? secure})
       : _secure = secure ??
             const FlutterSecureStorage(
-              // EncryptedSharedPreferences (Jetpack Security): backend estable en
-              // Android; el por defecto (KeyStore) lee inconsistente tras cold boot.
+              // EncryptedSharedPreferences (Jetpack Security): stable backend on
+              // Android; the default (KeyStore) reads inconsistently after a
+              // cold boot.
               aOptions: AndroidOptions(encryptedSharedPreferences: true),
             );
 
@@ -47,7 +48,7 @@ class SettingsStore {
     try {
       return await _secure.read(key: _kToken);
     } catch (_) {
-      // Nunca dejar que un fallo de descifrado tumbe el request/UI.
+      // Never let a decryption failure bring down the request/UI.
       return null;
     }
   }

@@ -3,7 +3,7 @@ import 'package:layerflow_capture/data/api/dtos.dart';
 
 void main() {
   group('PlacaItemRequest.toJson', () {
-    test('INVARIANTE: nunca lleva coordenadas', () {
+    test('INVARIANT: never carries coordinates', () {
       final json = const PlacaItemRequest(
         clientId: 'abc',
         orden: 1,
@@ -17,21 +17,21 @@ void main() {
         expect(
           key,
           isNot(anyOf('lat', 'lon', 'latitude', 'longitude', 'coords', 'geom')),
-          reason: 'El payload de captura debe ser coordinate-free.',
+          reason: 'The capture payload must be coordinate-free.',
         );
       }
     });
 
-    test('placa se envía como null cuando está en blanco', () {
+    test('placa is sent as null when blank', () {
       final json = const PlacaItemRequest(clientId: 'abc', orden: 1).toJson();
       expect(json.containsKey('placa'), isTrue);
       expect(json['placa'], isNull);
-      // Opcionales ausentes no se serializan.
+      // Absent optional fields are not serialized.
       expect(json.containsKey('manzana_catastral'), isFalse);
       expect(json.containsKey('tipo_acceso'), isFalse);
     });
 
-    test('mapea client_id y orden con snake_case del contrato', () {
+    test('maps client_id and orden using the contract snake_case', () {
       final json = const PlacaItemRequest(clientId: 'xyz', orden: 3).toJson();
       expect(json['client_id'], 'xyz');
       expect(json['orden'], 3);
@@ -39,7 +39,7 @@ void main() {
   });
 
   group('PlacaBatchResponse.fromJson', () {
-    test('parsea el lote y los resultados por item', () {
+    test('parses the batch and the per-item results', () {
       final res = PlacaBatchResponse.fromJson({
         'batch_id': 'b1',
         'total': 1,
@@ -64,7 +64,7 @@ void main() {
   });
 
   group('RouteFrame.fromJson', () {
-    test('parsea el frame para reanudar', () {
+    test('parses the frame used to resume', () {
       final frame = RouteFrame.fromJson({
         'route_id': 'r1',
         'codigo': '10',

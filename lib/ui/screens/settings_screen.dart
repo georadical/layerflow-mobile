@@ -6,7 +6,7 @@ import '../../core/jwt.dart';
 import '../../data/api/api_client.dart';
 import '../providers.dart';
 
-/// Ajustes: URL del backend y field_token (MVP: emitido por operador).
+/// Settings: backend URL and field_token (MVP: issued by the operator).
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -48,7 +48,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final settings = ref.read(settingsStoreProvider);
     await settings.setBaseUrl(_baseUrlCtrl.text);
     await settings.setToken(_tokenCtrl.text);
-    // Refrescar los avisos de expiración con el token nuevo.
+    // Refresh the expiry warnings with the new token.
     ref.invalidate(fieldTokenInfoProvider);
     ref.invalidate(tokenStatusProvider);
     if (!mounted) return;
@@ -58,8 +58,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     Navigator.of(context).pop();
   }
 
-  /// Prueba la conectividad haciendo un GET al frame de una ruta de prueba.
-  /// Persiste URL+token primero (el ApiClient los lee de Ajustes).
+  /// Tests connectivity with a GET to the frame of a test route.
+  /// Persists URL+token first (the ApiClient reads them from Settings).
   Future<void> _testConnection() async {
     final base = _baseUrlCtrl.text.trim();
     if (base.isEmpty) {
@@ -74,7 +74,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final settings = ref.read(settingsStoreProvider);
     await settings.setBaseUrl(base);
     await settings.setToken(_tokenCtrl.text);
-    // Refrescar los avisos de expiración/token con lo recién guardado.
+    // Refresh the expiry/token warnings with what was just saved.
     ref.invalidate(fieldTokenInfoProvider);
     ref.invalidate(tokenStatusProvider);
 
@@ -103,7 +103,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  /// Muestra la expiración leída del JWT pegado (sin verificar la firma).
+  /// Shows the expiry read from the pasted JWT (signature not verified).
   Widget _expiryInfo() {
     final info = parseJwt(_tokenCtrl.text);
     if (_tokenCtrl.text.trim().isEmpty) {

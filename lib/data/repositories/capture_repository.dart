@@ -5,11 +5,11 @@ import '../../core/config/app_config.dart';
 import '../api/dtos.dart';
 import '../db/database.dart';
 
-/// Repositorio de capturas. Único dueño de las invariantes de dominio:
-/// - genera `clientId` (UUID) y `orden` append-only;
-/// - nunca reordena ni reasigna `orden`;
-/// - las ediciones (placa/tipo/obs) marcan la fila como `pending` (re-envío
-///   idempotente al backend).
+/// Capture repository. Sole owner of the domain invariants:
+/// - generates `clientId` (UUID) and the append-only `orden`;
+/// - never reorders or reassigns `orden`;
+/// - edits (placa/tipo_acceso/observacion) mark the row as `pending`
+///   (idempotent re-send to the backend).
 class CaptureRepository {
   CaptureRepository(this._db, {Uuid? uuid}) : _uuid = uuid ?? const Uuid();
 
@@ -29,10 +29,10 @@ class CaptureRepository {
     return rows.isEmpty ? null : rows.last;
   }
 
-  /// Agrega una captura al final (append-only). Devuelve el `clientId` nuevo.
+  /// Appends a capture at the end (append-only). Returns the new `clientId`.
   ///
-  /// NO recibe `orden`: lo calcula el repositorio como max(orden)+1 para impedir
-  /// reordenamientos libres desde la UI.
+  /// It does NOT take `orden`: the repository computes it as max(orden)+1 to
+  /// prevent arbitrary reordering from the UI.
   Future<String> appendCapture({
     required String routeId,
     String? placa,
@@ -61,8 +61,9 @@ class CaptureRepository {
     return clientId;
   }
 
-  /// Edita los atributos de una captura existente. NO toca `orden` (append-only)
-  /// y la re-marca `pending` para re-enviarla (el backend actualiza en sitio).
+  /// Edits the attributes of an existing capture. It does NOT touch `orden`
+  /// (append-only) and re-marks it `pending` for re-sending (the backend
+  /// updates in place).
   Future<void> editCapture({
     required String clientId,
     String? placa,
@@ -114,11 +115,11 @@ class CaptureRepository {
     );
   }
 
-  /// Reanudar: fusiona el frame remoto con lo local.
-  /// - Items del servidor que no existen localmente → insertar como `synced`.
-  /// - Items locales `pending`/`error` → se preservan (no se pisan ediciones sin
-  ///   enviar); el re-envío posterior es idempotente por clientId.
-  /// - Items locales ya `synced` → se actualizan con placa/loc del servidor.
+  /// Resume: merges the remote frame with local data.
+  /// - Server items that do not exist locally → insert as `synced`.
+  /// - Local `pending`/`error` items → preserved (unsent edits are not
+  ///   overwritten); the later re-send is idempotent by clientId.
+  /// - Local items already `synced` → updated with the server's placa/loc.
   Future<void> mergeFrame(RouteFrame frame) async {
     final now = DateTime.now();
 
@@ -158,7 +159,7 @@ class CaptureRepository {
           ),
         );
       }
-      // pending/error local: se preserva tal cual.
+      // local pending/error: preserved as is.
     }
   }
 

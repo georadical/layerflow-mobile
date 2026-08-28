@@ -4,9 +4,9 @@ import 'package:layerflow_capture/data/api/dtos.dart';
 import 'package:layerflow_capture/data/db/database.dart';
 import 'package:layerflow_capture/data/repositories/capture_repository.dart';
 
-/// Intenta crear una BD drift en memoria. Devuelve null si el host no tiene
-/// sqlite3 nativo (p. ej. falta sqlite3.dll) para poder saltar el test en vez
-/// de fallar.
+/// Tries to create an in-memory drift DB. Returns null when the host has no
+/// native sqlite3 (e.g. missing sqlite3.dll) so the test can be skipped
+/// instead of failing.
 Future<AppDatabase?> _tryMemoryDb() async {
   try {
     final db = AppDatabase(NativeDatabase.memory());
@@ -20,10 +20,10 @@ Future<AppDatabase?> _tryMemoryDb() async {
 void main() {
   const routeId = 'route-1';
 
-  test('append: orden es monotónico y arranca en 1', () async {
+  test('append: orden is monotonic and starts at 1', () async {
     final db = await _tryMemoryDb();
     if (db == null) {
-      markTestSkipped('sqlite3 nativo no disponible en el host');
+      markTestSkipped('native sqlite3 not available on the host');
       return;
     }
     addTearDown(db.close);
@@ -38,10 +38,10 @@ void main() {
     expect(rows.map((c) => c.placa), ['A', 'B', 'C']);
   });
 
-  test('editar no cambia el orden y re-marca pending', () async {
+  test('editing does not change orden and re-marks as pending', () async {
     final db = await _tryMemoryDb();
     if (db == null) {
-      markTestSkipped('sqlite3 nativo no disponible en el host');
+      markTestSkipped('native sqlite3 not available on the host');
       return;
     }
     addTearDown(db.close);
@@ -57,10 +57,10 @@ void main() {
     expect(row.syncStatus, 'pending');
   });
 
-  test('placa en blanco se guarda como null', () async {
+  test('blank placa is stored as null', () async {
     final db = await _tryMemoryDb();
     if (db == null) {
-      markTestSkipped('sqlite3 nativo no disponible en el host');
+      markTestSkipped('native sqlite3 not available on the host');
       return;
     }
     addTearDown(db.close);
@@ -71,17 +71,18 @@ void main() {
     expect(row.placa, isNull);
   });
 
-  test('mergeFrame reanuda items del servidor sin duplicar y continúa el orden',
-      () async {
+  test(
+      'mergeFrame resumes server items without duplicating and continues '
+      'the orden', () async {
     final db = await _tryMemoryDb();
     if (db == null) {
-      markTestSkipped('sqlite3 nativo no disponible en el host');
+      markTestSkipped('native sqlite3 not available on the host');
       return;
     }
     addTearDown(db.close);
     final repo = CaptureRepository(db);
 
-    // El servidor ya tenía 2 capturas.
+    // The server already had 2 captures.
     await repo.mergeFrame(RouteFrame(
       routeId: routeId,
       codigo: '10',
@@ -95,10 +96,10 @@ void main() {
     expect(rows.length, 2);
     expect(rows.every((c) => c.syncStatus == 'synced'), isTrue);
 
-    // La siguiente captura local debe ser orden 3 (append tras reanudar).
+    // The next local capture must be orden 3 (append after resuming).
     expect(await repo.nextOrden(routeId), 3);
 
-    // Re-merge del mismo frame: idempotente (no duplica).
+    // Re-merge of the same frame: idempotent (no duplicates).
     await repo.mergeFrame(RouteFrame(
       routeId: routeId,
       items: const [
@@ -109,10 +110,10 @@ void main() {
     expect(rows.length, 2);
   });
 
-  test('mergeFrame preserva capturas locales pendientes sin enviar', () async {
+  test('mergeFrame preserves unsent pending local captures', () async {
     final db = await _tryMemoryDb();
     if (db == null) {
-      markTestSkipped('sqlite3 nativo no disponible en el host');
+      markTestSkipped('native sqlite3 not available on the host');
       return;
     }
     addTearDown(db.close);

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-/// WIREFRAME — Spec 1, T1.3 "Vista de reanudar" (read-only).
+/// WIREFRAME — Spec 1, T1.3 "Resume route" view (read-only).
 ///
 /// Layout only: flat widgets, no theme, no colors, dummy data. It validates
 /// element placement and hierarchy, not looks. Styling is the Design phase.
 ///
-/// Spec anchors (specs/abrir-reanudar-ruta.md):
+/// Spec anchors (specs/open-and-resume-route.md):
 /// - BR4 order is `loc` ascending (loc = orden * 5, assigned by the backend).
 /// - BR5 the address (`placa`) is the protagonist; orden/loc are secondary
 ///   metadata. A null placa renders as "Sin dirección aún".

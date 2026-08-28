@@ -7,14 +7,14 @@ import '../providers.dart';
 import '../widgets/token_warning_banner.dart';
 import 'capture_list_screen.dart';
 
-/// Opciones de tipo de acceso (opcional). El valor guardado es la clave.
+/// tipo_acceso options (optional). The stored value is the key.
 const _tipoAccesoOptions = <String, String>{
   'puerta_calle': 'Puerta a la calle',
   'area_comun': 'Área común (hall/escalera/patio)',
   'otro': 'Otro',
 };
 
-/// Pantalla de captura: append estricto, una placa por domicilio.
+/// Capture screen: strict append, one placa per household.
 class CaptureScreen extends ConsumerStatefulWidget {
   const CaptureScreen({super.key, required this.routeId});
   final String routeId;
@@ -53,7 +53,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         tipoAcceso: _tipoAcceso,
         observacion: _obsCtrl.text,
       );
-      // Limpiar para el siguiente domicilio. Manzana se conserva (mismo bloque).
+      // Clear for the next household. manzana_catastral is kept (same block).
       _placaCtrl.clear();
       _obsCtrl.clear();
       setState(() => _tipoAcceso = null);
@@ -64,21 +64,19 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     }
   }
 
-  /// Sincroniza en segundo plano si hay conexión (best-effort).
+  /// Syncs in the background if there is connectivity (best-effort).
   Future<void> _autoSync() async {
     if (!ref.read(isOnlineProvider)) return;
     await ref.read(syncServiceProvider).pushPending(widget.routeId);
   }
 
   Future<void> _syncNow() async {
-    final res =
-        await ref.read(syncServiceProvider).pushPending(widget.routeId);
+    final res = await ref.read(syncServiceProvider).pushPending(widget.routeId);
     if (!mounted) return;
     final msg = res.isNoop
         ? 'No hay capturas pendientes.'
         : (res.message ?? 'Sincronización completa.');
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
@@ -151,8 +149,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   value: _tipoAcceso,
-                  decoration:
-                      const InputDecoration(labelText: 'Tipo de acceso (opcional)'),
+                  decoration: const InputDecoration(
+                      labelText: 'Tipo de acceso (opcional)'),
                   items: [
                     const DropdownMenuItem(value: null, child: Text('—')),
                     for (final e in _tipoAccesoOptions.entries)
@@ -173,9 +171,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                 Align(
                   alignment: Alignment.centerLeft,
                   child: TextButton.icon(
-                    icon: Icon(_showAdvanced
-                        ? Icons.expand_less
-                        : Icons.expand_more),
+                    icon: Icon(
+                        _showAdvanced ? Icons.expand_less : Icons.expand_more),
                     label: const Text('Manzana catastral (opcional)'),
                     onPressed: () =>
                         setState(() => _showAdvanced = !_showAdvanced),
@@ -186,7 +183,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     controller: _manzanaCtrl,
                     decoration: const InputDecoration(
                       labelText: 'Manzana catastral',
-                      helperText: 'Se conserva entre capturas del mismo bloque.',
+                      helperText:
+                          'Se conserva entre capturas del mismo bloque.',
                     ),
                     autocorrect: false,
                     inputFormatters: [
@@ -217,8 +215,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   }
 }
 
-/// Tarjeta con la última placa capturada — el ancla para verificar contra la
-/// puerta ("¿el formulario N corresponde a esta casa?").
+/// Card with the last captured placa — the anchor for checking against the
+/// door ("does form N correspond to this house?").
 class _LastCaptureCard extends StatelessWidget {
   const _LastCaptureCard({required this.last, required this.total});
   final Capture? last;
