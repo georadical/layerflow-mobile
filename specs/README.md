@@ -9,15 +9,15 @@ with a verifiable gate, a commit and explicit approval.
 | 1 | Open and resume route | [open-and-resume-route.md](open-and-resume-route.md) | In progress — spec, wireframes and design approved; wiring under way |
 | 1.1 | One editable list per route | [one-editable-route-list.md](one-editable-route-list.md) | Draft, awaiting approval |
 | 2 | Strict-order capture (local) | — | Not written |
-| 3 | Batch push (`POST /field/capture/placas`) | — | Not written, see notes below |
+| 3 | Batch push (`POST /field/capture/placas`) | [push-captured-batch.md](push-captured-batch.md) | Draft, awaiting approval |
 | 4 | Offline-first queue and retry | — | Not written |
 | 5 | Field worker login | — | Backlog, see below |
 | 6 | Field worker across several ESPs | — | Backlog, see below |
 
 ## Spec 3 — notes carried in from Spec 1.1
 
-Two placement problems found while testing the resume view. They belong to the
-push spec, not to Spec 1:
+Both are now folded into [push-captured-batch.md](push-captured-batch.md),
+kept here for the trail of where they came from:
 
 - **The sync control sits in the wrong screen.** Today it is an icon in the
   capture form's app bar. The resume view is where a worker sees which rows
