@@ -17,6 +17,11 @@ import 'package:flutter/material.dart';
 /// - Empty frame is a normal state, not an error.
 /// - Local `pending`/`error` rows are preserved and marked as not-yet-sent.
 
+/// Sync state of a row. Spec 3 BR3: `pending` and `error` are different
+/// things and must look different — a row the server refused is not a row
+/// waiting its turn.
+enum UnitSync { synced, pending, error }
+
 /// Dummy row for the wireframe. Mirrors the shape of the merged local row.
 class WireframeUnit {
   const WireframeUnit({
@@ -24,18 +29,37 @@ class WireframeUnit {
     required this.loc,
     this.placa,
     this.manzana,
-    this.pending = false,
+    this.sync = UnitSync.synced,
+    this.syncError,
   });
 
   final int orden;
   final int loc;
   final String? placa;
   final String? manzana;
-  final bool pending;
+  final UnitSync sync;
+
+  /// Reason the server gave. Shown on the row, never hidden in a log.
+  final String? syncError;
 }
 
-/// The four UI states the spec requires this screen to handle.
-enum ResumeState { list, empty, loading, error }
+/// Every UI state this screen has to handle, Spec 1 and Spec 3 together.
+enum ResumeState {
+  /// Everything sent: no queue, no send control.
+  list,
+
+  /// Rows waiting plus one the server refused.
+  queued,
+
+  /// A batch in flight.
+  sending,
+
+  /// Rows waiting but no connectivity: sending is not offered.
+  offlineQueued,
+  empty,
+  loading,
+  error,
+}
 
 class ResumeRouteWireframe extends StatelessWidget {
   const ResumeRouteWireframe({
@@ -58,6 +82,9 @@ class ResumeRouteWireframe extends StatelessWidget {
         ResumeState.error => const _Error(),
         ResumeState.empty => const _Empty(),
         ResumeState.list => _UnitList(units: units),
+        ResumeState.queued => _UnitList(units: queuedUnits, send: state),
+        ResumeState.sending => _UnitList(units: queuedUnits, send: state),
+        ResumeState.offlineQueued => _UnitList(units: queuedUnits, send: state),
       },
     );
   }
@@ -165,20 +192,26 @@ class _Empty extends StatelessWidget {
   }
 }
 
-/// Read-only list, ordered by `loc` ascending (BR4).
+/// List ordered by `loc` ascending (BR4), with the queue bar on top when
+/// something is waiting to be sent.
 class _UnitList extends StatelessWidget {
-  const _UnitList({required this.units});
+  const _UnitList({required this.units, this.send});
 
   final List<WireframeUnit> units;
+
+  /// Null when everything is synced: no queue, so no send control at all.
+  final ResumeState? send;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final ordered = [...units]..sort((a, b) => a.loc.compareTo(b.loc));
+    final waiting = ordered.where((u) => u.sync != UnitSync.synced).length;
 
     return Column(
       children: [
         _FrameSummary(total: ordered.length),
+        if (send != null) _QueueBar(waiting: waiting, state: send!),
         Divider(height: 1, color: theme.colorScheme.outlineVariant),
         Expanded(
           child: ListView.separated(
@@ -222,6 +255,66 @@ class _FrameSummary extends StatelessWidget {
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The queue, and the only way to send it (Spec 3 BR2).
+///
+/// It sits directly above the rows it refers to: the count and the action are
+/// in the same place as the badges they act on. It appears only when there is
+/// something waiting, so a fully synced route carries no dead control.
+class _QueueBar extends StatelessWidget {
+  const _QueueBar({required this.waiting, required this.state});
+
+  final int waiting;
+  final ResumeState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sending = state == ResumeState.sending;
+    final offline = state == ResumeState.offlineQueued;
+
+    return Container(
+      color: theme.colorScheme.secondaryContainer,
+      padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+      child: Row(
+        children: [
+          Icon(
+            offline ? Icons.cloud_off : Icons.cloud_upload_outlined,
+            size: 20,
+            color: theme.colorScheme.onSecondaryContainer,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              offline
+                  ? '$waiting sin enviar · sin conexión'
+                  : '$waiting sin enviar',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.onSecondaryContainer,
+              ),
+            ),
+          ),
+          if (sending)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else
+            // Disabled offline rather than hidden: the worker should see the
+            // action exists and why it cannot run.
+            FilledButton(
+              onPressed: offline ? null : () {},
+              child: const Text('Enviar'),
+            ),
         ],
       ),
     );
@@ -284,12 +377,25 @@ class _UnitTile extends StatelessWidget {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  // The server's reason, on the row itself. A rejected unit is
+                  // useless to the worker unless they can read why (BR3).
+                  if (unit.sync == UnitSync.error && unit.syncError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        unit.syncError!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.error,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
-            // Not an error: offline queueing is the normal field state, so
-            // the badge informs without competing with the address.
-            if (unit.pending) const _PendingBadge(),
+            // Queued is the normal field state and stays quiet; refused is a
+            // problem and reads like one (BR3).
+            if (unit.sync == UnitSync.pending) const _PendingBadge(),
+            if (unit.sync == UnitSync.error) const _ErrorBadge(),
           ],
         ),
       ),
@@ -373,6 +479,31 @@ class _EditorWireframe extends StatelessWidget {
   }
 }
 
+/// Pill marking a row the server refused. Uses the error colour because,
+/// unlike a queued row, this one will not resolve by waiting.
+class _ErrorBadge extends StatelessWidget {
+  const _ErrorBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(left: 12, top: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        'rechazada',
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.onErrorContainer,
+        ),
+      ),
+    );
+  }
+}
+
 /// Pill marking a row that still lives only on the device.
 class _PendingBadge extends StatelessWidget {
   const _PendingBadge();
@@ -397,17 +528,40 @@ class _PendingBadge extends StatelessWidget {
   }
 }
 
-/// Dummy frame: mixed addresses, a blank placa and a not-yet-sent row.
+/// Dummy frame with everything already sent: mixed addresses and a blank
+/// placa, so the address hierarchy can be judged on its own.
 const wireframeDummyUnits = <WireframeUnit>[
   WireframeUnit(orden: 1, loc: 5, placa: 'Calle 5 # 12-34', manzana: '001'),
   WireframeUnit(orden: 2, loc: 10, placa: 'Calle 5 # 12-40', manzana: '001'),
   WireframeUnit(orden: 3, loc: 15, manzana: '001'),
   WireframeUnit(orden: 4, loc: 20, placa: 'Carrera 8 # 5-11', manzana: '002'),
+  WireframeUnit(orden: 5, loc: 25, placa: 'Carrera 8 # 5-19', manzana: '002'),
+];
+
+/// Dummy frame with a queue: two rows waiting and one the server refused, the
+/// partial-success case Spec 3 treats as normal (A1, A2).
+const queuedUnits = <WireframeUnit>[
+  WireframeUnit(orden: 1, loc: 5, placa: 'Calle 5 # 12-34', manzana: '001'),
+  WireframeUnit(orden: 2, loc: 10, placa: 'Calle 5 # 12-40', manzana: '001'),
+  WireframeUnit(
+    orden: 3,
+    loc: 15,
+    placa: 'Calle 5 # 12-48',
+    manzana: '001',
+    sync: UnitSync.pending,
+  ),
+  WireframeUnit(
+    orden: 4,
+    loc: 20,
+    manzana: '002',
+    sync: UnitSync.pending,
+  ),
   WireframeUnit(
     orden: 5,
     loc: 25,
     placa: 'Carrera 8 # 5-19',
     manzana: '002',
-    pending: true,
+    sync: UnitSync.error,
+    syncError: 'Ya existe una unidad con ese orden en la ruta.',
   ),
 ];
