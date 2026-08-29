@@ -57,51 +57,18 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       _obsCtrl.clear();
       setState(() => _tipoAcceso = null);
       _placaFocus.requestFocus();
-      _autoSync();
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
-  /// Syncs in the background if there is connectivity (best-effort).
-  Future<void> _autoSync() async {
-    if (!ref.read(isOnlineProvider)) return;
-    await ref.read(syncServiceProvider).pushPending(widget.routeId);
-  }
-
-  Future<void> _syncNow() async {
-    final res = await ref.read(syncServiceProvider).pushPending(widget.routeId);
-    if (!mounted) return;
-    final msg = res.isNoop
-        ? 'No hay capturas pendientes.'
-        : (res.message ?? 'Sincronización completa.');
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
   @override
   Widget build(BuildContext context) {
-    final online = ref.watch(isOnlineProvider);
     final capturesAsync = ref.watch(capturesProvider(widget.routeId));
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Captura'),
-        actions: [
-          capturesAsync.maybeWhen(
-            data: (list) {
-              final pending =
-                  list.where((c) => c.syncStatus != 'synced').length;
-              return _SyncButton(
-                pending: pending,
-                online: online,
-                onPressed: _syncNow,
-              );
-            },
-            orElse: () => const SizedBox.shrink(),
-          ),
-          // No list action here: capture is always reached from the resume
-          // view, which is the single list of the route (Spec 1.1 BR5).
-        ],
       ),
       body: capturesAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -270,49 +237,6 @@ class _LastCaptureCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _SyncButton extends StatelessWidget {
-  const _SyncButton({
-    required this.pending,
-    required this.online,
-    required this.onPressed,
-  });
-  final int pending;
-  final bool online;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        IconButton(
-          icon: Icon(online ? Icons.sync : Icons.sync_disabled),
-          tooltip: online ? 'Sincronizar' : 'Sin conexión',
-          onPressed: online ? onPressed : null,
-        ),
-        if (pending > 0)
-          Positioned(
-            right: 6,
-            top: 6,
-            child: Container(
-              padding: const EdgeInsets.all(4),
-              decoration: const BoxDecoration(
-                color: Colors.red,
-                shape: BoxShape.circle,
-              ),
-              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-              child: Text(
-                '$pending',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 11),
-              ),
-            ),
-          ),
-      ],
     );
   }
 }

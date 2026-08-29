@@ -1,6 +1,7 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/config/app_config.dart';
 import '../core/jwt.dart';
 import '../core/location/location_source.dart';
 import '../data/api/api_client.dart';
@@ -213,6 +214,35 @@ final routeCodigoProvider =
   }
   final route = await ref.read(databaseProvider).getRoute(routeId);
   return route?.codigo;
+});
+
+/// Drives a route's push. Nothing here runs on its own: every send and every
+/// retry is triggered by the worker (Spec 3, BR1).
+final pushProvider =
+    NotifierProvider.family<PushNotifier, bool, String>(PushNotifier.new);
+
+/// State is simply "a batch is in flight", which also guards against a double
+/// send: a second tap while true is ignored (T3.5).
+class PushNotifier extends FamilyNotifier<bool, String> {
+  @override
+  bool build(String routeId) => false;
+
+  /// Returns the outcome, or throws ApiException for the caller to map.
+  Future<SyncResult?> send() async {
+    if (state) return null;
+    state = true;
+    try {
+      return await ref.read(syncServiceProvider).pushPending(arg);
+    } finally {
+      state = false;
+    }
+  }
+}
+
+/// How many of a route's rows are still waiting or were refused.
+final pendingCountProvider = Provider.family<int, String>((ref, routeId) {
+  final rows = ref.watch(capturesProvider(routeId)).valueOrNull ?? const [];
+  return rows.where((c) => c.syncStatus != AppConfig.syncSynced).length;
 });
 
 /// Stream of a route's captures (sorted by `orden`).

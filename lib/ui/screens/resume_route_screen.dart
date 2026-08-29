@@ -231,7 +231,17 @@ class _UnitList extends StatelessWidget {
         color: theme.colorScheme.outlineVariant,
       ),
       itemBuilder: (context, i) {
-        if (i == 0) return _FrameSummary(total: rows.length, stale: stale);
+        if (i == 0) {
+          return Column(
+            children: [
+              _FrameSummary(total: rows.length, stale: stale),
+              // Only when there is a queue: a fully sent route carries no
+              // dead control (Spec 3, BR2).
+              if (rows.any((r) => r.syncStatus != AppConfig.syncSynced))
+                _QueueBar(routeId: rows.first.routeId),
+            ],
+          );
+        }
         return _UnitTile(row: rows[i - 1]);
       },
     );
@@ -270,6 +280,84 @@ class _FrameSummary extends StatelessWidget {
   }
 }
 
+/// The queue and the only way to send it (Spec 3, BR2).
+class _QueueBar extends ConsumerWidget {
+  const _QueueBar({required this.routeId});
+
+  final String routeId;
+
+  Future<void> _send(BuildContext context, WidgetRef ref) async {
+    try {
+      final result = await ref.read(pushProvider(routeId).notifier).send();
+      if (!context.mounted || result == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message ?? 'Envío completo.')),
+      );
+    } on ApiException catch (e) {
+      if (!context.mounted) return;
+      // The queue is untouched by any of these: a credentials or network
+      // problem must never cost captured work (BR6).
+      final detail = switch (e.statusCode) {
+        401 => 'Token vencido o inválido — renuévalo en Ajustes.',
+        403 => 'Ese token no es de campo — pide un field_token al operador.',
+        404 => 'Esa ruta no existe o no es de tu ESP.',
+        _ => 'No se pudo enviar: ${e.message}',
+      };
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(detail)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final waiting = ref.watch(pendingCountProvider(routeId));
+    final sending = ref.watch(pushProvider(routeId));
+    final online = ref.watch(isOnlineProvider);
+
+    return Container(
+      color: theme.colorScheme.secondaryContainer,
+      padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+      child: Row(
+        children: [
+          Icon(
+            online ? Icons.cloud_upload_outlined : Icons.cloud_off,
+            size: 20,
+            color: theme.colorScheme.onSecondaryContainer,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              online
+                  ? '$waiting sin enviar'
+                  : '$waiting sin enviar · sin conexión',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.onSecondaryContainer,
+              ),
+            ),
+          ),
+          if (sending)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else
+            // Disabled offline rather than hidden: the action should be
+            // visibly unavailable, not missing.
+            FilledButton(
+              onPressed: online ? () => _send(context, ref) : null,
+              child: const Text('Enviar'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 const _tipoAccesoLabels = <String, String>{
   'puerta_calle': 'Puerta a la calle',
   'area_comun': 'Área común',
@@ -286,7 +374,10 @@ class _UnitTile extends ConsumerWidget {
     final theme = Theme.of(context);
     final placa = row.placa?.trim();
     final hasAddress = placa != null && placa.isNotEmpty;
-    final pending = row.syncStatus != AppConfig.syncSynced;
+    // Three distinct states, not two: a row the server refused is not a row
+    // waiting its turn (Spec 3, BR3).
+    final refused = row.syncStatus == AppConfig.syncError;
+    final queued = row.syncStatus == AppConfig.syncPending;
 
     final meta = <String>[
       'orden ${row.orden}',
@@ -329,10 +420,23 @@ class _UnitTile extends ConsumerWidget {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  // The server's reason, on the row. A refused unit is useless
+                  // to the worker unless they can read why.
+                  if (refused && row.syncError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        row.syncError!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.error,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
-            if (pending) const _PendingBadge(),
+            if (queued) const _PendingBadge(),
+            if (refused) const _ErrorBadge(),
           ],
         ),
       ),
@@ -479,6 +583,31 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
           child: const Text('Guardar'),
         ),
       ],
+    );
+  }
+}
+
+/// Marks a row the server refused. Uses the error colour because, unlike a
+/// queued row, this one will not resolve by waiting.
+class _ErrorBadge extends StatelessWidget {
+  const _ErrorBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(left: 12, top: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        'rechazada',
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.onErrorContainer,
+        ),
+      ),
     );
   }
 }

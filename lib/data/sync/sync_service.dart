@@ -62,48 +62,43 @@ class SyncService {
       ],
     );
 
-    try {
-      final res = await _api.postPlacas(batch);
-      final byId = {for (final r in res.items) r.clientId: r};
+    // A transport or auth failure is deliberately not caught: nothing was
+    // rejected on its merits, so no row is marked `error`. The batch stays
+    // exactly as queued and the caller maps the status code. Catching here
+    // would paint a whole route as refused by the server when the request
+    // never got a verdict (Spec 3, A4/A5 and BR6).
+    final res = await _api.postPlacas(batch);
+    final byId = {for (final r in res.items) r.clientId: r};
 
-      var synced = 0;
-      var failed = 0;
-      for (final c in pending) {
-        final r = byId[c.clientId];
-        if (r != null && r.ok) {
-          await _repo.markSynced(
-            clientId: c.clientId,
-            loc: r.loc,
-            remoteId: r.id,
-          );
-          synced++;
-        } else {
-          await _repo.markError(
-            c.clientId,
-            r?.error ?? 'El servidor no confirmó este item.',
-          );
-          failed++;
-        }
+    var synced = 0;
+    var failed = 0;
+    for (final c in pending) {
+      final r = byId[c.clientId];
+      if (r != null && r.ok) {
+        await _repo.markSynced(
+          clientId: c.clientId,
+          loc: r.loc,
+          remoteId: r.id,
+        );
+        synced++;
+      } else {
+        // Includes the case where the response simply omits the item: it is
+        // treated as failed and stays queued, never silently marked synced.
+        await _repo.markError(
+          c.clientId,
+          r?.error ?? 'El servidor no confirmó este item.',
+        );
+        failed++;
       }
-      return SyncResult(
-        attempted: pending.length,
-        synced: synced,
-        failed: failed,
-        message: failed == 0
-            ? 'Sincronizadas $synced capturas.'
-            : '$synced ok, $failed con error.',
-      );
-    } on ApiException catch (e) {
-      // Transport failure: the queue stays pending for a retry.
-      for (final c in pending) {
-        await _repo.markError(c.clientId, e.message);
-      }
-      return SyncResult(
-        attempted: pending.length,
-        synced: 0,
-        failed: pending.length,
-        message: e.message,
-      );
     }
+
+    return SyncResult(
+      attempted: pending.length,
+      synced: synced,
+      failed: failed,
+      message: failed == 0
+          ? 'Enviadas $synced.'
+          : '$synced enviadas, $failed con error.',
+    );
   }
 }

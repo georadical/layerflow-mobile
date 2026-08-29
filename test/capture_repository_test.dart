@@ -4,10 +4,13 @@ import 'package:layerflow_capture/data/api/dtos.dart';
 import 'package:layerflow_capture/data/db/database.dart';
 import 'package:layerflow_capture/data/repositories/capture_repository.dart';
 
+import 'support/sqlite3.dart';
+
 /// Tries to create an in-memory drift DB. Returns null when the host has no
 /// native sqlite3 (e.g. missing sqlite3.dll) so the test can be skipped
 /// instead of failing.
 Future<AppDatabase?> _tryMemoryDb() async {
+  useSystemSqlite3();
   try {
     final db = AppDatabase(NativeDatabase.memory());
     await db.customSelect('SELECT 1').get();
