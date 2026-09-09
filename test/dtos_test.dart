@@ -161,4 +161,27 @@ void main() {
       }
     });
   });
+
+  group('ins_after (Spec 2.1)', () {
+    test('request serialises a mark, 0 included; omits only null', () {
+      // 0 is a real value — start of route — never conflated with "no mark".
+      final start =
+          const PlacaItemRequest(clientId: 'a', orden: 1, insAfter: 0).toJson();
+      expect(start['ins_after'], 0);
+
+      final none = const PlacaItemRequest(clientId: 'b', orden: 2).toJson();
+      expect(none.containsKey('ins_after'), isFalse);
+    });
+
+    test('frame item parses ins_after, and its absence, as the server sends it',
+        () {
+      final marked = RouteFrameItem.fromJson(
+          {'client_id': 'a', 'orden': 6, 'loc': 30, 'ins_after': 10});
+      expect(marked.insAfter, 10);
+
+      final clean = RouteFrameItem.fromJson(
+          {'client_id': 'b', 'orden': 1, 'loc': 5, 'ins_after': null});
+      expect(clean.insAfter, isNull);
+    });
+  });
 }

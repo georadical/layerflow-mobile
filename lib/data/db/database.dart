@@ -54,6 +54,11 @@ class Captures extends Table {
   /// loc assigned by the server (orden × 5). Null until synced.
   IntColumn get loc => integer().nullable()();
 
+  /// Pending relocation: the loc of the unit this one goes after (0 = start
+  /// of route). Null = no mark. The contract is full-replacement, so this
+  /// must ride on every push of the row or the backend clears it (Spec 2.1).
+  IntColumn get insAfter => integer().nullable()();
+
   /// id of the remote census_code. Null until synced.
   TextColumn get remoteId => text().nullable()();
 
@@ -77,7 +82,18 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  /// First migration of the app. The column is nullable, so old rows come out
+  /// as null — which is exactly "no relocation mark"; no backfill needed.
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.addColumn(captures, captures.insAfter);
+          }
+        },
+      );
 
   // ---- Routes ----
 

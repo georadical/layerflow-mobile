@@ -16,6 +16,7 @@ class PlacaItemRequest {
     this.manzanaCatastral,
     this.tipoAcceso,
     this.observacion,
+    this.insAfter,
   });
 
   final String clientId;
@@ -25,6 +26,11 @@ class PlacaItemRequest {
   final String? tipoAcceso;
   final String? observacion;
 
+  /// Pending relocation: the loc this unit goes after (0 = start of route).
+  /// The contract is full-replacement, so omitting it clears the mark on the
+  /// server — the caller must always pass the row's current value.
+  final int? insAfter;
+
   Map<String, dynamic> toJson() => {
         'client_id': clientId,
         'orden': orden,
@@ -33,6 +39,9 @@ class PlacaItemRequest {
         if (manzanaCatastral != null) 'manzana_catastral': manzanaCatastral,
         if (tipoAcceso != null) 'tipo_acceso': tipoAcceso,
         if (observacion != null) 'observacion': observacion,
+        // Omitted and explicit null mean the same to the server (clear), so
+        // only a real mark is serialised.
+        if (insAfter != null) 'ins_after': insAfter,
       };
 }
 
@@ -202,6 +211,7 @@ class RouteFrameItem {
     this.loc,
     this.placa,
     this.manzanaCatastral,
+    this.insAfter,
   });
 
   final String clientId;
@@ -210,6 +220,10 @@ class RouteFrameItem {
   final String? placa;
   final String? manzanaCatastral;
 
+  /// Pending relocation flag as the server holds it. Null once the office
+  /// applies the shift — the frame is the source of truth on resume.
+  final int? insAfter;
+
   factory RouteFrameItem.fromJson(Map<String, dynamic> json) {
     return RouteFrameItem(
       clientId: json['client_id'] as String,
@@ -217,6 +231,7 @@ class RouteFrameItem {
       loc: (json['loc'] as num?)?.toInt(),
       placa: json['placa'] as String?,
       manzanaCatastral: json['manzana_catastral'] as String?,
+      insAfter: (json['ins_after'] as num?)?.toInt(),
     );
   }
 }

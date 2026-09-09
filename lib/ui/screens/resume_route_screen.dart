@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/config/app_config.dart';
 import '../../data/api/api_client.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
 import 'capture_screen.dart';
 import 'settings_screen.dart';
@@ -242,7 +243,7 @@ class _UnitList extends StatelessWidget {
             ],
           );
         }
-        return _UnitTile(row: rows[i - 1]);
+        return _UnitTile(row: rows[i - 1], allRows: rows);
       },
     );
   }
@@ -365,9 +366,12 @@ const _tipoAccesoLabels = <String, String>{
 };
 
 class _UnitTile extends ConsumerWidget {
-  const _UnitTile({required this.row});
+  const _UnitTile({required this.row, required this.allRows});
 
   final Capture row;
+
+  /// The whole route, for naming this row's anchor and for the picker.
+  final List<Capture> allRows;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -420,6 +424,33 @@ class _UnitTile extends ConsumerWidget {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  // Pending relocation, naming the anchor (Spec 2.1). A line
+                  // rather than a pill: the point is *which* unit it goes
+                  // after, and that needs words.
+                  if (row.insAfter != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.low_priority,
+                            size: 14,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              'tras ${_anchorLabel(allRows, row.clientId, row.insAfter!)}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                                fontStyle: FontStyle.italic,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   // The server's reason, on the row. A refused unit is useless
                   // to the worker unless they can read why.
                   if (refused && row.syncError != null)
@@ -451,18 +482,45 @@ class _UnitTile extends ConsumerWidget {
   Future<void> _edit(BuildContext context, WidgetRef ref) async {
     final edit = await showDialog<_UnitEdit>(
       context: context,
-      builder: (_) => _EditUnitDialog(row: row),
+      builder: (_) => _EditUnitDialog(row: row, allRows: allRows),
     );
     if (edit == null) return;
 
-    await ref.read(captureRepositoryProvider).editCapture(
-          clientId: row.clientId,
-          placa: edit.placa,
-          tipoAcceso: edit.tipoAcceso,
-          manzanaCatastral: edit.manzana,
-          observacion: edit.observacion,
-        );
+    final repo = ref.read(captureRepositoryProvider);
+    // editCapture leaves insAfter alone (A3); the relocation change, if any,
+    // is applied as its own step so cancelling one never loses the other.
+    await repo.editCapture(
+      clientId: row.clientId,
+      placa: edit.placa,
+      tipoAcceso: edit.tipoAcceso,
+      manzanaCatastral: edit.manzana,
+      observacion: edit.observacion,
+    );
+    if (edit.insAfterChanged) {
+      if (edit.insAfter == null) {
+        await repo.clearInsAfter(row.clientId);
+      } else {
+        await repo.setInsAfter(
+            clientId: row.clientId, insAfter: edit.insAfter!);
+      }
+    }
   }
+}
+
+/// Human name for a row's anchor: the placa of the unit whose loc matches,
+/// "el inicio de la ruta" for 0, or the bare loc when the anchor is not on
+/// this device (set elsewhere, or dangling).
+String _anchorLabel(List<Capture> rows, String excludeClientId, int target) {
+  if (target == 0) return 'el inicio de la ruta';
+  for (final r in rows) {
+    if (r.clientId == excludeClientId) continue;
+    if (CaptureRepository.anchorLoc(r) == target) {
+      final placa = r.placa?.trim();
+      return (placa == null || placa.isEmpty) ? 'la unidad ${r.orden}' : placa;
+    }
+  }
+  // Anchor not on this device: set elsewhere, or dangling after a rejection.
+  return 'loc $target';
 }
 
 /// What the editor hands back. Null means the worker cancelled.
@@ -471,6 +529,8 @@ typedef _UnitEdit = ({
   String? tipoAcceso,
   String manzana,
   String observacion,
+  bool insAfterChanged,
+  int? insAfter,
 });
 
 /// Editor for one captured unit.
@@ -481,9 +541,12 @@ typedef _UnitEdit = ({
 /// through its exit animation, and the rebuild hits controllers that were
 /// already disposed.
 class _EditUnitDialog extends StatefulWidget {
-  const _EditUnitDialog({required this.row});
+  const _EditUnitDialog({required this.row, required this.allRows});
 
   final Capture row;
+
+  /// The whole route, for the anchor picker.
+  final List<Capture> allRows;
 
   @override
   State<_EditUnitDialog> createState() => _EditUnitDialogState();
@@ -494,6 +557,8 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
   late final TextEditingController _manzana;
   late final TextEditingController _obs;
   String? _tipo;
+  int? _insAfter;
+  bool _insAfterChanged = false;
 
   @override
   void initState() {
@@ -502,6 +567,41 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
     _manzana = TextEditingController(text: widget.row.manzanaCatastral ?? '');
     _obs = TextEditingController(text: widget.row.observacion ?? '');
     _tipo = widget.row.tipoAcceso;
+    _insAfter = widget.row.insAfter;
+  }
+
+  /// Opens the anchor picker. The worker points at a unit; the number that
+  /// travels as `ins_after` is derived, never typed (Spec 2.1, BR1/BR2).
+  Future<void> _pickAnchor() async {
+    final choice = await showDialog<_AnchorChoice>(
+      context: context,
+      builder: (_) => _AnchorPicker(
+        candidates: [
+          for (final r in widget.allRows)
+            if (r.clientId != widget.row.clientId) r,
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    if (choice.loc > 9999) {
+      // Cannot happen through normal routes (loc 9999 = orden ~2000), but one
+      // bad value would cost the whole batch a 422 (BR6).
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Esa unidad queda fuera del rango permitido.')));
+      return;
+    }
+    setState(() {
+      _insAfter = choice.loc;
+      _insAfterChanged = true;
+    });
+    if (choice.anchorRefused) {
+      // A5: warn, never block — the intent is still information, but a
+      // dangling anchor can hold up other relocations behind it.
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Ojo: esa unidad fue rechazada por el servidor. '
+            'La oficina no podrá aplicar el movimiento hasta corregirla.'),
+      ));
+    }
   }
 
   @override
@@ -564,6 +664,20 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
               maxLines: 3,
             ),
             const SizedBox(height: 12),
+            // Spec 2.1: the answer to the question the append-only note
+            // raises — "what if I put it in the wrong place?".
+            _RelocateRow(
+              anchorLabel: _insAfter == null
+                  ? null
+                  : _anchorLabel(
+                      widget.allRows, widget.row.clientId, _insAfter!),
+              onPick: _pickAnchor,
+              onClear: () => setState(() {
+                _insAfter = null;
+                _insAfterChanged = true;
+              }),
+            ),
+            const SizedBox(height: 12),
             const Text('El orden no se puede cambiar (append-only).'),
           ],
         ),
@@ -579,8 +693,132 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
             tipoAcceso: _tipo,
             manzana: _manzana.text,
             observacion: _obs.text,
+            insAfterChanged: _insAfterChanged,
+            insAfter: _insAfter,
           )),
           child: const Text('Guardar'),
+        ),
+      ],
+    );
+  }
+}
+
+/// What the anchor picker hands back. [loc] is what travels as `ins_after`;
+/// [anchorRefused] triggers the dangling-anchor warning (A5).
+class _AnchorChoice {
+  const _AnchorChoice({required this.loc, this.anchorRefused = false});
+  final int loc;
+  final bool anchorRefused;
+}
+
+/// Entry to "Mover localización" inside the editor: shows the current anchor
+/// or invites setting one. "Quitar" appears only when there is a mark.
+class _RelocateRow extends StatelessWidget {
+  const _RelocateRow({
+    required this.anchorLabel,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  final String? anchorLabel;
+  final VoidCallback onPick;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final marked = anchorLabel != null;
+
+    return InkWell(
+      onTap: onPick,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Icon(
+              Icons.low_priority,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Mover localización', style: theme.textTheme.bodyLarge),
+                  Text(
+                    marked
+                        ? 'Va tras $anchorLabel'
+                        : 'Va al final del recorrido',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (marked)
+              TextButton(onPressed: onClear, child: const Text('Quitar')),
+            Icon(Icons.chevron_right,
+                color: theme.colorScheme.onSurfaceVariant),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Anchor picker. The worker points at a unit — placa and orden on show —
+/// and the loc that travels as `ins_after` is derived (BR1/BR2). There is no
+/// numeric field anywhere.
+class _AnchorPicker extends StatelessWidget {
+  const _AnchorPicker({required this.candidates});
+
+  /// The route's units, already excluding the one being moved.
+  final List<Capture> candidates;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('¿Después de cuál va?'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.vertical_align_top),
+              title: const Text('Al inicio de la ruta'),
+              onTap: () => Navigator.pop(context, const _AnchorChoice(loc: 0)),
+            ),
+            Divider(height: 1, color: theme.colorScheme.outlineVariant),
+            for (final r in candidates)
+              ListTile(
+                title: Text(
+                  (r.placa?.trim().isNotEmpty ?? false)
+                      ? r.placa!.trim()
+                      : 'Sin dirección aún',
+                  style: (r.placa?.trim().isNotEmpty ?? false)
+                      ? null
+                      : const TextStyle(fontStyle: FontStyle.italic),
+                ),
+                subtitle: Text('orden ${r.orden}'),
+                onTap: () => Navigator.pop(
+                  context,
+                  _AnchorChoice(
+                    loc: CaptureRepository.anchorLoc(r),
+                    anchorRefused: r.syncStatus == AppConfig.syncError,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
         ),
       ],
     );

@@ -58,6 +58,9 @@ class SyncService {
             manzanaCatastral: c.manzanaCatastral,
             tipoAcceso: c.tipoAcceso,
             observacion: c.observacion,
+            // Full-replacement contract: every push carries the row's current
+            // mark, or the backend clears it (Spec 2.1, BR3).
+            insAfter: c.insAfter,
           ),
       ],
     );

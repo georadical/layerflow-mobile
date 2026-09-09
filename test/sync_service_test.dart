@@ -247,4 +247,30 @@ void main() {
       );
     }
   });
+
+  test('the relocation mark travels on every push of the row', () async {
+    final db = await memoryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final (repo, ids) = await seed(db, 2);
+    await repo.setInsAfter(clientId: ids.last, insAfter: 5);
+
+    final api = _FakeApi(
+      respond: (b) => _response([
+        for (final i in b.items) _ok(i.clientId, i.orden * 5),
+      ]),
+    );
+    await SyncService(api, repo).pushPending(routeId);
+
+    final items = api.lastBatch!.items;
+    // Unmarked row: no ins_after key at all (omitted == null to the server).
+    expect(items.first.insAfter, isNull);
+    expect(items.first.toJson().containsKey('ins_after'), isFalse);
+    // Marked row: the mark rides along — full-replacement contract (BR3).
+    expect(items.last.insAfter, 5);
+    expect(items.last.toJson()['ins_after'], 5);
+  });
 }

@@ -63,7 +63,8 @@ class CaptureRepository {
 
   /// Edits the attributes of an existing capture. It does NOT touch `orden`
   /// (append-only) and re-marks it `pending` for re-sending (the backend
-  /// updates in place).
+  /// updates in place). `insAfter` is deliberately absent from the patch:
+  /// correcting a placa must never drop a relocation mark (Spec 2.1, A3).
   Future<void> editCapture({
     required String clientId,
     String? placa,
@@ -78,6 +79,50 @@ class CaptureRepository {
         manzanaCatastral: Value(_nullIfBlank(manzanaCatastral)),
         tipoAcceso: Value(_nullIfBlank(tipoAcceso)),
         observacion: Value(_nullIfBlank(observacion)),
+        syncStatus: const Value(AppConfig.syncPending),
+        syncError: const Value(null),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  /// The loc that identifies [anchor] as an `ins_after` target.
+  ///
+  /// The stored `loc` when the row has one; `orden × 5` only for a row that
+  /// has never synced — correct because the backend assigns exactly that in
+  /// the same batch. A blanket `orden × 5` would be wrong for any unit the
+  /// office already relocated, which is precisely the population this feature
+  /// creates (Spec 2.1, BR2).
+  static int anchorLoc(Capture anchor) => anchor.loc ?? anchor.orden * 5;
+
+  /// Marks [clientId] as belonging after [insAfter] (a loc; 0 = start of
+  /// route) and re-queues it. Range-guarded here because one bad value costs
+  /// the whole batch a 422, not just its item (Spec 2.1, BR6).
+  Future<void> setInsAfter({
+    required String clientId,
+    required int insAfter,
+  }) async {
+    if (insAfter < 0 || insAfter > 9999) {
+      throw ArgumentError.value(insAfter, 'insAfter', 'must be within 0–9999');
+    }
+    await _db.updateCaptureRow(
+      clientId,
+      CapturesCompanion(
+        insAfter: Value(insAfter),
+        syncStatus: const Value(AppConfig.syncPending),
+        syncError: const Value(null),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  /// Removes the relocation mark and re-queues the row: the next push goes
+  /// out without `ins_after`, which is how the contract clears it.
+  Future<void> clearInsAfter(String clientId) async {
+    await _db.updateCaptureRow(
+      clientId,
+      CapturesCompanion(
+        insAfter: const Value(null),
         syncStatus: const Value(AppConfig.syncPending),
         syncError: const Value(null),
         updatedAt: Value(DateTime.now()),
@@ -142,6 +187,7 @@ class CaptureRepository {
             placa: Value(item.placa),
             manzanaCatastral: Value(item.manzanaCatastral),
             loc: Value(item.loc),
+            insAfter: Value(item.insAfter),
             syncStatus: const Value(AppConfig.syncSynced),
             createdAt: now,
             updatedAt: now,
@@ -155,6 +201,10 @@ class CaptureRepository {
             placa: Value(item.placa),
             manzanaCatastral: Value(item.manzanaCatastral),
             loc: Value(item.loc),
+            // Written unconditionally, nulls included: once the office applies
+            // the shift the frame comes back clean and the local mark must
+            // follow it (Spec 2.1, BR5).
+            insAfter: Value(item.insAfter),
             updatedAt: Value(now),
           ),
         );
