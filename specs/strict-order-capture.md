@@ -122,7 +122,7 @@ The worker stands at a door and taps "Capturar".
   (Spec 3).
 - **BR6** Coordinate-free.
 
-## Open decision — how the "belongs after" note is recorded
+## Superseded decision — how the "belongs after" note is recorded
 The note has to reach the office in a form it can act on.
 
 - **Free text in `observacion`** costs nothing to build and everything to
@@ -133,7 +133,10 @@ The note has to reach the office in a form it can act on.
   extra tap for the worker, and it needs no contract change because it rides
   in a field the contract already carries.
 
-Recommended: the structured hint. **Needs your approval before implementation.**
+**Resolved, and neither option won.** The backend added a typed `ins_after`
+field to the contract instead, which beats both: nothing for the office to
+parse, and nothing to clobber when the worker edits an observation. See
+[Spec 2.1](relocate-unit.md). `observacion` stays a purely human note.
 
 ## Edge cases and error handling
 - First capture of an empty route is `orden` 1.
@@ -196,8 +199,8 @@ Feature: Strict-order placa capture
 ## Suggested tickets
 - **T2.1 — Pending count on the capture screen**: show the queue without
   offering a second send control (Spec 3, BR2 keeps sending in one place).
-- **T2.2 — "Belongs after" hint**: pick a placa from the route and write the
-  normalised note, pending the decision above.
+- **T2.2 — moved to [Spec 2.1](relocate-unit.md)**, which supersedes it with the
+  typed `ins_after` field.
 - **T2.3 — Tests**: `orden` append-only across an interleaved merge, blank
   placa, manzana persistence.
 - **T2.4 — Manual check** on route 10.
