@@ -31,6 +31,7 @@ class WireframeUnit {
     this.manzana,
     this.sync = UnitSync.synced,
     this.syncError,
+    this.insAfterAnchor,
   });
 
   final int orden;
@@ -41,6 +42,11 @@ class WireframeUnit {
 
   /// Reason the server gave. Shown on the row, never hidden in a log.
   final String? syncError;
+
+  /// Label of the unit this one goes after, or "el inicio de la ruta".
+  /// Null means no pending relocation. Spec 2.1: the worker points at a unit,
+  /// never types the number that travels as `ins_after`.
+  final String? insAfterAnchor;
 }
 
 /// Every UI state this screen has to handle, Spec 1 and Spec 3 together.
@@ -56,6 +62,9 @@ enum ResumeState {
 
   /// Rows waiting but no connectivity: sending is not offered.
   offlineQueued,
+
+  /// A unit captured at the end and marked to be moved elsewhere.
+  relocation,
   empty,
   loading,
   error,
@@ -85,6 +94,8 @@ class ResumeRouteWireframe extends StatelessWidget {
         ResumeState.queued => _UnitList(units: queuedUnits, send: state),
         ResumeState.sending => _UnitList(units: queuedUnits, send: state),
         ResumeState.offlineQueued => _UnitList(units: queuedUnits, send: state),
+        ResumeState.relocation =>
+          _UnitList(units: relocationUnits, send: state),
       },
     );
   }
@@ -377,6 +388,33 @@ class _UnitTile extends StatelessWidget {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  // Pending relocation, naming the anchor. A line rather than
+                  // a pill: the point is *which* unit it goes after, and that
+                  // needs words.
+                  if (unit.insAfterAnchor != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.low_priority,
+                            size: 14,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              'tras ${unit.insAfterAnchor}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                                fontStyle: FontStyle.italic,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   // The server's reason, on the row itself. A rejected unit is
                   // useless to the worker unless they can read why (BR3).
                   if (unit.sync == UnitSync.error && unit.syncError != null)
@@ -461,6 +499,11 @@ class _EditorWireframe extends StatelessWidget {
               maxLines: 3,
             ),
             const SizedBox(height: 12),
+            // Spec 2.1: the way to fix a missed house is to say where this one
+            // belongs, never to renumber. Sits next to the append-only note
+            // because it is the answer to the question that note raises.
+            _RelocateRow(anchor: unit.insAfterAnchor),
+            const SizedBox(height: 12),
             const Text('El orden no se puede cambiar (append-only).'),
           ],
         ),
@@ -473,6 +516,110 @@ class _EditorWireframe extends StatelessWidget {
         FilledButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Guardar'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Entry point to "Mover localización" from inside the editor: shows the
+/// current anchor, or invites setting one.
+class _RelocateRow extends StatelessWidget {
+  const _RelocateRow({this.anchor});
+
+  final String? anchor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final marked = anchor != null;
+
+    return InkWell(
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (_) => const _AnchorPickerWireframe(),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Icon(
+              Icons.low_priority,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Mover localización', style: theme.textTheme.bodyLarge),
+                  Text(
+                    marked ? 'Va tras $anchor' : 'Va al final del recorrido',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Clearing the mark is offered only when there is one to clear.
+            if (marked)
+              TextButton(onPressed: () {}, child: const Text('Quitar')),
+            Icon(
+              Icons.chevron_right,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// WIREFRAME — anchor picker. The worker points at a unit; the app derives the
+/// number that travels as `ins_after` (Spec 2.1, BR1/BR2). There is no numeric
+/// field anywhere.
+class _AnchorPickerWireframe extends StatelessWidget {
+  const _AnchorPickerWireframe();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // The unit being moved is excluded from its own picker.
+    final candidates = relocationUnits.where((u) => u.orden != 6).toList();
+
+    return AlertDialog(
+      title: const Text('¿Después de cuál va?'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.vertical_align_top),
+              title: const Text('Al inicio de la ruta'),
+              onTap: () => Navigator.pop(context),
+            ),
+            Divider(height: 1, color: theme.colorScheme.outlineVariant),
+            for (final u in candidates)
+              ListTile(
+                title: Text(
+                  u.placa ?? 'Sin dirección aún',
+                  style: u.placa == null
+                      ? const TextStyle(fontStyle: FontStyle.italic)
+                      : null,
+                ),
+                subtitle: Text('orden ${u.orden}'),
+                onTap: () => Navigator.pop(context),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
         ),
       ],
     );
@@ -536,6 +683,24 @@ const wireframeDummyUnits = <WireframeUnit>[
   WireframeUnit(orden: 3, loc: 15, manzana: '001'),
   WireframeUnit(orden: 4, loc: 20, placa: 'Carrera 8 # 5-11', manzana: '002'),
   WireframeUnit(orden: 5, loc: 25, placa: 'Carrera 8 # 5-19', manzana: '002'),
+];
+
+/// Dummy frame for Spec 2.1: a house captured last (orden 6) and marked to go
+/// after the first one — the missed-house case, with the walk order untouched.
+const relocationUnits = <WireframeUnit>[
+  WireframeUnit(orden: 1, loc: 5, placa: 'Calle 5 # 12-34', manzana: '001'),
+  WireframeUnit(orden: 2, loc: 10, placa: 'Calle 5 # 12-40', manzana: '001'),
+  WireframeUnit(orden: 3, loc: 15, manzana: '001'),
+  WireframeUnit(orden: 4, loc: 20, placa: 'Carrera 8 # 5-11', manzana: '002'),
+  WireframeUnit(orden: 5, loc: 25, placa: 'Carrera 8 # 5-19', manzana: '002'),
+  WireframeUnit(
+    orden: 6,
+    loc: 30,
+    placa: 'Calle 5 # 12-36',
+    manzana: '001',
+    sync: UnitSync.pending,
+    insAfterAnchor: 'Calle 5 # 12-34',
+  ),
 ];
 
 /// Dummy frame with a queue: two rows waiting and one the server refused, the
