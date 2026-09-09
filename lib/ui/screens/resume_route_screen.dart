@@ -493,7 +493,10 @@ class _UnitTile extends ConsumerWidget {
       clientId: row.clientId,
       placa: edit.placa,
       tipoAcceso: edit.tipoAcceso,
-      manzanaCatastral: edit.manzana,
+      // Not editable here (it belongs to capture, set per block), but it must
+      // be preserved: the push is full-replacement, so dropping it would
+      // clear it on the server the next time this row travels.
+      manzanaCatastral: row.manzanaCatastral,
       observacion: edit.observacion,
     );
     if (edit.insAfterChanged) {
@@ -529,7 +532,6 @@ String _anchorLabel(List<Capture> rows, String excludeClientId, int target) {
 typedef _UnitEdit = ({
   String placa,
   String? tipoAcceso,
-  String manzana,
   String observacion,
   bool insAfterChanged,
   int? insAfter,
@@ -556,7 +558,6 @@ class _EditUnitDialog extends StatefulWidget {
 
 class _EditUnitDialogState extends State<_EditUnitDialog> {
   late final TextEditingController _placa;
-  late final TextEditingController _manzana;
   late final TextEditingController _obs;
   String? _tipo;
   int? _insAfter;
@@ -566,7 +567,6 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
   void initState() {
     super.initState();
     _placa = TextEditingController(text: widget.row.placa ?? '');
-    _manzana = TextEditingController(text: widget.row.manzanaCatastral ?? '');
     _obs = TextEditingController(text: widget.row.observacion ?? '');
     _tipo = widget.row.tipoAcceso;
     _insAfter = widget.row.insAfter;
@@ -609,7 +609,6 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
   @override
   void dispose() {
     _placa.dispose();
-    _manzana.dispose();
     _obs.dispose();
     super.dispose();
   }
@@ -651,13 +650,6 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
             ),
             const SizedBox(height: 12),
             TextField(
-              controller: _manzana,
-              decoration: const InputDecoration(
-                labelText: 'Manzana catastral (opcional)',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
               controller: _obs,
               decoration: const InputDecoration(
                 labelText: 'Observación (opcional)',
@@ -693,7 +685,6 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
           onPressed: () => Navigator.pop(context, (
             placa: _placa.text,
             tipoAcceso: _tipo,
-            manzana: _manzana.text,
             observacion: _obs.text,
             insAfterChanged: _insAfterChanged,
             insAfter: _insAfter,

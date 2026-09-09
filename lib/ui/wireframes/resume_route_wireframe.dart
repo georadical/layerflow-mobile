@@ -484,13 +484,6 @@ class _EditorWireframe extends StatelessWidget {
               onChanged: (_) {},
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: TextEditingController(text: unit.manzana ?? ''),
-              decoration: const InputDecoration(
-                labelText: 'Manzana catastral (opcional)',
-              ),
-            ),
-            const SizedBox(height: 12),
             const TextField(
               decoration: InputDecoration(
                 labelText: 'Observación (opcional)',
