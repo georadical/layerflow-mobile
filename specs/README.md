@@ -9,7 +9,7 @@ with a verifiable gate, a commit and explicit approval.
 | 1 | Open and resume route | [open-and-resume-route.md](open-and-resume-route.md) | Done — verified against the backend |
 | 1.1 | One editable list per route | [one-editable-route-list.md](one-editable-route-list.md) | Done — verified against the backend |
 | 2 | Strict-order capture (local) | [strict-order-capture.md](strict-order-capture.md) | Draft, awaiting approval |
-| 2.1 | Move a unit's localización | [relocate-unit.md](relocate-unit.md) | Draft, awaiting approval |
+| 2.1 | Move a unit's localización | [relocate-unit.md](relocate-unit.md) | Done — verified against the backend |
 | 3 | Batch push (`POST /field/capture/placas`) | [push-captured-batch.md](push-captured-batch.md) | Done — verified against the backend |
 | 4 | Offline-first queue and retry | — | Not written |
 | 5 | Field worker login | — | Backlog, see below |

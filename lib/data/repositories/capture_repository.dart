@@ -208,8 +208,23 @@ class CaptureRepository {
             updatedAt: Value(now),
           ),
         );
+      } else {
+        // Local pending/error: the worker's edits (placa, tipo, observacion,
+        // the relocation mark) and the sync state are preserved — but orden
+        // and loc are the server's even here. Found live: the office applied
+        // a shift between our pull and our push, every unit moved, and the
+        // stale local orden collided with another unit's loc on every retry,
+        // forever. Position belongs to the server; content belongs to the
+        // worker until sent.
+        await _db.updateCaptureRow(
+          item.clientId,
+          CapturesCompanion(
+            orden: Value(item.orden),
+            loc: Value(item.loc),
+            updatedAt: Value(now),
+          ),
+        );
       }
-      // local pending/error: preserved as is.
     }
   }
 

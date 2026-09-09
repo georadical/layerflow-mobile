@@ -233,4 +233,39 @@ void main() {
     await repo.setInsAfter(clientId: id, insAfter: 0); // start of route: valid
     expect((await repo.capturesForRoute(routeId)).single.insAfter, 0);
   });
+
+  test('office renumbering reaches a queued row: position updates, edits stay',
+      () async {
+    final db = await _tryMemoryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final repo = CaptureRepository(db);
+
+    // A synced unit the worker then edits and marks (now pending, unsent).
+    await repo.mergeFrame(const RouteFrame(
+      routeId: routeId,
+      items: [RouteFrameItem(clientId: 'u1', orden: 6, loc: 30, placa: 'X')],
+    ));
+    await repo.editCapture(clientId: 'u1', placa: 'X corregida');
+    await repo.setInsAfter(clientId: 'u1', insAfter: 5);
+
+    // The office applies a shift meanwhile: the unit comes back at a new
+    // position. Re-pushing the stale orden 6 would collide with whichever
+    // unit now holds loc 30 — on every retry, forever.
+    await repo.mergeFrame(const RouteFrame(
+      routeId: routeId,
+      items: [RouteFrameItem(clientId: 'u1', orden: 2, loc: 10, placa: 'X')],
+    ));
+
+    final row = (await repo.capturesForRoute(routeId)).single;
+    expect(row.orden, 2, reason: 'position belongs to the server');
+    expect(row.loc, 10);
+    expect(row.placa, 'X corregida',
+        reason: 'unsent content belongs to the worker');
+    expect(row.insAfter, 5, reason: 'the mark is unsent content too');
+    expect(row.syncStatus, AppConfig.syncPending);
+  });
 }
