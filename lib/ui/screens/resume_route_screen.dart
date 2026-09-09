@@ -805,7 +805,10 @@ class _AnchorPicker extends StatelessWidget {
                       ? null
                       : const TextStyle(fontStyle: FontStyle.italic),
                 ),
-                subtitle: Text('posición ${r.posicion}'),
+                // The loc shown is the very value that will travel as
+                // ins_after — never a second, different number.
+                subtitle: Text(
+                    'posición ${r.posicion} · loc ${CaptureRepository.anchorLoc(r)}'),
                 onTap: () => Navigator.pop(
                   context,
                   _AnchorChoice(

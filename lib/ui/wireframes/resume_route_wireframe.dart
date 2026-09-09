@@ -610,7 +610,7 @@ class _AnchorPickerWireframe extends StatelessWidget {
                       ? const TextStyle(fontStyle: FontStyle.italic)
                       : null,
                 ),
-                subtitle: Text('posición ${u.posicion}'),
+                subtitle: Text('posición ${u.posicion} · loc ${u.loc}'),
                 onTap: () => Navigator.pop(context),
               ),
           ],
