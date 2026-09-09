@@ -454,7 +454,7 @@ class _EditorWireframe extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('Unidad · posición ${unit.posicion}'),
+      title: Text('Posición ${unit.posicion} · Loc ${unit.loc}'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,

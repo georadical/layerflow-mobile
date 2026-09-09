@@ -617,7 +617,12 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       // posicion is shown, never editable (BR1).
-      title: Text('Unidad · posición ${widget.row.posicion}'),
+      // Same rule as the picker: the loc shown is the row's effective one
+      // (anchorLoc), so a never-synced row reads the value it will get.
+      title: Text(
+        'Posición ${widget.row.posicion} · '
+        'Loc ${CaptureRepository.anchorLoc(widget.row)}',
+      ),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
