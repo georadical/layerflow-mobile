@@ -11,7 +11,7 @@ library;
 class PlacaItemRequest {
   const PlacaItemRequest({
     required this.clientId,
-    required this.orden,
+    required this.posicion,
     this.placa,
     this.manzanaCatastral,
     this.tipoAcceso,
@@ -20,7 +20,7 @@ class PlacaItemRequest {
   });
 
   final String clientId;
-  final int orden;
+  final int posicion;
   final String? placa;
   final String? manzanaCatastral;
   final String? tipoAcceso;
@@ -33,7 +33,7 @@ class PlacaItemRequest {
 
   Map<String, dynamic> toJson() => {
         'client_id': clientId,
-        'orden': orden,
+        'posicion': posicion,
         // placa is optional: null is sent when blank (the server allows it).
         'placa': placa,
         if (manzanaCatastral != null) 'manzana_catastral': manzanaCatastral,
@@ -207,7 +207,7 @@ class AssignedRoutes {
 class RouteFrameItem {
   const RouteFrameItem({
     required this.clientId,
-    required this.orden,
+    required this.posicion,
     this.loc,
     this.placa,
     this.manzanaCatastral,
@@ -215,7 +215,7 @@ class RouteFrameItem {
   });
 
   final String clientId;
-  final int orden;
+  final int posicion;
   final int? loc;
   final String? placa;
   final String? manzanaCatastral;
@@ -227,7 +227,9 @@ class RouteFrameItem {
   factory RouteFrameItem.fromJson(Map<String, dynamic> json) {
     return RouteFrameItem(
       clientId: json['client_id'] as String,
-      orden: (json['orden'] as num).toInt(),
+      // Compatibility window: the frame emits both keys today; old cached
+      // payloads may carry only the deprecated alias.
+      posicion: ((json['posicion'] ?? json['orden']) as num).toInt(),
       loc: (json['loc'] as num?)?.toInt(),
       placa: json['placa'] as String?,
       manzanaCatastral: json['manzana_catastral'] as String?,

@@ -53,7 +53,7 @@ class SyncService {
         for (final c in pending)
           PlacaItemRequest(
             clientId: c.clientId,
-            orden: c.orden,
+            posicion: c.posicion,
             placa: c.placa,
             manzanaCatastral: c.manzanaCatastral,
             tipoAcceso: c.tipoAcceso,

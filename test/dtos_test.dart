@@ -6,7 +6,7 @@ void main() {
     test('INVARIANT: never carries coordinates', () {
       final json = const PlacaItemRequest(
         clientId: 'abc',
-        orden: 1,
+        posicion: 1,
         placa: 'C 5 1 11',
         manzanaCatastral: '001',
         tipoAcceso: 'puerta_calle',
@@ -23,7 +23,8 @@ void main() {
     });
 
     test('placa is sent as null when blank', () {
-      final json = const PlacaItemRequest(clientId: 'abc', orden: 1).toJson();
+      final json =
+          const PlacaItemRequest(clientId: 'abc', posicion: 1).toJson();
       expect(json.containsKey('placa'), isTrue);
       expect(json['placa'], isNull);
       // Absent optional fields are not serialized.
@@ -31,10 +32,11 @@ void main() {
       expect(json.containsKey('tipo_acceso'), isFalse);
     });
 
-    test('maps client_id and orden using the contract snake_case', () {
-      final json = const PlacaItemRequest(clientId: 'xyz', orden: 3).toJson();
+    test('maps client_id and posicion using the contract snake_case', () {
+      final json =
+          const PlacaItemRequest(clientId: 'xyz', posicion: 3).toJson();
       expect(json['client_id'], 'xyz');
-      expect(json['orden'], 3);
+      expect(json['posicion'], 3);
     });
   });
 
@@ -71,7 +73,7 @@ void main() {
         'items': [
           {
             'client_id': 'abc',
-            'orden': 1,
+            'posicion': 1,
             'loc': 5,
             'placa': 'C 5 1 11',
             'manzana_catastral': '001',
@@ -80,7 +82,7 @@ void main() {
       });
       expect(frame.routeId, 'r1');
       expect(frame.codigo, '10');
-      expect(frame.items.single.orden, 1);
+      expect(frame.items.single.posicion, 1);
       expect(frame.items.single.loc, 5);
     });
   });
@@ -166,21 +168,40 @@ void main() {
     test('request serialises a mark, 0 included; omits only null', () {
       // 0 is a real value — start of route — never conflated with "no mark".
       final start =
-          const PlacaItemRequest(clientId: 'a', orden: 1, insAfter: 0).toJson();
+          const PlacaItemRequest(clientId: 'a', posicion: 1, insAfter: 0)
+              .toJson();
       expect(start['ins_after'], 0);
 
-      final none = const PlacaItemRequest(clientId: 'b', orden: 2).toJson();
+      final none = const PlacaItemRequest(clientId: 'b', posicion: 2).toJson();
       expect(none.containsKey('ins_after'), isFalse);
+    });
+
+    test('frame item reads posicion, falling back to the deprecated alias', () {
+      // Compatibility window (backend edf0f4f): the frame emits both keys.
+      final both = RouteFrameItem.fromJson(
+          {'client_id': 'a', 'posicion': 2, 'orden': 2, 'loc': 10});
+      expect(both.posicion, 2);
+
+      // An old payload (or cache) may still carry only the alias.
+      final aliasOnly =
+          RouteFrameItem.fromJson({'client_id': 'b', 'orden': 4, 'loc': 20});
+      expect(aliasOnly.posicion, 4);
+    });
+
+    test('the request sends posicion, never the deprecated key', () {
+      final json = const PlacaItemRequest(clientId: 'a', posicion: 3).toJson();
+      expect(json['posicion'], 3);
+      expect(json.containsKey('orden'), isFalse);
     });
 
     test('frame item parses ins_after, and its absence, as the server sends it',
         () {
       final marked = RouteFrameItem.fromJson(
-          {'client_id': 'a', 'orden': 6, 'loc': 30, 'ins_after': 10});
+          {'client_id': 'a', 'posicion': 6, 'loc': 30, 'ins_after': 10});
       expect(marked.insAfter, 10);
 
       final clean = RouteFrameItem.fromJson(
-          {'client_id': 'b', 'orden': 1, 'loc': 5, 'ins_after': null});
+          {'client_id': 'b', 'posicion': 1, 'loc': 5, 'ins_after': null});
       expect(clean.insAfter, isNull);
     });
   });

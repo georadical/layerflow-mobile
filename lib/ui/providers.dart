@@ -245,7 +245,7 @@ final pendingCountProvider = Provider.family<int, String>((ref, routeId) {
   return rows.where((c) => c.syncStatus != AppConfig.syncSynced).length;
 });
 
-/// Stream of a route's captures (sorted by `orden`).
+/// Stream of a route's captures (sorted by `posicion`).
 final capturesProvider =
     StreamProvider.family<List<Capture>, String>((ref, routeId) {
   return ref.watch(captureRepositoryProvider).watchCaptures(routeId);

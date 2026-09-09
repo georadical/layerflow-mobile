@@ -11,8 +11,8 @@ import 'package:flutter/material.dart';
 /// recedes to theme-muted secondary text.
 ///
 /// Spec anchors (specs/open-and-resume-route.md):
-/// - BR4 order is `loc` ascending (loc = orden * 5, assigned by the backend).
-/// - BR5 the address (`placa`) is the protagonist; orden/loc are secondary
+/// - BR4 order is `loc` ascending (loc = posicion * 5, assigned by the backend).
+/// - BR5 the address (`placa`) is the protagonist; posicion/loc are secondary
 ///   metadata. A null placa renders as "Sin dirección aún".
 /// - Empty frame is a normal state, not an error.
 /// - Local `pending`/`error` rows are preserved and marked as not-yet-sent.
@@ -25,7 +25,7 @@ enum UnitSync { synced, pending, error }
 /// Dummy row for the wireframe. Mirrors the shape of the merged local row.
 class WireframeUnit {
   const WireframeUnit({
-    required this.orden,
+    required this.posicion,
     required this.loc,
     this.placa,
     this.manzana,
@@ -34,7 +34,7 @@ class WireframeUnit {
     this.insAfterAnchor,
   });
 
-  final int orden;
+  final int posicion;
   final int loc;
   final String? placa;
   final String? manzana;
@@ -332,7 +332,7 @@ class _QueueBar extends StatelessWidget {
   }
 }
 
-/// One captured unit. The address leads; orden/loc are secondary metadata.
+/// One captured unit. The address leads; posicion/loc are secondary metadata.
 class _UnitTile extends StatelessWidget {
   const _UnitTile({required this.unit});
 
@@ -345,7 +345,7 @@ class _UnitTile extends StatelessWidget {
 
     // Secondary metadata line: the code nobody speaks in the field.
     final meta = <String>[
-      'orden ${unit.orden}',
+      'posición ${unit.posicion}',
       'loc ${unit.loc}',
       if (unit.manzana != null) 'mz ${unit.manzana}',
     ].join(' · ');
@@ -443,7 +443,7 @@ class _UnitTile extends StatelessWidget {
 
 /// WIREFRAME — Spec 1.1 editor. Plain fields, no styling of its own.
 ///
-/// `orden` is shown but never editable (BR1): it is the walking order, and
+/// `posicion` is shown but never editable (BR1): it is the walking order, and
 /// letting it be typed would break the append-only sequence the backend turns
 /// into `loc`.
 class _EditorWireframe extends StatelessWidget {
@@ -454,7 +454,7 @@ class _EditorWireframe extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('Unidad · orden ${unit.orden}'),
+      title: Text('Unidad · posición ${unit.posicion}'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -504,7 +504,7 @@ class _EditorWireframe extends StatelessWidget {
             // because it is the answer to the question that note raises.
             _RelocateRow(anchor: unit.insAfterAnchor),
             const SizedBox(height: 12),
-            const Text('El orden no se puede cambiar (append-only).'),
+            const Text('La posición no se puede cambiar (append-only).'),
           ],
         ),
       ),
@@ -587,7 +587,7 @@ class _AnchorPickerWireframe extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     // The unit being moved is excluded from its own picker.
-    final candidates = relocationUnits.where((u) => u.orden != 6).toList();
+    final candidates = relocationUnits.where((u) => u.posicion != 6).toList();
 
     return AlertDialog(
       title: const Text('¿Después de cuál va?'),
@@ -610,7 +610,7 @@ class _AnchorPickerWireframe extends StatelessWidget {
                       ? const TextStyle(fontStyle: FontStyle.italic)
                       : null,
                 ),
-                subtitle: Text('orden ${u.orden}'),
+                subtitle: Text('posición ${u.posicion}'),
                 onTap: () => Navigator.pop(context),
               ),
           ],
@@ -678,23 +678,27 @@ class _PendingBadge extends StatelessWidget {
 /// Dummy frame with everything already sent: mixed addresses and a blank
 /// placa, so the address hierarchy can be judged on its own.
 const wireframeDummyUnits = <WireframeUnit>[
-  WireframeUnit(orden: 1, loc: 5, placa: 'Calle 5 # 12-34', manzana: '001'),
-  WireframeUnit(orden: 2, loc: 10, placa: 'Calle 5 # 12-40', manzana: '001'),
-  WireframeUnit(orden: 3, loc: 15, manzana: '001'),
-  WireframeUnit(orden: 4, loc: 20, placa: 'Carrera 8 # 5-11', manzana: '002'),
-  WireframeUnit(orden: 5, loc: 25, placa: 'Carrera 8 # 5-19', manzana: '002'),
+  WireframeUnit(posicion: 1, loc: 5, placa: 'Calle 5 # 12-34', manzana: '001'),
+  WireframeUnit(posicion: 2, loc: 10, placa: 'Calle 5 # 12-40', manzana: '001'),
+  WireframeUnit(posicion: 3, loc: 15, manzana: '001'),
+  WireframeUnit(
+      posicion: 4, loc: 20, placa: 'Carrera 8 # 5-11', manzana: '002'),
+  WireframeUnit(
+      posicion: 5, loc: 25, placa: 'Carrera 8 # 5-19', manzana: '002'),
 ];
 
-/// Dummy frame for Spec 2.1: a house captured last (orden 6) and marked to go
+/// Dummy frame for Spec 2.1: a house captured last (posicion 6) and marked to go
 /// after the first one — the missed-house case, with the walk order untouched.
 const relocationUnits = <WireframeUnit>[
-  WireframeUnit(orden: 1, loc: 5, placa: 'Calle 5 # 12-34', manzana: '001'),
-  WireframeUnit(orden: 2, loc: 10, placa: 'Calle 5 # 12-40', manzana: '001'),
-  WireframeUnit(orden: 3, loc: 15, manzana: '001'),
-  WireframeUnit(orden: 4, loc: 20, placa: 'Carrera 8 # 5-11', manzana: '002'),
-  WireframeUnit(orden: 5, loc: 25, placa: 'Carrera 8 # 5-19', manzana: '002'),
+  WireframeUnit(posicion: 1, loc: 5, placa: 'Calle 5 # 12-34', manzana: '001'),
+  WireframeUnit(posicion: 2, loc: 10, placa: 'Calle 5 # 12-40', manzana: '001'),
+  WireframeUnit(posicion: 3, loc: 15, manzana: '001'),
   WireframeUnit(
-    orden: 6,
+      posicion: 4, loc: 20, placa: 'Carrera 8 # 5-11', manzana: '002'),
+  WireframeUnit(
+      posicion: 5, loc: 25, placa: 'Carrera 8 # 5-19', manzana: '002'),
+  WireframeUnit(
+    posicion: 6,
     loc: 30,
     placa: 'Calle 5 # 12-36',
     manzana: '001',
@@ -706,27 +710,27 @@ const relocationUnits = <WireframeUnit>[
 /// Dummy frame with a queue: two rows waiting and one the server refused, the
 /// partial-success case Spec 3 treats as normal (A1, A2).
 const queuedUnits = <WireframeUnit>[
-  WireframeUnit(orden: 1, loc: 5, placa: 'Calle 5 # 12-34', manzana: '001'),
-  WireframeUnit(orden: 2, loc: 10, placa: 'Calle 5 # 12-40', manzana: '001'),
+  WireframeUnit(posicion: 1, loc: 5, placa: 'Calle 5 # 12-34', manzana: '001'),
+  WireframeUnit(posicion: 2, loc: 10, placa: 'Calle 5 # 12-40', manzana: '001'),
   WireframeUnit(
-    orden: 3,
+    posicion: 3,
     loc: 15,
     placa: 'Calle 5 # 12-48',
     manzana: '001',
     sync: UnitSync.pending,
   ),
   WireframeUnit(
-    orden: 4,
+    posicion: 4,
     loc: 20,
     manzana: '002',
     sync: UnitSync.pending,
   ),
   WireframeUnit(
-    orden: 5,
+    posicion: 5,
     loc: 25,
     placa: 'Carrera 8 # 5-19',
     manzana: '002',
     sync: UnitSync.error,
-    syncError: 'Ya existe una unidad con ese orden en la ruta.',
+    syncError: 'Ya existe una unidad en esa posición de la ruta.',
   ),
 ];

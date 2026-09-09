@@ -260,7 +260,7 @@ void main() {
 
     final api = _FakeApi(
       respond: (b) => _response([
-        for (final i in b.items) _ok(i.clientId, i.orden * 5),
+        for (final i in b.items) _ok(i.clientId, i.posicion * 5),
       ]),
     );
     await SyncService(api, repo).pushPending(routeId);

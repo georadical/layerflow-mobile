@@ -384,7 +384,7 @@ class _UnitTile extends ConsumerWidget {
     final queued = row.syncStatus == AppConfig.syncPending;
 
     final meta = <String>[
-      'orden ${row.orden}',
+      'posición ${row.posicion}',
       if (row.loc != null) 'loc ${row.loc}',
       if (row.manzanaCatastral != null) 'mz ${row.manzanaCatastral}',
     ].join(' · ');
@@ -474,7 +474,7 @@ class _UnitTile extends ConsumerWidget {
     );
   }
 
-  /// Edits the unit's attributes. `orden` is shown but never editable (BR1):
+  /// Edits the unit's attributes. `posicion` is shown but never editable (BR1):
   /// it is the walking order the backend turns into `loc`.
   ///
   /// Saving marks the row `pending`; the push is idempotent by `client_id`, so
@@ -516,7 +516,9 @@ String _anchorLabel(List<Capture> rows, String excludeClientId, int target) {
     if (r.clientId == excludeClientId) continue;
     if (CaptureRepository.anchorLoc(r) == target) {
       final placa = r.placa?.trim();
-      return (placa == null || placa.isEmpty) ? 'la unidad ${r.orden}' : placa;
+      return (placa == null || placa.isEmpty)
+          ? 'la unidad ${r.posicion}'
+          : placa;
     }
   }
   // Anchor not on this device: set elsewhere, or dangling after a rejection.
@@ -584,7 +586,7 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
     );
     if (choice == null || !mounted) return;
     if (choice.loc > 9999) {
-      // Cannot happen through normal routes (loc 9999 = orden ~2000), but one
+      // Cannot happen through normal routes (loc 9999 = posicion ~2000), but one
       // bad value would cost the whole batch a 422 (BR6).
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Esa unidad queda fuera del rango permitido.')));
@@ -615,8 +617,8 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      // orden is shown, never editable (BR1).
-      title: Text('Unidad · orden ${widget.row.orden}'),
+      // posicion is shown, never editable (BR1).
+      title: Text('Unidad · posición ${widget.row.posicion}'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -678,7 +680,7 @@ class _EditUnitDialogState extends State<_EditUnitDialog> {
               }),
             ),
             const SizedBox(height: 12),
-            const Text('El orden no se puede cambiar (append-only).'),
+            const Text('La posición no se puede cambiar (append-only).'),
           ],
         ),
       ),
@@ -768,7 +770,7 @@ class _RelocateRow extends StatelessWidget {
   }
 }
 
-/// Anchor picker. The worker points at a unit — placa and orden on show —
+/// Anchor picker. The worker points at a unit — placa and posicion on show —
 /// and the loc that travels as `ins_after` is derived (BR1/BR2). There is no
 /// numeric field anywhere.
 class _AnchorPicker extends StatelessWidget {
@@ -803,7 +805,7 @@ class _AnchorPicker extends StatelessWidget {
                       ? null
                       : const TextStyle(fontStyle: FontStyle.italic),
                 ),
-                subtitle: Text('orden ${r.orden}'),
+                subtitle: Text('posición ${r.posicion}'),
                 onTap: () => Navigator.pop(
                   context,
                   _AnchorChoice(

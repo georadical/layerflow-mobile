@@ -75,7 +75,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (list) {
           final last = list.isEmpty ? null : list.last;
-          final nextOrden = (last?.orden ?? 0) + 1;
+          final nextPosicion = (last?.posicion ?? 0) + 1;
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -88,7 +88,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   children: [
                     Chip(
                       avatar: const Icon(Icons.tag, size: 18),
-                      label: Text('Siguiente orden: $nextOrden'),
+                      label: Text('Siguiente posición: $nextPosicion'),
                     ),
                   ],
                 ),
@@ -194,7 +194,7 @@ class _LastCaptureCard extends StatelessWidget {
         child: const Padding(
           padding: EdgeInsets.all(16),
           child: Text('Aún no hay capturas en esta ruta. '
-              'La primera será orden 1.'),
+              'La primera será la posición 1.'),
         ),
       );
     }
@@ -206,7 +206,7 @@ class _LastCaptureCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Última capturada · orden ${last!.orden} · total $total',
+            Text('Última capturada · posición ${last!.posicion} · total $total',
                 style: Theme.of(context).textTheme.labelMedium),
             const SizedBox(height: 4),
             Text(

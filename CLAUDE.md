@@ -56,7 +56,7 @@ Contrato POST `/field/capture/placas` (request):
   "batch_id": "<uuid del lote, generado por la app>",
   "items": [
     { "client_id": "<uuid v4 POR UNIDAD, estable entre reintentos>",
-      "orden": 1, "placa": "12-34", "manzana_catastral": "001",
+      "posicion": 1, "placa": "12-34", "manzana_catastral": "001",
       "tipo_acceso": "porton", "observacion": "texto" }
   ]
 }
@@ -65,7 +65,8 @@ Respuesta: `{ batch_id, route_id, total, created, updated, errores, items:[{clie
 
 ## Invariantes de Dominio (respeta el contrato — no reinventar)
 - **Coordinate-free:** ningún request/response/almacenamiento lleva coordenadas.
-- **Orden estricto:** `orden` entero ≥ 1; `loc = orden × 5` (lo fija el backend).
+- **Orden estricto:** `posicion` entero ≥ 1; `loc = posicion × 5` (lo fija el
+  backend). Renombrado de `orden` (alias deprecado, ventana de compatibilidad).
 - **PH/PV:** siempre `00` en esta captura (los fija el backend).
 - **Idempotencia:** `client_id` es un **UUID por unidad, estable entre reintentos**.
   Reenviar el mismo `client_id` **actualiza**, nunca duplica → la cola offline puede
@@ -143,7 +144,9 @@ dart format .              # formatear
 - **Ruta (route):** unidad operativa del recorrido; se identifica por `codigo` y `route_id`.
 - **census_code:** unidad/usuario del censo que crea el backend con cada placa (`Ruta+Loc+PH+PV`).
 - **placa:** número/placa del predio capturado en campo (texto crudo).
-- **loc (localizacion):** secuencial en orden de recorrido; `loc = orden × 5`.
+- **loc (localizacion):** secuencial en orden de recorrido; `loc = posicion × 5`.
+- **posicion:** contador de recorrido por ruta (1, 2, 3…), append-only; antes
+  llamado `orden` en el contrato.
 - **client_id:** UUID por unidad generado por la app; llave de idempotencia.
 - **batch_id:** UUID del lote de push generado por la app.
 ```

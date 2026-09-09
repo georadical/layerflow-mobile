@@ -24,7 +24,7 @@ Future<AppDatabase?> _tryMemoryDb() async {
 void main() {
   const routeId = 'route-1';
 
-  test('append: orden is monotonic and starts at 1', () async {
+  test('append: posicion is monotonic and starts at 1', () async {
     final db = await _tryMemoryDb();
     if (db == null) {
       markTestSkipped('native sqlite3 not available on the host');
@@ -38,11 +38,11 @@ void main() {
     await repo.appendCapture(routeId: routeId, placa: 'C');
 
     final rows = await repo.capturesForRoute(routeId);
-    expect(rows.map((c) => c.orden), [1, 2, 3]);
+    expect(rows.map((c) => c.posicion), [1, 2, 3]);
     expect(rows.map((c) => c.placa), ['A', 'B', 'C']);
   });
 
-  test('editing does not change orden and re-marks as pending', () async {
+  test('editing does not change posicion and re-marks as pending', () async {
     final db = await _tryMemoryDb();
     if (db == null) {
       markTestSkipped('native sqlite3 not available on the host');
@@ -56,7 +56,7 @@ void main() {
     await repo.editCapture(clientId: id, placa: 'A corregida');
 
     final row = (await repo.capturesForRoute(routeId)).single;
-    expect(row.orden, 1);
+    expect(row.posicion, 1);
     expect(row.placa, 'A corregida');
     expect(row.syncStatus, 'pending');
   });
@@ -77,7 +77,7 @@ void main() {
 
   test(
       'mergeFrame resumes server items without duplicating and continues '
-      'the orden', () async {
+      'the posicion', () async {
     final db = await _tryMemoryDb();
     if (db == null) {
       markTestSkipped('native sqlite3 not available on the host');
@@ -91,8 +91,8 @@ void main() {
       routeId: routeId,
       codigo: '10',
       items: [
-        RouteFrameItem(clientId: 's1', orden: 1, loc: 5, placa: 'C 5 1 11'),
-        RouteFrameItem(clientId: 's2', orden: 2, loc: 10, placa: 'C 5 1 15'),
+        RouteFrameItem(clientId: 's1', posicion: 1, loc: 5, placa: 'C 5 1 11'),
+        RouteFrameItem(clientId: 's2', posicion: 2, loc: 10, placa: 'C 5 1 15'),
       ],
     ));
 
@@ -100,14 +100,14 @@ void main() {
     expect(rows.length, 2);
     expect(rows.every((c) => c.syncStatus == 'synced'), isTrue);
 
-    // The next local capture must be orden 3 (append after resuming).
-    expect(await repo.nextOrden(routeId), 3);
+    // The next local capture must be posicion 3 (append after resuming).
+    expect(await repo.nextPosicion(routeId), 3);
 
     // Re-merge of the same frame: idempotent (no duplicates).
     await repo.mergeFrame(const RouteFrame(
       routeId: routeId,
       items: [
-        RouteFrameItem(clientId: 's1', orden: 1, loc: 5, placa: 'C 5 1 11'),
+        RouteFrameItem(clientId: 's1', posicion: 1, loc: 5, placa: 'C 5 1 11'),
       ],
     ));
     rows = await repo.capturesForRoute(routeId);
@@ -127,7 +127,7 @@ void main() {
     await repo.mergeFrame(const RouteFrame(
       routeId: routeId,
       items: [
-        RouteFrameItem(clientId: 's1', orden: 1, loc: 5, placa: 'SERVER'),
+        RouteFrameItem(clientId: 's1', posicion: 1, loc: 5, placa: 'SERVER'),
       ],
     ));
 
@@ -137,13 +137,14 @@ void main() {
     expect(local.syncStatus, 'pending');
   });
 
-  test('anchorLoc: stored loc wins; orden*5 only for a never-synced row', () {
-    // Office already relocated this one: its loc is NOT orden*5 any more.
-    // A blanket orden*5 here would point the mark at the wrong place.
+  test('anchorLoc: stored loc wins; posicion*5 only for a never-synced row',
+      () {
+    // Office already relocated this one: its loc is NOT posicion*5 any more.
+    // A blanket posicion*5 here would point the mark at the wrong place.
     final moved = Capture(
       clientId: 'a',
       routeId: routeId,
-      orden: 2,
+      posicion: 2,
       loc: 7,
       syncStatus: AppConfig.syncSynced,
       createdAt: DateTime(2026),
@@ -154,7 +155,7 @@ void main() {
     final neverSynced = Capture(
       clientId: 'b',
       routeId: routeId,
-      orden: 3,
+      posicion: 3,
       syncStatus: AppConfig.syncPending,
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
@@ -197,7 +198,7 @@ void main() {
     await repo.mergeFrame(const RouteFrame(
       routeId: routeId,
       items: [
-        RouteFrameItem(clientId: 's1', orden: 1, loc: 5, insAfter: 10),
+        RouteFrameItem(clientId: 's1', posicion: 1, loc: 5, insAfter: 10),
       ],
     ));
     expect((await repo.capturesForRoute(routeId)).single.insAfter, 10);
@@ -206,7 +207,7 @@ void main() {
     await repo.mergeFrame(const RouteFrame(
       routeId: routeId,
       items: [
-        RouteFrameItem(clientId: 's1', orden: 1, loc: 15),
+        RouteFrameItem(clientId: 's1', posicion: 1, loc: 15),
       ],
     ));
     final row = (await repo.capturesForRoute(routeId)).single;
@@ -247,21 +248,21 @@ void main() {
     // A synced unit the worker then edits and marks (now pending, unsent).
     await repo.mergeFrame(const RouteFrame(
       routeId: routeId,
-      items: [RouteFrameItem(clientId: 'u1', orden: 6, loc: 30, placa: 'X')],
+      items: [RouteFrameItem(clientId: 'u1', posicion: 6, loc: 30, placa: 'X')],
     ));
     await repo.editCapture(clientId: 'u1', placa: 'X corregida');
     await repo.setInsAfter(clientId: 'u1', insAfter: 5);
 
     // The office applies a shift meanwhile: the unit comes back at a new
-    // position. Re-pushing the stale orden 6 would collide with whichever
+    // position. Re-pushing the stale posicion 6 would collide with whichever
     // unit now holds loc 30 — on every retry, forever.
     await repo.mergeFrame(const RouteFrame(
       routeId: routeId,
-      items: [RouteFrameItem(clientId: 'u1', orden: 2, loc: 10, placa: 'X')],
+      items: [RouteFrameItem(clientId: 'u1', posicion: 2, loc: 10, placa: 'X')],
     ));
 
     final row = (await repo.capturesForRoute(routeId)).single;
-    expect(row.orden, 2, reason: 'position belongs to the server');
+    expect(row.posicion, 2, reason: 'position belongs to the server');
     expect(row.loc, 10);
     expect(row.placa, 'X corregida',
         reason: 'unsent content belongs to the worker');

@@ -1,7 +1,7 @@
 # Census field operations — faro roadmap (coordinate-free)
 
 > **Copy — source of truth lives in the backend repo:**
-> `layerflow/docs/census-field-operations.md` @ `b46e020`
+> `layerflow/docs/census-field-operations.md` @ `edf0f4f`
 > (branch `feature/extended-census`). Update the pinned commit when the
 > backend announces a doctrine change; do not edit doctrine here.
 

@@ -6,8 +6,8 @@ import '../api/dtos.dart';
 import '../db/database.dart';
 
 /// Capture repository. Sole owner of the domain invariants:
-/// - generates `clientId` (UUID) and the append-only `orden`;
-/// - never reorders or reassigns `orden`;
+/// - generates `clientId` (UUID) and the append-only `posicion`;
+/// - never reorders or reassigns `posicion`;
 /// - edits (placa/tipo_acceso/observacion) mark the row as `pending`
 ///   (idempotent re-send to the backend).
 class CaptureRepository {
@@ -22,7 +22,7 @@ class CaptureRepository {
   Future<List<Capture>> capturesForRoute(String routeId) =>
       _db.capturesForRoute(routeId);
 
-  Future<int> nextOrden(String routeId) => _db.nextOrden(routeId);
+  Future<int> nextPosicion(String routeId) => _db.nextPosicion(routeId);
 
   Future<Capture?> lastCapture(String routeId) async {
     final rows = await _db.capturesForRoute(routeId);
@@ -31,7 +31,7 @@ class CaptureRepository {
 
   /// Appends a capture at the end (append-only). Returns the new `clientId`.
   ///
-  /// It does NOT take `orden`: the repository computes it as max(orden)+1 to
+  /// It does NOT take `posicion`: the repository computes it as max(posicion)+1 to
   /// prevent arbitrary reordering from the UI.
   Future<String> appendCapture({
     required String routeId,
@@ -42,13 +42,13 @@ class CaptureRepository {
   }) async {
     final now = DateTime.now();
     final clientId = _uuid.v4();
-    final orden = await _db.nextOrden(routeId);
+    final posicion = await _db.nextPosicion(routeId);
 
     await _db.insertCapture(
       CapturesCompanion.insert(
         clientId: clientId,
         routeId: routeId,
-        orden: orden,
+        posicion: posicion,
         placa: Value(_nullIfBlank(placa)),
         manzanaCatastral: Value(_nullIfBlank(manzanaCatastral)),
         tipoAcceso: Value(_nullIfBlank(tipoAcceso)),
@@ -61,7 +61,7 @@ class CaptureRepository {
     return clientId;
   }
 
-  /// Edits the attributes of an existing capture. It does NOT touch `orden`
+  /// Edits the attributes of an existing capture. It does NOT touch `posicion`
   /// (append-only) and re-marks it `pending` for re-sending (the backend
   /// updates in place). `insAfter` is deliberately absent from the patch:
   /// correcting a placa must never drop a relocation mark (Spec 2.1, A3).
@@ -88,12 +88,12 @@ class CaptureRepository {
 
   /// The loc that identifies [anchor] as an `ins_after` target.
   ///
-  /// The stored `loc` when the row has one; `orden × 5` only for a row that
+  /// The stored `loc` when the row has one; `posicion × 5` only for a row that
   /// has never synced — correct because the backend assigns exactly that in
-  /// the same batch. A blanket `orden × 5` would be wrong for any unit the
+  /// the same batch. A blanket `posicion × 5` would be wrong for any unit the
   /// office already relocated, which is precisely the population this feature
   /// creates (Spec 2.1, BR2).
-  static int anchorLoc(Capture anchor) => anchor.loc ?? anchor.orden * 5;
+  static int anchorLoc(Capture anchor) => anchor.loc ?? anchor.posicion * 5;
 
   /// Marks [clientId] as belonging after [insAfter] (a loc; 0 = start of
   /// route) and re-queues it. Range-guarded here because one bad value costs
@@ -183,7 +183,7 @@ class CaptureRepository {
           CapturesCompanion.insert(
             clientId: item.clientId,
             routeId: frame.routeId,
-            orden: item.orden,
+            posicion: item.posicion,
             placa: Value(item.placa),
             manzanaCatastral: Value(item.manzanaCatastral),
             loc: Value(item.loc),
@@ -197,7 +197,7 @@ class CaptureRepository {
         await _db.updateCaptureRow(
           item.clientId,
           CapturesCompanion(
-            orden: Value(item.orden),
+            posicion: Value(item.posicion),
             placa: Value(item.placa),
             manzanaCatastral: Value(item.manzanaCatastral),
             loc: Value(item.loc),
@@ -210,16 +210,16 @@ class CaptureRepository {
         );
       } else {
         // Local pending/error: the worker's edits (placa, tipo, observacion,
-        // the relocation mark) and the sync state are preserved — but orden
+        // the relocation mark) and the sync state are preserved — but posicion
         // and loc are the server's even here. Found live: the office applied
         // a shift between our pull and our push, every unit moved, and the
-        // stale local orden collided with another unit's loc on every retry,
+        // stale local posicion collided with another unit's loc on every retry,
         // forever. Position belongs to the server; content belongs to the
         // worker until sent.
         await _db.updateCaptureRow(
           item.clientId,
           CapturesCompanion(
-            orden: Value(item.orden),
+            posicion: Value(item.posicion),
             loc: Value(item.loc),
             updatedAt: Value(now),
           ),
