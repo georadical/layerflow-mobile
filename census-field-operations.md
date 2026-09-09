@@ -1,5 +1,10 @@
 # Census field operations — faro roadmap (coordinate-free)
 
+> **Copy — source of truth lives in the backend repo:**
+> `layerflow/docs/census-field-operations.md` @ `b46e020`
+> (branch `feature/extended-census`). Update the pinned commit when the
+> backend announces a doctrine change; do not edit doctrine here.
+
 Decisions that govern how the census is planned and captured in the faro project
 (Isnos). This is the operational counterpart to the data specs
 (`specs/cadastral-reference-r1.md`, `specs/npn-matching-engine.md`). It records the
@@ -54,8 +59,25 @@ do not bake `loc` while still validating.
 - **Invariant:** the capture order must be **faithful and append-only**, enforced
   by the **app**, not by the worker's memory. If the app allows free reorder, the
   inference corrupts.
-- The **gaps of 5** exist precisely to **insert** a missed domicile (a 7 or 8
-  between 5 and 10) **without renumbering** the rest.
+- The gaps of 5 exist to absorb the cadastre's **future life** — subdivisions,
+  remodelings, new units — by inserting (a 7 or 8 between 5 and 10) **without
+  renumbering** the rest.
+
+### Renumbering — two windows (DECIDED 2026-09)
+"Never renumber" applies to the field and to the published cadastre — NOT to
+the office while the codes are still private:
+- **Field (during capture): never.** The app stays append-only; a skipped
+  house is captured at the end with a typed `ins_after` flag (v2; the v1
+  `[ins:after=N]` text token is deprecated).
+- **Office (reconciliation window — before NPN matching / extended survey /
+  any external use): shift-insert allowed.** The skipped unit is placed at its
+  true position and the in-between stretch shifts +5 (census-loc-shift-insert
+  spec). Identity lives in the row UUID/client_id, so nothing downstream
+  breaks; the endpoint refuses the shift once any affected code is NPN-matched
+  or bridge-linked. Several pending insertions apply in descending-after order
+  (BR10).
+- **Post-census (lifecycle): never again.** Codes are official; insertions use
+  the gaps (a 7 between 5 and 10). Renumbering is forbidden.
 
 ## 4. Survey pass UX (surveyor)
 - Forms are **pre-loaded per captured placa/loc** and **unlock in strict order** as
