@@ -56,12 +56,14 @@ notice a missed house.
   express an insert, the procedure below stands in for it.
 - **Cascade shifting to fake an insert** — appending a row and moving every
   address one position forward until the gap lands where the missed house goes.
-  It works mechanically and renumbers nothing, but it moves the houses *between*
-  the identifiers: `loc` 25 stops meaning one address and starts meaning
-  another. Anything already linked to that `census_code` (the NPN matcher, an
-  observation, a meter) then points at the wrong house. It is also O(n) manual
-  edits in the street, where a single slip silently swaps two houses, and it
-  re-queues rows the server had already confirmed.
+  It works mechanically and renumbers nothing, and that is exactly the problem:
+  each row keeps its identity while its **contents** change, so the row the NPN
+  matcher, an observation or a meter is attached to silently becomes a
+  different house. Note the asymmetry with what the office does — moving a
+  row's `loc` is safe, because downstream links hang off the row itself and
+  the row keeps its address; moving addresses *between* rows is what corrupts.
+  It is also O(n) manual edits in the street, where a single slip silently
+  swaps two houses, and it re-queues rows the server had already confirmed.
 - **Simultaneous capture by titular and pareja on one route.** `orden` is a
   route-global counter that also encodes physical walk order; two devices each
   computing `max + 1` collide by construction, and the server rejects one item

@@ -38,6 +38,32 @@ typing a number and without touching any unit already captured.
 ### `GET /field/capture/route/{route_id}` — frame items now carry `ins_after`
 Used on resume to show which units are still awaiting relocation.
 
+### Confirmed by the backend (answers to the review questions)
+- **`ins_after` is a `loc`**, not an `orden`. The instruction that said to
+  compute `orden × 5` was wrong; that form holds only for a row never synced,
+  inside the same batch. The rule in BR2 is the correct one.
+- **Server-side safety net**: applying the shift validates the anchor against
+  the *current* locs. A vanished anchor answers 400 rather than inserting in
+  the wrong place.
+- **Two renumbering windows** (`census-field-operations.md`, "Renumbering — two
+  windows", DECIDED 2026-09, backend commit `b46e020` — **not yet in this
+  checkout**): during reconciliation the office renumbers to keep the sequence
+  clean at ×5; after the census it never renumbers and the gaps are reserved
+  for new buildings. Either way the app reads the frame, so neither affects it.
+- **Renumbering does not drag downstream links.** The matcher, observations and
+  meters hang off the row, not off its `loc`, and the shift is refused with 409
+  if any affected row already carries an NPN or master link. This corrects an
+  assumption made while writing Spec 2.
+- **Full replacement is contract-wide, and deliberate**: an item is the row's
+  complete capture state, so a re-push without `placa` clears the placa exactly
+  as one without `ins_after` clears the mark. `ins_after` is not a special case
+  (`field-capture-api.md` BR5). Our push already sends the whole row, so it
+  complies; BR3 below is what keeps it that way.
+- **A dangling anchor is accepted on push on purpose** — it may simply not
+  exist *yet*, in a later batch — and refused only when applied. The office
+  queue flags it, and a dangling mark can **block** other pending relocations
+  with a lower anchor until it is resolved.
+
 ### Who executes the move
 **The office, never the app.** The operator applies the shift and the flag
 clears. The next frame returns the unit at its final `loc` with
@@ -102,9 +128,13 @@ The worker opens a unit and chooses "Mover localización".
 - **A4 — Removing the mark**: the row is re-pushed without `ins_after` and the
   backend clears it.
 - **A5 — Anchoring to a unit the server rejected**: the anchor never gets a
-  `loc`, so `ins_after` points at a `loc` that does not exist. The backend
-  accepts it (it is only an integer) and the office sees a dangling reference.
-  The app warns rather than blocks: the worker's intent is still information.
+  `loc`, so `ins_after` points at one that does not exist. The push accepts it
+  by design — an anchor may legitimately not exist yet — and the office queue
+  flags it, offering two ways out: the worker re-pushes the anchor and the mark
+  heals itself, or the office moves the unit manually. The app therefore
+  **warns without blocking**; the backend confirmed this is the right call.
+  Worth telling the worker plainly, because a dangling mark can hold up other
+  relocations behind it.
 - **A6 — Out-of-range value**: cannot be produced through the picker, but is
   validated before sending anyway. A single bad item would cost the **entire
   batch** a 422, so it is worth a client-side guard.
