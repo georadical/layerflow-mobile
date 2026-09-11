@@ -11,7 +11,7 @@ with a verifiable gate, a commit and explicit approval.
 | 2 | Strict-order capture (local) | [strict-order-capture.md](strict-order-capture.md) | Done — T2.1 verified on device |
 | 2.1 | Move a unit's localización | [relocate-unit.md](relocate-unit.md) | Done — verified against the backend |
 | 3 | Batch push (`POST /field/capture/placas`) | [push-captured-batch.md](push-captured-batch.md) | Done — verified against the backend |
-| 4 | Offline-first queue and retry | — | Not written |
+| 4 | Offline-first queue and retry | [offline-queue-and-retry.md](offline-queue-and-retry.md) | Approved — T4.1 in progress |
 | 5 | Field worker login | — | Backlog, see below |
 | 6 | Field worker across several ESPs | — | Backlog, see below |
 
