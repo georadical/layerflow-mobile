@@ -66,7 +66,7 @@ Respuesta: `{ batch_id, route_id, total, created, updated, errores, items:[{clie
 ## Invariantes de Dominio (respeta el contrato — no reinventar)
 - **Coordinate-free:** ningún request/response/almacenamiento lleva coordenadas.
 - **Orden estricto:** `posicion` entero ≥ 1; `loc = posicion × 5` (lo fija el
-  backend). Renombrado de `orden` (alias deprecado, ventana de compatibilidad).
+  backend). Renombrado de `orden` (alias retirado, backend `de28c1f`).
 - **PH/PV:** siempre `00` en esta captura (los fija el backend).
 - **Idempotencia:** `client_id` es un **UUID por unidad, estable entre reintentos**.
   Reenviar el mismo `client_id` **actualiza**, nunca duplica → la cola offline puede

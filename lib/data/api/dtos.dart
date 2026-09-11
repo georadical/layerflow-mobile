@@ -227,9 +227,9 @@ class RouteFrameItem {
   factory RouteFrameItem.fromJson(Map<String, dynamic> json) {
     return RouteFrameItem(
       clientId: json['client_id'] as String,
-      // Compatibility window: the frame emits both keys today; old cached
-      // payloads may carry only the deprecated alias.
-      posicion: ((json['posicion'] ?? json['orden']) as num).toInt(),
+      // The 'orden' alias was retired contract-wide (backend de28c1f), and
+      // frames are never cached, so nothing feeds the old key any more.
+      posicion: (json['posicion'] as num).toInt(),
       loc: (json['loc'] as num?)?.toInt(),
       placa: json['placa'] as String?,
       manzanaCatastral: json['manzana_catastral'] as String?,

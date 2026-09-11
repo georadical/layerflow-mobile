@@ -176,16 +176,19 @@ void main() {
       expect(none.containsKey('ins_after'), isFalse);
     });
 
-    test('frame item reads posicion, falling back to the deprecated alias', () {
-      // Compatibility window (backend edf0f4f): the frame emits both keys.
-      final both = RouteFrameItem.fromJson(
-          {'client_id': 'a', 'posicion': 2, 'orden': 2, 'loc': 10});
-      expect(both.posicion, 2);
+    test('frame item requires posicion; the retired alias is ignored', () {
+      // Alias retired contract-wide (backend de28c1f). If 'orden' somehow
+      // arrived anyway, it must not be honoured.
+      final item = RouteFrameItem.fromJson(
+          {'client_id': 'a', 'posicion': 2, 'orden': 99, 'loc': 10});
+      expect(item.posicion, 2);
 
-      // An old payload (or cache) may still carry only the alias.
-      final aliasOnly =
-          RouteFrameItem.fromJson({'client_id': 'b', 'orden': 4, 'loc': 20});
-      expect(aliasOnly.posicion, 4);
+      // A payload carrying only the dead key fails loudly, never guesses.
+      expect(
+        () =>
+            RouteFrameItem.fromJson({'client_id': 'b', 'orden': 4, 'loc': 20}),
+        throwsA(isA<TypeError>()),
+      );
     });
 
     test('the request sends posicion, never the deprecated key', () {
