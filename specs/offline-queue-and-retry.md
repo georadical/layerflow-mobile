@@ -1,6 +1,6 @@
 # Spec 4 — Offline-first queue and manual retry
 
-Status: approved 2026-09-11 — T4.1 in progress
+Status: done — T4.1 verified on device (migration v3 ran live)
 Type: Mobile app (Flutter). No backend work: the contract already gives the
 queue everything it needs (idempotent upsert by `client_id`, partial batches).
 Chain: Spec 1 → 1.1 → 3 → 2 → 2.1 → **4 (this one)**.
