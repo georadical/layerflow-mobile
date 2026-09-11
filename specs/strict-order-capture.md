@@ -1,6 +1,7 @@
 # Spec 2 — Strict-order placa capture
 
-Status: draft, awaiting approval
+Status: approved 2026-09-11. Wording follows the contract rename
+`posicion` → `posicion` (backend edf0f4f).
 Type: Mobile app (Flutter). No backend work for what is in scope; one item is
 blocked on a contract gap that has been reported.
 Chain: Spec 1 → 1.1 → 3 → **2 (this one)** → 4 offline-first queue and retry.
@@ -23,7 +24,7 @@ than by the worker's memory, and give the worker an honest way out when they
 notice a missed house.
 
 ## What already holds (verified in review)
-- `orden` is computed in the repository as `max(orden) + 1` per route. The UI
+- `posicion` is computed in the repository as `max(posicion) + 1` per route. The UI
   never supplies it and offers no way to edit it, on any screen.
 - `placa` is optional and a blank one is stored as `null`, which the contract
   allows (a unit with the address still deferred).
@@ -50,9 +51,9 @@ notice a missed house.
 - **Mid-route insert.** `census-field-operations.md:57` says the gaps of 5
   exist to insert a missed domicile (a `loc` 7 between 5 and 10) without
   renumbering, and `field-capture-api.md:34` leaves that to the app. The app
-  cannot do it: `POST /field/capture/placas` takes an integer `orden` and the
+  cannot do it: `POST /field/capture/placas` takes an integer `posicion` and the
   backend computes `loc = orden × 5`, so **`loc` 7 is unreachable** — no
-  integer `orden` produces it. Reported to the backend; until the contract can
+  integer `posicion` produces it. Reported to the backend; until the contract can
   express an insert, the procedure below stands in for it.
 - **Cascade shifting to fake an insert** — appending a row and moving every
   address one position forward until the gap lands where the missed house goes.
@@ -64,10 +65,10 @@ notice a missed house.
   the row keeps its address; moving addresses *between* rows is what corrupts.
   It is also O(n) manual edits in the street, where a single slip silently
   swaps two houses, and it re-queues rows the server had already confirmed.
-- **Simultaneous capture by titular and pareja on one route.** `orden` is a
+- **Simultaneous capture by titular and pareja on one route.** `posicion` is a
   route-global counter that also encodes physical walk order; two devices each
   computing `max + 1` collide by construction, and the server rejects one item
-  (contract A2). Letting the server assign `orden` on arrival would order the
+  (contract A2). Letting the server assign `posicion` on arrival would order the
   route by upload time instead of by walk, which destroys the invariant the
   census rests on. The sound answer is **route segments** — already a concept
   in this domain, and deferred on purpose. In practice one worker covers a
@@ -91,10 +92,10 @@ The worker stands at a door and taps "Capturar".
 
 ## Main flow (happy path)
 1. The form shows the last captured unit as the anchor for checking against the
-   door, and the `orden` about to be assigned.
+   door, and the `posicion` about to be assigned.
 2. The worker types the `placa` read at the door, optionally the access type and
    an observation, and saves.
-3. The row is stored locally with the next `orden`, marked pending.
+3. The row is stored locally with the next `posicion`, marked pending.
 4. The form clears for the next household, keeping `manzana_catastral`, and the
    focus returns to `placa`.
 5. The pending count on screen goes up, so the worker can see the queue growing
@@ -105,14 +106,14 @@ The worker stands at a door and taps "Capturar".
   `placa = null` and reads "Sin dirección aún" in the list, to be filled in
   later from the same list (Spec 1.1).
 - **A2 — A missed house, noticed later**: the worker captures it **at the end**
-  and records that it belongs after a given placa. The `orden` stays
+  and records that it belongs after a given placa. The `posicion` stays
   append-only and nothing already captured is touched. The office re-sequences
   using that note.
 - **A3 — Offline**: identical. Capture never needs the network.
 - **A4 — Double tap on save**: guarded; one capture per tap.
 
 ## Business rules
-- **BR1** `orden` is assigned by the repository, is monotonic per route, and is
+- **BR1** `posicion` is assigned by the repository, is monotonic per route, and is
   **append-only**. It is never editable, anywhere.
 - **BR2** The app enforces the order, not the worker's memory. If the app let
   the order be edited freely, the office's inference would corrupt
@@ -141,16 +142,16 @@ parse, and nothing to clobber when the worker edits an observation. See
 [Spec 2.1](relocate-unit.md). `observacion` stays a purely human note.
 
 ## Edge cases and error handling
-- First capture of an empty route is `orden` 1.
+- First capture of an empty route is `posicion` 1.
 - The frame re-pulled mid-capture may raise the local maximum (units captured
-  earlier and synced); the next `orden` follows from it, never backwards.
+  earlier and synced); the next `posicion` follows from it, never backwards.
 - Two captures with the same placa are allowed: the contract constrains
-  `orden`/`loc`, not the address text.
+  `posicion`/`loc`, not the address text.
 - A worker who realises the miss immediately, before saving the next house, has
   no problem to solve — they simply capture it now.
 
 ## Acceptance criteria
-- `orden` is monotonic, append-only, and unreachable from the UI.
+- `posicion` is monotonic, append-only, and unreachable from the UI.
 - A blank `placa` is stored as null.
 - `manzana_catastral` persists between captures; the other fields clear.
 - The pending count is visible while capturing.
@@ -165,14 +166,14 @@ parse, and nothing to clobber when the worker edits an observation. See
 Feature: Strict-order placa capture
 
   Scenario: Capture in walk order
-    Given a route whose last captured unit is orden 4
+    Given a route whose last captured unit is posicion 4
     When the worker saves a new placa
-    Then it is stored as orden 5
+    Then it is stored as posicion 5
     And the form clears for the next household keeping the manzana
 
   Scenario: The order cannot be edited
     Given any captured unit
-    When the worker looks for a way to change its orden
+    When the worker looks for a way to change its posicion
     Then no screen offers one
 
   Scenario: A door with no readable placa
@@ -183,7 +184,7 @@ Feature: Strict-order placa capture
   Scenario: A missed house noticed three doors later
     Given the worker realises a house was skipped
     When they capture it at the end and record that it goes after a given placa
-    Then it takes the next orden
+    Then it takes the next posicion
     And no previously captured unit is modified
 
   Scenario: Capturing with no connection
@@ -203,6 +204,6 @@ Feature: Strict-order placa capture
   offering a second send control (Spec 3, BR2 keeps sending in one place).
 - **T2.2 — moved to [Spec 2.1](relocate-unit.md)**, which supersedes it with the
   typed `ins_after` field.
-- **T2.3 — Tests**: `orden` append-only across an interleaved merge, blank
+- **T2.3 — Tests**: `posicion` append-only across an interleaved merge, blank
   placa, manzana persistence.
 - **T2.4 — Manual check** on route 10.
