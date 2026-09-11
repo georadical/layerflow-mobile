@@ -1,6 +1,6 @@
 # Spec 2.1 — Move a unit's localización
 
-Status: draft, awaiting approval
+Status: done — implemented and verified against the live backend
 Type: Mobile app (Flutter). The wire already exists: `ins_after` shipped on
 `feature/extended-census` and is migrated and tested on the backend.
 Supersedes: the open decision in [Spec 2](strict-order-capture.md) about how a
@@ -63,6 +63,16 @@ Used on resume to show which units are still awaiting relocation.
   exist *yet*, in a later batch — and refused only when applied. The office
   queue flags it, and a dangling mark can **block** other pending relocations
   with a lower anchor until it is resolved.
+- **The shift leaves no gaps, deliberately.** After the office applies a
+  relocation the sequence is renumbered clean at ×5, so every old `loc` is
+  reoccupied. Consequence: a push carrying a **stale** `posicion` always
+  collides with whichever unit now holds that slot and fails **noisily** ("ya
+  existe ese código") — it can never silently land on the wrong unit. The
+  collision is a designed property, not a bug, and it is deterministic: it
+  happens on every retry until the app refreshes its positions. That is why
+  `mergeFrame` updates `posicion`/`loc` from the frame even on pending/error
+  rows ("position belongs to the server; content belongs to the worker until
+  sent") — found live when an office shift landed between our pull and push.
 
 ### Who executes the move
 **The office, never the app.** The operator applies the shift and the flag
