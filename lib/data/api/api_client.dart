@@ -91,6 +91,45 @@ class ApiClient {
     }
   }
 
+  /// POST /field/login — credentials → one fresh 30-day token per active ESP.
+  ///
+  /// The password lives only in this call: used, sent over TLS, discarded
+  /// (CL3). Neither argument is ever logged.
+  Future<LoginResponse> login({
+    required String email,
+    required String password,
+  }) async {
+    final base = await _baseUrl();
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '$base${AppConfig.loginPath}',
+        data: {'email': email.trim().toLowerCase(), 'password': password},
+      );
+      return LoginResponse.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// POST /field/token/refresh — silent renewal of the ACTIVE token (the
+  /// interceptor sends it). The server accepts it expired up to 7 days;
+  /// beyond that it answers 401 and the recovery is login.
+  Future<String> refreshToken() async {
+    final base = await _baseUrl();
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '$base${AppConfig.refreshPath}',
+      );
+      final token = res.data?['field_token'] as String?;
+      if (token == null || token.isEmpty) {
+        throw ApiException('El refresh no devolvió un token.');
+      }
+      return token;
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
   ApiException _mapError(DioException e) {
     final code = e.response?.statusCode;
     final data = e.response?.data;

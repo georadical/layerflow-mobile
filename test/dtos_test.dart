@@ -164,6 +164,54 @@ void main() {
     });
   });
 
+  group('LoginResponse.fromJson (Spec 5)', () {
+    // Verbatim shape documented in field-login.md @ f371076.
+    Map<String, dynamic> wirePayload() => {
+          'worker': {'nombre': 'Ana', 'documento': '123'},
+          'esps': [
+            {
+              'tenant_id': 2,
+              'esp_nombre': 'ESP Elías',
+              'field_worker_id': 'fw-2',
+              'rutas_asignadas': 1,
+              'field_token': 'jwt-elias',
+            },
+            {
+              'tenant_id': 3,
+              'esp_nombre': 'ESP Isnos',
+              'field_worker_id': 'fw-3',
+              'rutas_asignadas': 1,
+              'field_token': 'jwt-isnos',
+            },
+          ],
+        };
+
+    test('parses the documented multi-ESP payload', () {
+      final res = LoginResponse.fromJson(wirePayload());
+      expect(res.workerNombre, 'Ana');
+      expect(res.esps, hasLength(2));
+      expect(res.esps.last.tenantId, 3);
+      expect(res.esps.last.rutasAsignadas, 1);
+      expect(res.esps.last.fieldToken, 'jwt-isnos');
+    });
+
+    test('FieldSession round-trips through its storage JSON', () {
+      final session = FieldSession(
+        email: 'campo1@layerflow.co',
+        workerNombre: 'Ana',
+        esps: LoginResponse.fromJson(wirePayload()).esps,
+        activeTenantId: 3,
+      );
+
+      final back = FieldSession.fromJson(session.toJson());
+
+      expect(back.email, session.email);
+      expect(back.activeTenantId, 3);
+      expect(back.activeEsp!.espNombre, 'ESP Isnos');
+      expect(back.esps.first.fieldToken, 'jwt-elias');
+    });
+  });
+
   group('ins_after (Spec 2.1)', () {
     test('request serialises a mark, 0 included; omits only null', () {
       // 0 is a real value — start of route — never conflated with "no mark".

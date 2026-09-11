@@ -35,6 +35,16 @@ class _FakeApi implements ApiClient {
   @override
   Future<RouteFrame> getRouteFrame(String routeId) =>
       throw UnimplementedError();
+
+  @override
+  Future<LoginResponse> login({
+    required String email,
+    required String password,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<String> refreshToken() => throw UnimplementedError();
 }
 
 PlacaItemResult _ok(String clientId, int loc) =>
