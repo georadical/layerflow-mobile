@@ -1,29 +1,8 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:layerflow_capture/data/api/dtos.dart';
 import 'package:layerflow_capture/data/settings/settings_store.dart';
 
-/// In-memory stand-in for the platform secure storage. Implemented through
-/// noSuchMethod so it survives signature changes in the package.
-class _MemSecure implements FlutterSecureStorage {
-  final Map<String, String?> data = {};
-
-  @override
-  dynamic noSuchMethod(Invocation inv) {
-    switch (inv.memberName) {
-      case #read:
-        return Future<String?>.value(data[inv.namedArguments[#key]]);
-      case #write:
-        data[inv.namedArguments[#key] as String] =
-            inv.namedArguments[#value] as String?;
-        return Future<void>.value();
-      case #delete:
-        data.remove(inv.namedArguments[#key]);
-        return Future<void>.value();
-    }
-    return super.noSuchMethod(inv);
-  }
-}
+import 'support/mem_secure.dart';
 
 FieldSession _twoEspSession({int? active}) => FieldSession(
       email: 'campo1@layerflow.co',
@@ -49,7 +28,7 @@ FieldSession _twoEspSession({int? active}) => FieldSession(
 
 void main() {
   test('saveSession mirrors the ACTIVE token into the legacy slot', () async {
-    final store = SettingsStore(secure: _MemSecure());
+    final store = SettingsStore(secure: MemSecure());
 
     await store.saveSession(_twoEspSession(active: 3));
 
@@ -61,7 +40,7 @@ void main() {
   });
 
   test('no active ESP chosen yet → the token slot is left alone', () async {
-    final store = SettingsStore(secure: _MemSecure());
+    final store = SettingsStore(secure: MemSecure());
     await store.setToken('pasted-by-hand'); // CL1 path
 
     await store.saveSession(_twoEspSession(active: null));
@@ -71,7 +50,7 @@ void main() {
   });
 
   test('setActiveEsp switches the mirrored token (CL5)', () async {
-    final store = SettingsStore(secure: _MemSecure());
+    final store = SettingsStore(secure: MemSecure());
     await store.saveSession(_twoEspSession(active: 3));
 
     final updated = await store.setActiveEsp(2);
@@ -83,7 +62,7 @@ void main() {
   });
 
   test('clearSession wipes session and mirrored token', () async {
-    final store = SettingsStore(secure: _MemSecure());
+    final store = SettingsStore(secure: MemSecure());
     await store.saveSession(_twoEspSession(active: 3));
 
     await store.clearSession();
@@ -93,7 +72,7 @@ void main() {
   });
 
   test('a corrupt stored session reads as logged-out, never crashes', () async {
-    final secure = _MemSecure();
+    final secure = MemSecure();
     secure.data['field_session'] = '{not json';
     final store = SettingsStore(secure: secure);
 

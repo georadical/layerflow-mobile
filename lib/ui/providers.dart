@@ -83,6 +83,53 @@ class CurrentRouteNotifier extends StateNotifier<String?> {
   }
 }
 
+/// The login session (Spec 5). Null = logged out (or pre-login, CL1 paste).
+final sessionProvider =
+    AsyncNotifierProvider<SessionNotifier, FieldSession?>(SessionNotifier.new);
+
+class SessionNotifier extends AsyncNotifier<FieldSession?> {
+  @override
+  Future<FieldSession?> build() => ref.read(settingsStoreProvider).getSession();
+
+  /// POST /field/login. On success the session is persisted; with exactly
+  /// one ESP it becomes active immediately (no pointless choice screen),
+  /// with several the gate shows the choice (CL5). Throws ApiException for
+  /// the screen to map (A1/A2/offline).
+  Future<void> login({required String email, required String password}) async {
+    final api = ref.read(apiClientProvider);
+    final store = ref.read(settingsStoreProvider);
+
+    final res = await api.login(email: email, password: password);
+    final session = FieldSession(
+      email: email.trim().toLowerCase(),
+      workerNombre: res.workerNombre,
+      workerDocumento: res.workerDocumento,
+      esps: res.esps,
+      activeTenantId: res.esps.length == 1 ? res.esps.single.tenantId : null,
+    );
+    await store.saveSession(session);
+    state = AsyncData(session);
+    _tokenChanged();
+  }
+
+  /// CL5: pick the active ESP. Rewrites the mirrored token.
+  Future<void> chooseEsp(int tenantId) async {
+    final updated =
+        await ref.read(settingsStoreProvider).setActiveEsp(tenantId);
+    if (updated != null) {
+      state = AsyncData(updated);
+      _tokenChanged();
+    }
+  }
+
+  /// The mirrored token changed: everything derived from it must refetch.
+  void _tokenChanged() {
+    ref.invalidate(assignedRoutesProvider);
+    ref.invalidate(fieldTokenInfoProvider);
+    ref.invalidate(tokenStatusProvider);
+  }
+}
+
 /// State of the pasted field_token (to warn about expiry in the field).
 enum TokenStatus { missing, malformed, expired, expiringSoon, ok }
 
