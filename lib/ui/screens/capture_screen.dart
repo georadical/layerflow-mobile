@@ -65,6 +65,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   @override
   Widget build(BuildContext context) {
     final capturesAsync = ref.watch(capturesProvider(widget.routeId));
+    final pending = ref.watch(pendingCountProvider(widget.routeId));
 
     return Scaffold(
       appBar: AppBar(
@@ -89,6 +90,18 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     Chip(
                       avatar: const Icon(Icons.tag, size: 18),
                       label: Text('Siguiente posición: $nextPosicion'),
+                    ),
+                    const SizedBox(width: 8),
+                    // Queue visibility only (Spec 2, T2.1): the single send
+                    // control stays in the resume view (Spec 3, BR2).
+                    Chip(
+                      avatar: Icon(
+                        pending == 0 ? Icons.cloud_done : Icons.cloud_upload,
+                        size: 18,
+                      ),
+                      label: Text(pending == 0
+                          ? 'Todo enviado'
+                          : '$pending sin enviar'),
                     ),
                   ],
                 ),
