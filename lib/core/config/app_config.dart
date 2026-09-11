@@ -1,27 +1,39 @@
-/// Constantes de configuración de la app (no secretos).
+/// App configuration constants (no secrets).
 ///
-/// El `baseUrl` del backend y el `field_token` NO viven aquí: se configuran en
-/// tiempo de ejecución desde la pantalla de Ajustes y se guardan en
-/// `SettingsStore` (SharedPreferences + almacenamiento seguro).
+/// The backend `baseUrl` and the `field_token` do NOT live here: they are
+/// configured at runtime from the Settings screen and stored in
+/// `SettingsStore` (SharedPreferences + secure storage).
 library;
 
 class AppConfig {
   const AppConfig._();
 
-  /// Nombre lógico del archivo SQLite local.
+  /// Logical name of the local SQLite file.
   static const String dbName = 'layerflow_capture';
 
-  /// Timeouts de red.
+  /// Network timeouts.
   static const Duration connectTimeout = Duration(seconds: 15);
   static const Duration receiveTimeout = Duration(seconds: 30);
 
-  /// Rutas del contrato de la API de captura (backend LayerFlow).
+  /// Paths of the capture API contract (LayerFlow backend).
   static const String postPlacasPath = '/field/capture/placas';
   static String routeFramePath(String routeId) =>
       '/field/capture/route/$routeId';
 
-  /// Estados de sincronización local.
+  /// Routes assigned to the authenticated field worker.
+  static const String assignedRoutesPath = '/field/routes';
+
+  /// Local sync states.
   static const String syncPending = 'pending';
   static const String syncSynced = 'synced';
   static const String syncError = 'error';
+
+  /// Outcomes of a manual send attempt (Spec 4, BR7). Stored per route so the
+  /// worker can tell "never tried" from "tried and failed" after the message
+  /// is gone.
+  static const String pushOk = 'ok';
+  static const String pushPartial = 'partial';
+  static const String pushNetwork = 'network';
+  static const String pushAuth = 'auth';
+  static const String pushHttp = 'http';
 }

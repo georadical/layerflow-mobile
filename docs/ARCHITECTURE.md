@@ -1,75 +1,76 @@
-# Arquitectura
+# Architecture
 
-App Flutter de captura, offline-first, coordinate-free. Diseñada para que un solo
-mantenedor la sostenga y para **enchufar GNSS después sin reescribir**.
+Flutter capture app, offline-first, coordinate-free. Designed so that a single
+maintainer can sustain it and so that **GNSS can be plugged in later without a rewrite**.
 
-## Capas
+## Layers
 
 ```
 UI (Riverpod, Material 3)
-  Home / Captura / Lista / Ajustes
-        │  lee providers
+  Home / Capture / List / Settings
+        │  reads providers
         ▼
 Providers (lib/ui/providers.dart)
-        │  inyecta
+        │  injects
         ▼
-Servicios / Repositorio
-  SyncService  ──►  ApiClient (dio)  ──►  Backend LayerFlow
-  CaptureRepository ──► AppDatabase (drift/SQLite local)
+Services / Repository
+  SyncService  ──►  ApiClient (dio)  ──►  LayerFlow backend
+  CaptureRepository ──► AppDatabase (drift/local SQLite)
         ▲
-        │ (costura, no usada en el MVP)
+        │ (seam, not used in the MVP)
   LocationSource → NullLocationSource
 ```
 
-Regla: la **UI no toca** la BD ni la red directamente; pasa por el repositorio y el
-servicio de sync. El repositorio es el **único** dueño de las invariantes de dominio.
+Rule: the **UI never touches** the DB or the network directly; it goes through the
+repository and the sync service. The repository is the **sole** owner of the domain
+invariants.
 
-## Modelo de datos local (drift)
+## Local data model (drift)
 
 - **Routes**: `routeId` (PK), `codigo`, `lastFrameSyncAt`.
 - **Captures**: `clientId` (PK, UUID), `routeId`, `orden`, `placa?`,
   `manzanaCatastral?`, `tipoAcceso?`, `observacion?`, `loc?`, `remoteId?`,
   `syncStatus` (pending|synced|error), `syncError?`, `createdAt`, `updatedAt`.
-  **No existe columna de coordenadas.**
+  **There is no coordinates column.**
 
-## Invariantes y dónde se imponen
+## Invariants and where they are enforced
 
-| Invariante | Dónde |
+| Invariant | Where |
 |---|---|
-| Orden append-only (`max(orden)+1`, sin reordenar) | `CaptureRepository.appendCapture` / `nextOrden`; `editCapture` no toca `orden`. |
-| Idempotencia por `client_id` | `clientId` = PK local; el POST reenvía la cola pendiente; el backend upsert. |
-| Coordinate-free | DTOs sin lat/lon (`test/dtos_test.dart` lo verifica); `NullLocationSource` nunca entrega fix. |
-| La app no asigna PH/PV ni `loc` | `loc` llega del server (`orden×5`) y se guarda al sincronizar; PH/PV son milestone posterior. |
+| Append-only orden (`max(orden)+1`, no reordering) | `CaptureRepository.appendCapture` / `nextOrden`; `editCapture` never touches `orden`. |
+| Idempotency by `client_id` | `clientId` = local PK; the POST re-sends the pending queue; the backend upserts. |
+| Coordinate-free | DTOs without lat/lon (`test/dtos_test.dart` verifies it); `NullLocationSource` never returns a fix. |
+| The app assigns neither PH/PV nor `loc` | `loc` comes from the server (`orden×5`) and is stored on sync; PH/PV are a later milestone. |
 
-## Sincronización
+## Synchronization
 
-- **Pull (reanudar)** — `SyncService.pullFrame`: `GET` del frame → `mergeFrame`.
-  - item del server nuevo → insertar como `synced`;
-  - item local `synced` → refrescar placa/loc del server;
-  - item local `pending`/`error` → **preservar** (no pisar ediciones sin enviar);
-    el re-envío posterior es idempotente.
-- **Push (cola)** — `SyncService.pushPending`: arma un lote (`batch_id` nuevo) con lo
-  no sincronizado y hace `POST`. No es all-or-nothing: cada item se marca
-  `synced`/`error` según su resultado. Se dispara manual (botón) y best-effort tras
-  cada captura si hay conexión.
+- **Pull (resume)** — `SyncService.pullFrame`: `GET` the frame → `mergeFrame`.
+  - new item from the server → insert as `synced`;
+  - local item that is `synced` → refresh placa/loc from the server;
+  - local item that is `pending`/`error` → **preserve** (do not overwrite unsent edits);
+    the later re-send is idempotent.
+- **Push (queue)** — `SyncService.pushPending`: builds a batch (new `batch_id`) with
+  everything unsynced and does a `POST`. It is not all-or-nothing: each item is marked
+  `synced`/`error` according to its own result. It is triggered manually (button) and
+  best-effort after every capture when there is a connection.
 
-## La costura GNSS (futuro, no implementar aún)
+## The GNSS seam (future, do not implement yet)
 
-`LocationSource` (interfaz) + `NullLocationSource` (MVP, siempre `null`). El provider
-`locationSourceProvider` entrega la NULA hoy. Para la fase GNSS: crear
-`BluetoothNmeaLocationSource implements LocationSource`, cambiar ese provider, y
-extender el modelo/DTO **de forma aditiva**. Nada del flujo de captura actual llama a
-`currentFix()`, así que el MVP permanece coordinate-free por construcción.
+`LocationSource` (interface) + `NullLocationSource` (MVP, always `null`). The
+`locationSourceProvider` provider returns the NULL one today. For the GNSS phase: create
+`BluetoothNmeaLocationSource implements LocationSource`, switch that provider, and extend
+the model/DTO **additively**. Nothing in the current capture flow calls `currentFix()`,
+so the MVP stays coordinate-free by construction.
 
-## Decisiones de dependencias
+## Dependency decisions
 
-- **drift** (SQLite tipado) para la cola offline y las queries de orden.
-- **dio** por interceptores (inyecta `Authorization: Bearer <token>` por request).
-- **flutter_riverpod** para inyección/estado testeable.
-- **flutter_secure_storage** para el token; **shared_preferences** para URL/ruta.
-- **connectivity_plus** para habilitar/deshabilitar el push.
+- **drift** (typed SQLite) for the offline queue and the orden queries.
+- **dio** for its interceptors (injects `Authorization: Bearer <token>` per request).
+- **flutter_riverpod** for testable injection/state.
+- **flutter_secure_storage** for the token; **shared_preferences** for URL/route.
+- **connectivity_plus** to enable/disable the push.
 
-## Qué NO está aquí (por diseño)
+## What is NOT here (by design)
 
-Encuesta extendida (PH/PV, hogar, medidor), mapa, coordenadas reales, diseño de ruta,
-matching NPN. Insert/ausente/skip a media ruta = v2.
+Extended survey (PH/PV, household, meter), map, real coordinates, route design,
+NPN matching. Insert/absent/skip mid-route = v2.

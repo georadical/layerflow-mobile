@@ -3,10 +3,10 @@ import 'package:layerflow_capture/data/api/dtos.dart';
 
 void main() {
   group('PlacaItemRequest.toJson', () {
-    test('INVARIANTE: nunca lleva coordenadas', () {
+    test('INVARIANT: never carries coordinates', () {
       final json = const PlacaItemRequest(
         clientId: 'abc',
-        orden: 1,
+        posicion: 1,
         placa: 'C 5 1 11',
         manzanaCatastral: '001',
         tipoAcceso: 'puerta_calle',
@@ -17,29 +17,31 @@ void main() {
         expect(
           key,
           isNot(anyOf('lat', 'lon', 'latitude', 'longitude', 'coords', 'geom')),
-          reason: 'El payload de captura debe ser coordinate-free.',
+          reason: 'The capture payload must be coordinate-free.',
         );
       }
     });
 
-    test('placa se envía como null cuando está en blanco', () {
-      final json = const PlacaItemRequest(clientId: 'abc', orden: 1).toJson();
+    test('placa is sent as null when blank', () {
+      final json =
+          const PlacaItemRequest(clientId: 'abc', posicion: 1).toJson();
       expect(json.containsKey('placa'), isTrue);
       expect(json['placa'], isNull);
-      // Opcionales ausentes no se serializan.
+      // Absent optional fields are not serialized.
       expect(json.containsKey('manzana_catastral'), isFalse);
       expect(json.containsKey('tipo_acceso'), isFalse);
     });
 
-    test('mapea client_id y orden con snake_case del contrato', () {
-      final json = const PlacaItemRequest(clientId: 'xyz', orden: 3).toJson();
+    test('maps client_id and posicion using the contract snake_case', () {
+      final json =
+          const PlacaItemRequest(clientId: 'xyz', posicion: 3).toJson();
       expect(json['client_id'], 'xyz');
-      expect(json['orden'], 3);
+      expect(json['posicion'], 3);
     });
   });
 
   group('PlacaBatchResponse.fromJson', () {
-    test('parsea el lote y los resultados por item', () {
+    test('parses the batch and the per-item results', () {
       final res = PlacaBatchResponse.fromJson({
         'batch_id': 'b1',
         'total': 1,
@@ -64,14 +66,14 @@ void main() {
   });
 
   group('RouteFrame.fromJson', () {
-    test('parsea el frame para reanudar', () {
+    test('parses the frame used to resume', () {
       final frame = RouteFrame.fromJson({
         'route_id': 'r1',
         'codigo': '10',
         'items': [
           {
             'client_id': 'abc',
-            'orden': 1,
+            'posicion': 1,
             'loc': 5,
             'placa': 'C 5 1 11',
             'manzana_catastral': '001',
@@ -80,8 +82,127 @@ void main() {
       });
       expect(frame.routeId, 'r1');
       expect(frame.codigo, '10');
-      expect(frame.items.single.orden, 1);
+      expect(frame.items.single.posicion, 1);
       expect(frame.items.single.loc, 5);
+    });
+  });
+
+  group('AssignedRoutes.fromJson', () {
+    // Verbatim payload documented for GET /field/routes.
+    Map<String, dynamic> wirePayload() => {
+          'esp': 'ESP Isnos (muestra)',
+          'items': [
+            {
+              'route_id': '405ca862-e116-4a12-a920-a520c0d063ee',
+              'codigo': '10',
+              'nombre': null,
+              'estado': 'verificada',
+              'total_capturado': 2,
+            }
+          ],
+        };
+
+    test('parses the documented payload', () {
+      final routes = AssignedRoutes.fromJson(wirePayload());
+
+      expect(routes.esp, 'ESP Isnos (muestra)');
+      final route = routes.items.single;
+      expect(route.routeId, '405ca862-e116-4a12-a920-a520c0d063ee');
+      expect(route.codigo, '10');
+      expect(route.estado, 'verificada');
+      expect(route.totalCapturado, 2);
+    });
+
+    test('nombre null stays null, it is not coerced to a placeholder', () {
+      final routes = AssignedRoutes.fromJson(wirePayload());
+      expect(routes.items.single.nombre, isNull);
+    });
+
+    test('empty items is a valid answer, not an error', () {
+      final routes = AssignedRoutes.fromJson({'esp': 'X', 'items': []});
+      expect(routes.esp, 'X');
+      expect(routes.items, isEmpty);
+    });
+
+    test('total_capturado 0 parses as 0, absent parses as null', () {
+      final zero = RouteSummary.fromJson({
+        'route_id': 'r1',
+        'codigo': '40',
+        'estado': 'verificada',
+        'total_capturado': 0,
+      });
+      final absent = RouteSummary.fromJson({
+        'route_id': 'r2',
+        'codigo': '50',
+        'estado': 'verificada',
+      });
+
+      // The UI tells these apart: 0 shows a muted badge, null hides it.
+      expect(zero.totalCapturado, 0);
+      expect(absent.totalCapturado, isNull);
+    });
+
+    test('the route_id is the one the frame endpoint consumes', () {
+      final routes = AssignedRoutes.fromJson(wirePayload());
+      expect(
+        routes.items.single.routeId,
+        '405ca862-e116-4a12-a920-a520c0d063ee',
+        reason: 'It is fed straight into GET /field/capture/route/{route_id}.',
+      );
+    });
+
+    test('INVARIANT: the route payload carries no coordinates', () {
+      final item =
+          (wirePayload()['items'] as List).single as Map<String, dynamic>;
+      for (final key in item.keys) {
+        expect(
+          key,
+          isNot(anyOf('lat', 'lon', 'latitude', 'longitude', 'coords', 'geom')),
+          reason: 'Route listing must stay coordinate-free.',
+        );
+      }
+    });
+  });
+
+  group('ins_after (Spec 2.1)', () {
+    test('request serialises a mark, 0 included; omits only null', () {
+      // 0 is a real value — start of route — never conflated with "no mark".
+      final start =
+          const PlacaItemRequest(clientId: 'a', posicion: 1, insAfter: 0)
+              .toJson();
+      expect(start['ins_after'], 0);
+
+      final none = const PlacaItemRequest(clientId: 'b', posicion: 2).toJson();
+      expect(none.containsKey('ins_after'), isFalse);
+    });
+
+    test('frame item reads posicion, falling back to the deprecated alias', () {
+      // Compatibility window (backend edf0f4f): the frame emits both keys.
+      final both = RouteFrameItem.fromJson(
+          {'client_id': 'a', 'posicion': 2, 'orden': 2, 'loc': 10});
+      expect(both.posicion, 2);
+
+      // An old payload (or cache) may still carry only the alias.
+      final aliasOnly =
+          RouteFrameItem.fromJson({'client_id': 'b', 'orden': 4, 'loc': 20});
+      expect(aliasOnly.posicion, 4);
+    });
+
+    test('the request sends posicion, never the deprecated key', () {
+      final json = const PlacaItemRequest(clientId: 'a', posicion: 3).toJson();
+      expect(json['posicion'], 3);
+      expect(json.containsKey('orden'), isFalse);
+    });
+
+    test('frame item parses ins_after, and its absence, as the server sends it',
+        () {
+      final marked = RouteFrameItem.fromJson(
+          {'client_id': 'a', 'posicion': 6, 'loc': 30, 'ins_after': 10});
+      expect(marked.insAfter, 10);
+
+      final clean = RouteFrameItem.fromJson(
+          {'client_id': 'b', 'posicion': 1, 'loc': 5, 'ins_after': null});
+      expect(clean.insAfter, isNull);
     });
   });
 }

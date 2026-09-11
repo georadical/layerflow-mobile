@@ -1,17 +1,17 @@
-/// Costura de "fuente de ubicación".
+/// "Location source" seam.
 ///
-/// El MVP es **coordinate-free**: NO se capturan coordenadas y el payload de la
-/// API no las lleva. Esta abstracción existe únicamente para que, más adelante,
-/// se pueda enchufar un receptor GNSS externo (p. ej. Polaris, NMEA por
-/// Bluetooth) SIN tocar el resto de la app.
+/// The MVP is **coordinate-free**: coordinates are NOT captured and the API
+/// payload does not carry them. This abstraction exists only so that, later on,
+/// an external GNSS receiver (e.g. Polaris, NMEA over Bluetooth) can be plugged
+/// in WITHOUT touching the rest of the app.
 ///
-/// Regla de oro del MVP: nadie debe llamar a [LocationSource.currentFix] para
-/// inyectar coordenadas en la captura. La implementación por defecto es
-/// [NullLocationSource], que siempre devuelve `null`.
+/// MVP golden rule: nobody should call [LocationSource.currentFix] to inject
+/// coordinates into the capture. The default implementation is
+/// [NullLocationSource], which always returns `null`.
 library;
 
-/// Un "fix" de ubicación. Deliberadamente inerte en el MVP: ninguna parte del
-/// flujo de captura lo consume. Queda modelado para la fase GNSS.
+/// A location "fix". Deliberately inert in the MVP: no part of the capture
+/// flow consumes it. It is modeled for the GNSS phase.
 class LocationFix {
   const LocationFix({
     required this.latitude,
@@ -25,7 +25,7 @@ class LocationFix {
   final double longitude;
   final double? accuracyMeters;
 
-  /// Identificador de la fuente que produjo el fix (p. ej. 'polaris-nmea').
+  /// Identifier of the source that produced the fix (e.g. 'polaris-nmea').
   final String source;
   final DateTime? timestamp;
 
@@ -34,23 +34,24 @@ class LocationFix {
       'LocationFix($latitude, $longitude, ±${accuracyMeters}m, $source)';
 }
 
-/// Interfaz de la fuente de ubicación. Implementaciones futuras:
-/// - `BluetoothNmeaLocationSource` (receptor externo)
-/// El MVP usa [NullLocationSource].
+/// Location source interface. Future implementations:
+/// - `BluetoothNmeaLocationSource` (external receiver)
+/// The MVP uses [NullLocationSource].
 abstract interface class LocationSource {
-  /// Identificador estable de la fuente (telemetría / diagnóstico).
+  /// Stable identifier of the source (telemetry / diagnostics).
   String get id;
 
-  /// ¿La fuente puede entregar coordenadas ahora mismo? En el MVP: siempre
+  /// Can the source deliver coordinates right now? In the MVP: always
   /// `false`.
   bool get isAvailable;
 
-  /// Devuelve el último fix disponible, o `null` si no hay ubicación.
-  /// En el MVP devuelve siempre `null`.
+  /// Returns the last available fix, or `null` if there is no location.
+  /// In the MVP it always returns `null`.
   Future<LocationFix?> currentFix();
 }
 
-/// Implementación NULA del MVP: coordinate-free. Nunca entrega coordenadas.
+/// NULL implementation for the MVP: coordinate-free. Never delivers
+/// coordinates.
 class NullLocationSource implements LocationSource {
   const NullLocationSource();
 

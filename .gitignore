@@ -7,7 +7,8 @@ build/
 .pub-cache/
 .pub/
 *.lock.bak
-pubspec.lock  # app: dejar sin fijar hasta primer build estable; ver README
+# app: dejar sin fijar hasta primer build estable; ver README
+pubspec.lock
 
 # Codegen (se regenera con build_runner)
 *.g.dart

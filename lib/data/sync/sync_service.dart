@@ -2,10 +2,9 @@ import 'package:uuid/uuid.dart';
 
 import '../api/api_client.dart';
 import '../api/dtos.dart';
-import '../db/database.dart';
 import '../repositories/capture_repository.dart';
 
-/// Resultado de un push de sincronización (para la UI).
+/// Result of a sync push (for the UI).
 class SyncResult {
   const SyncResult({
     required this.attempted,
@@ -23,7 +22,7 @@ class SyncResult {
   bool get isNoop => attempted == 0;
 }
 
-/// Orquesta pull (frame para reanudar) y push (cola pendiente → backend).
+/// Orchestrates pull (frame to resume) and push (pending queue → backend).
 class SyncService {
   SyncService(this._api, this._repo, {Uuid? uuid})
       : _uuid = uuid ?? const Uuid();
@@ -32,15 +31,15 @@ class SyncService {
   final CaptureRepository _repo;
   final Uuid _uuid;
 
-  /// Trae el frame de la ruta y lo fusiona localmente (reanudar).
+  /// Fetches the route frame and merges it locally (resume).
   Future<RouteFrame> pullFrame(String routeId) async {
     final frame = await _api.getRouteFrame(routeId);
     await _repo.mergeFrame(frame);
     return frame;
   }
 
-  /// Empuja la cola pendiente de la ruta en un lote idempotente.
-  /// No es all-or-nothing: cada item se marca según su resultado.
+  /// Pushes the route's pending queue as an idempotent batch.
+  /// It is not all-or-nothing: each item is marked according to its result.
   Future<SyncResult> pushPending(String routeId) async {
     final pending = await _repo.pending(routeId);
     if (pending.isEmpty) {
@@ -54,57 +53,55 @@ class SyncService {
         for (final c in pending)
           PlacaItemRequest(
             clientId: c.clientId,
-            orden: c.orden,
+            posicion: c.posicion,
             placa: c.placa,
             manzanaCatastral: c.manzanaCatastral,
             tipoAcceso: c.tipoAcceso,
             observacion: c.observacion,
+            // Full-replacement contract: every push carries the row's current
+            // mark, or the backend clears it (Spec 2.1, BR3).
+            insAfter: c.insAfter,
           ),
       ],
     );
 
-    try {
-      final res = await _api.postPlacas(batch);
-      final byId = {for (final r in res.items) r.clientId: r};
+    // A transport or auth failure is deliberately not caught: nothing was
+    // rejected on its merits, so no row is marked `error`. The batch stays
+    // exactly as queued and the caller maps the status code. Catching here
+    // would paint a whole route as refused by the server when the request
+    // never got a verdict (Spec 3, A4/A5 and BR6).
+    final res = await _api.postPlacas(batch);
+    final byId = {for (final r in res.items) r.clientId: r};
 
-      var synced = 0;
-      var failed = 0;
-      for (final c in pending) {
-        final r = byId[c.clientId];
-        if (r != null && r.ok) {
-          await _repo.markSynced(
-            clientId: c.clientId,
-            loc: r.loc,
-            remoteId: r.id,
-          );
-          synced++;
-        } else {
-          await _repo.markError(
-            c.clientId,
-            r?.error ?? 'El servidor no confirmó este item.',
-          );
-          failed++;
-        }
+    var synced = 0;
+    var failed = 0;
+    for (final c in pending) {
+      final r = byId[c.clientId];
+      if (r != null && r.ok) {
+        await _repo.markSynced(
+          clientId: c.clientId,
+          loc: r.loc,
+          remoteId: r.id,
+        );
+        synced++;
+      } else {
+        // Includes the case where the response simply omits the item: it is
+        // treated as failed and stays queued, never silently marked synced.
+        await _repo.markError(
+          c.clientId,
+          r?.error ?? 'El servidor no confirmó este item.',
+        );
+        failed++;
       }
-      return SyncResult(
-        attempted: pending.length,
-        synced: synced,
-        failed: failed,
-        message: failed == 0
-            ? 'Sincronizadas $synced capturas.'
-            : '$synced ok, $failed con error.',
-      );
-    } on ApiException catch (e) {
-      // Fallo de transporte: la cola queda pendiente para reintentar.
-      for (final c in pending) {
-        await _repo.markError(c.clientId, e.message);
-      }
-      return SyncResult(
-        attempted: pending.length,
-        synced: 0,
-        failed: pending.length,
-        message: e.message,
-      );
     }
+
+    return SyncResult(
+      attempted: pending.length,
+      synced: synced,
+      failed: failed,
+      message: failed == 0
+          ? 'Enviadas $synced.'
+          : '$synced enviadas, $failed con error.',
+    );
   }
 }

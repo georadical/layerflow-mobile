@@ -5,11 +5,11 @@ import '../../core/config/app_config.dart';
 import '../api/dtos.dart';
 import '../db/database.dart';
 
-/// Repositorio de capturas. Único dueño de las invariantes de dominio:
-/// - genera `clientId` (UUID) y `orden` append-only;
-/// - nunca reordena ni reasigna `orden`;
-/// - las ediciones (placa/tipo/obs) marcan la fila como `pending` (re-envío
-///   idempotente al backend).
+/// Capture repository. Sole owner of the domain invariants:
+/// - generates `clientId` (UUID) and the append-only `posicion`;
+/// - never reorders or reassigns `posicion`;
+/// - edits (placa/tipo_acceso/observacion) mark the row as `pending`
+///   (idempotent re-send to the backend).
 class CaptureRepository {
   CaptureRepository(this._db, {Uuid? uuid}) : _uuid = uuid ?? const Uuid();
 
@@ -22,17 +22,17 @@ class CaptureRepository {
   Future<List<Capture>> capturesForRoute(String routeId) =>
       _db.capturesForRoute(routeId);
 
-  Future<int> nextOrden(String routeId) => _db.nextOrden(routeId);
+  Future<int> nextPosicion(String routeId) => _db.nextPosicion(routeId);
 
   Future<Capture?> lastCapture(String routeId) async {
     final rows = await _db.capturesForRoute(routeId);
     return rows.isEmpty ? null : rows.last;
   }
 
-  /// Agrega una captura al final (append-only). Devuelve el `clientId` nuevo.
+  /// Appends a capture at the end (append-only). Returns the new `clientId`.
   ///
-  /// NO recibe `orden`: lo calcula el repositorio como max(orden)+1 para impedir
-  /// reordenamientos libres desde la UI.
+  /// It does NOT take `posicion`: the repository computes it as max(posicion)+1 to
+  /// prevent arbitrary reordering from the UI.
   Future<String> appendCapture({
     required String routeId,
     String? placa,
@@ -42,13 +42,13 @@ class CaptureRepository {
   }) async {
     final now = DateTime.now();
     final clientId = _uuid.v4();
-    final orden = await _db.nextOrden(routeId);
+    final posicion = await _db.nextPosicion(routeId);
 
     await _db.insertCapture(
       CapturesCompanion.insert(
         clientId: clientId,
         routeId: routeId,
-        orden: orden,
+        posicion: posicion,
         placa: Value(_nullIfBlank(placa)),
         manzanaCatastral: Value(_nullIfBlank(manzanaCatastral)),
         tipoAcceso: Value(_nullIfBlank(tipoAcceso)),
@@ -61,8 +61,10 @@ class CaptureRepository {
     return clientId;
   }
 
-  /// Edita los atributos de una captura existente. NO toca `orden` (append-only)
-  /// y la re-marca `pending` para re-enviarla (el backend actualiza en sitio).
+  /// Edits the attributes of an existing capture. It does NOT touch `posicion`
+  /// (append-only) and re-marks it `pending` for re-sending (the backend
+  /// updates in place). `insAfter` is deliberately absent from the patch:
+  /// correcting a placa must never drop a relocation mark (Spec 2.1, A3).
   Future<void> editCapture({
     required String clientId,
     String? placa,
@@ -84,7 +86,66 @@ class CaptureRepository {
     );
   }
 
+  /// The loc that identifies [anchor] as an `ins_after` target.
+  ///
+  /// The stored `loc` when the row has one; `posicion × 5` only for a row that
+  /// has never synced — correct because the backend assigns exactly that in
+  /// the same batch. A blanket `posicion × 5` would be wrong for any unit the
+  /// office already relocated, which is precisely the population this feature
+  /// creates (Spec 2.1, BR2).
+  static int anchorLoc(Capture anchor) => anchor.loc ?? anchor.posicion * 5;
+
+  /// Marks [clientId] as belonging after [insAfter] (a loc; 0 = start of
+  /// route) and re-queues it. Range-guarded here because one bad value costs
+  /// the whole batch a 422, not just its item (Spec 2.1, BR6).
+  Future<void> setInsAfter({
+    required String clientId,
+    required int insAfter,
+  }) async {
+    if (insAfter < 0 || insAfter > 9999) {
+      throw ArgumentError.value(insAfter, 'insAfter', 'must be within 0–9999');
+    }
+    await _db.updateCaptureRow(
+      clientId,
+      CapturesCompanion(
+        insAfter: Value(insAfter),
+        syncStatus: const Value(AppConfig.syncPending),
+        syncError: const Value(null),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  /// Removes the relocation mark and re-queues the row: the next push goes
+  /// out without `ins_after`, which is how the contract clears it.
+  Future<void> clearInsAfter(String clientId) async {
+    await _db.updateCaptureRow(
+      clientId,
+      CapturesCompanion(
+        insAfter: const Value(null),
+        syncStatus: const Value(AppConfig.syncPending),
+        syncError: const Value(null),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
   Future<List<Capture>> pending(String routeId) => _db.pendingCaptures(routeId);
+
+  /// Records how a manual send attempt ended (Spec 4, BR7), so the send bar
+  /// can show "tried, and when" after the momentary message is gone.
+  /// `outcome` is one of the AppConfig.push* codes. Upserts: the route row
+  /// may not exist yet when the first send happens before any frame pull.
+  Future<void> recordPushAttempt({
+    required String routeId,
+    required String outcome,
+  }) async {
+    await _db.upsertRoute(RoutesCompanion(
+      routeId: Value(routeId),
+      lastPushAt: Value(DateTime.now()),
+      lastPushOutcome: Value(outcome),
+    ));
+  }
 
   Future<void> markSynced({
     required String clientId,
@@ -114,11 +175,11 @@ class CaptureRepository {
     );
   }
 
-  /// Reanudar: fusiona el frame remoto con lo local.
-  /// - Items del servidor que no existen localmente → insertar como `synced`.
-  /// - Items locales `pending`/`error` → se preservan (no se pisan ediciones sin
-  ///   enviar); el re-envío posterior es idempotente por clientId.
-  /// - Items locales ya `synced` → se actualizan con placa/loc del servidor.
+  /// Resume: merges the remote frame with local data.
+  /// - Server items that do not exist locally → insert as `synced`.
+  /// - Local `pending`/`error` items → preserved (unsent edits are not
+  ///   overwritten); the later re-send is idempotent by clientId.
+  /// - Local items already `synced` → updated with the server's placa/loc.
   Future<void> mergeFrame(RouteFrame frame) async {
     final now = DateTime.now();
 
@@ -137,10 +198,11 @@ class CaptureRepository {
           CapturesCompanion.insert(
             clientId: item.clientId,
             routeId: frame.routeId,
-            orden: item.orden,
+            posicion: item.posicion,
             placa: Value(item.placa),
             manzanaCatastral: Value(item.manzanaCatastral),
             loc: Value(item.loc),
+            insAfter: Value(item.insAfter),
             syncStatus: const Value(AppConfig.syncSynced),
             createdAt: now,
             updatedAt: now,
@@ -150,15 +212,34 @@ class CaptureRepository {
         await _db.updateCaptureRow(
           item.clientId,
           CapturesCompanion(
-            orden: Value(item.orden),
+            posicion: Value(item.posicion),
             placa: Value(item.placa),
             manzanaCatastral: Value(item.manzanaCatastral),
+            loc: Value(item.loc),
+            // Written unconditionally, nulls included: once the office applies
+            // the shift the frame comes back clean and the local mark must
+            // follow it (Spec 2.1, BR5).
+            insAfter: Value(item.insAfter),
+            updatedAt: Value(now),
+          ),
+        );
+      } else {
+        // Local pending/error: the worker's edits (placa, tipo, observacion,
+        // the relocation mark) and the sync state are preserved — but posicion
+        // and loc are the server's even here. Found live: the office applied
+        // a shift between our pull and our push, every unit moved, and the
+        // stale local posicion collided with another unit's loc on every retry,
+        // forever. Position belongs to the server; content belongs to the
+        // worker until sent.
+        await _db.updateCaptureRow(
+          item.clientId,
+          CapturesCompanion(
+            posicion: Value(item.posicion),
             loc: Value(item.loc),
             updatedAt: Value(now),
           ),
         );
       }
-      // pending/error local: se preserva tal cual.
     }
   }
 

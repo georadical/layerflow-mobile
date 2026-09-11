@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers.dart';
 import '../screens/settings_screen.dart';
 
-/// Banner que avisa si el field_token falta, está vencido o por vencer.
-/// No muestra nada cuando el token está OK.
+/// Banner warning that the field_token is missing, expired or about to expire.
+/// Shows nothing when the token is OK.
 class TokenWarningBanner extends ConsumerWidget {
   const TokenWarningBanner({super.key});
 
@@ -24,9 +24,9 @@ class TokenWarningBanner extends ConsumerWidget {
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.12),
+            color: color.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: color.withOpacity(0.5)),
+            border: Border.all(color: color.withValues(alpha: 0.5)),
           ),
           child: Row(
             children: [

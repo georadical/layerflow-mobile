@@ -4,7 +4,7 @@ import '../../core/config/app_config.dart';
 import '../settings/settings_store.dart';
 import 'dtos.dart';
 
-/// Error de red/servidor que la UI puede mostrar.
+/// Network/server error that the UI can display.
 class ApiException implements Exception {
   ApiException(this.message, {this.statusCode});
   final String message;
@@ -13,9 +13,9 @@ class ApiException implements Exception {
   String toString() => 'ApiException($statusCode): $message';
 }
 
-/// Cliente de la API de captura. Lee baseUrl y field_token en cada request
-/// desde [SettingsStore], de modo que cambiar Ajustes surte efecto sin
-/// reconstruir el cliente.
+/// Capture API client. Reads baseUrl and field_token on every request from
+/// [SettingsStore], so that changing Settings takes effect without rebuilding
+/// the client.
 class ApiClient {
   ApiClient(this._settings, {Dio? dio}) : _dio = dio ?? Dio() {
     _dio.options
@@ -47,7 +47,7 @@ class ApiClient {
     return base.replaceAll(RegExp(r'/+$'), '');
   }
 
-  /// POST /field/capture/placas — upsert por lote (idempotente por client_id).
+  /// POST /field/capture/placas — batch upsert (idempotent by client_id).
   Future<PlacaBatchResponse> postPlacas(PlacaBatchRequest batch) async {
     final base = await _baseUrl();
     try {
@@ -61,14 +61,31 @@ class ApiClient {
     }
   }
 
-  /// GET /field/capture/route/{route_id} — frame para reanudar.
+  /// GET /field/routes — routes assigned to the authenticated field worker.
+  ///
+  /// The backend scopes and orders the list, so the app does not filter it.
+  /// An empty `items` is a valid answer, not an error.
+  Future<AssignedRoutes> getAssignedRoutes() async {
+    final base = await _baseUrl();
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '$base${AppConfig.assignedRoutesPath}',
+      );
+      return AssignedRoutes.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// GET /field/capture/route/{route_id} — frame used to resume.
   Future<RouteFrame> getRouteFrame(String routeId) async {
     final base = await _baseUrl();
     try {
       final res = await _dio.get<Map<String, dynamic>>(
         '$base${AppConfig.routeFramePath(routeId)}',
       );
-      return RouteFrame.fromJson(res.data ?? {'route_id': routeId, 'items': []});
+      return RouteFrame.fromJson(
+          res.data ?? {'route_id': routeId, 'items': []});
     } on DioException catch (e) {
       throw _mapError(e);
     }
