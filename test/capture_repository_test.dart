@@ -235,6 +235,56 @@ void main() {
     expect((await repo.capturesForRoute(routeId)).single.insAfter, 0);
   });
 
+  test('recordPushAttempt: first attempt inserts, the next one replaces it',
+      () async {
+    final db = await _tryMemoryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final repo = CaptureRepository(db);
+
+    // No frame was ever pulled: the route row does not exist yet. The first
+    // send attempt must create it, not crash (Spec 4, T4.1).
+    await repo.recordPushAttempt(
+        routeId: routeId, outcome: AppConfig.pushNetwork);
+    var route = await db.getRoute(routeId);
+    expect(route, isNotNull);
+    expect(route!.lastPushOutcome, AppConfig.pushNetwork);
+    expect(route.lastPushAt, isNotNull);
+
+    await repo.recordPushAttempt(routeId: routeId, outcome: AppConfig.pushOk);
+    route = await db.getRoute(routeId);
+    expect(route!.lastPushOutcome, AppConfig.pushOk,
+        reason: 'only the LAST attempt is remembered');
+  });
+
+  test('recordPushAttempt does not clobber the rest of the route row',
+      () async {
+    final db = await _tryMemoryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final repo = CaptureRepository(db);
+
+    // A route as the frame merge leaves it, codigo included.
+    await repo.mergeFrame(const RouteFrame(
+      routeId: routeId,
+      codigo: '10',
+      items: [RouteFrameItem(clientId: 's1', posicion: 1, loc: 5)],
+    ));
+
+    await repo.recordPushAttempt(routeId: routeId, outcome: AppConfig.pushAuth);
+
+    final route = await db.getRoute(routeId);
+    expect(route!.codigo, '10',
+        reason: 'the upsert must only touch the attempt columns');
+    expect(route.lastPushOutcome, AppConfig.pushAuth);
+  });
+
   test('office renumbering reaches a queued row: position updates, edits stay',
       () async {
     final db = await _tryMemoryDb();

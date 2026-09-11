@@ -301,13 +301,28 @@ class _QueueBar extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              offline
-                  ? '$waiting sin enviar · sin conexión'
-                  : '$waiting sin enviar',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.onSecondaryContainer,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  offline
+                      ? '$waiting sin enviar · sin conexión'
+                      : '$waiting sin enviar',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: theme.colorScheme.onSecondaryContainer,
+                  ),
+                ),
+                // Last attempt (Spec 4, T4.1) — dummy data, offline state
+                // shows the case it exists for: tried and failed.
+                if (offline)
+                  Text(
+                    'Último intento hace 12 min · sin señal',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSecondaryContainer
+                          .withValues(alpha: 0.8),
+                    ),
+                  ),
+              ],
             ),
           ),
           if (sending)

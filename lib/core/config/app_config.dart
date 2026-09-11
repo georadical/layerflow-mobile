@@ -27,4 +27,13 @@ class AppConfig {
   static const String syncPending = 'pending';
   static const String syncSynced = 'synced';
   static const String syncError = 'error';
+
+  /// Outcomes of a manual send attempt (Spec 4, BR7). Stored per route so the
+  /// worker can tell "never tried" from "tried and failed" after the message
+  /// is gone.
+  static const String pushOk = 'ok';
+  static const String pushPartial = 'partial';
+  static const String pushNetwork = 'network';
+  static const String pushAuth = 'auth';
+  static const String pushHttp = 'http';
 }

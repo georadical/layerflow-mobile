@@ -17,6 +17,13 @@ class Routes extends Table {
   /// Last time the frame (GET) was fetched to resume.
   DateTimeColumn get lastFrameSyncAt => dateTime().nullable()();
 
+  /// Last manual send attempt for this route (Spec 4, BR7): when it happened
+  /// and how it ended (an AppConfig.push* code the UI translates). Null until
+  /// the first attempt. Recorded on failures too — that is the whole point:
+  /// a worker who missed the message can still tell the queue was tried.
+  DateTimeColumn get lastPushAt => dateTime().nullable()();
+  TextColumn get lastPushOutcome => text().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {routeId};
 }
@@ -85,15 +92,19 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
-  /// First migration of the app. The column is nullable, so old rows come out
-  /// as null — which is exactly "no relocation mark"; no backfill needed.
+  /// All added columns are nullable, so old rows come out as null — "no
+  /// relocation mark" (v2) and "never attempted a send" (v3); no backfill.
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onUpgrade: (m, from, to) async {
           if (from < 2) {
             await m.addColumn(captures, captures.insAfter);
+          }
+          if (from < 3) {
+            await m.addColumn(routes, routes.lastPushAt);
+            await m.addColumn(routes, routes.lastPushOutcome);
           }
         },
       );
@@ -106,6 +117,10 @@ class AppDatabase extends _$AppDatabase {
   Future<Route?> getRoute(String routeId) =>
       (select(routes)..where((r) => r.routeId.equals(routeId)))
           .getSingleOrNull();
+
+  Stream<Route?> watchRoute(String routeId) =>
+      (select(routes)..where((r) => r.routeId.equals(routeId)))
+          .watchSingleOrNull();
 
   Future<List<Route>> allRoutes() =>
       (select(routes)..orderBy([(r) => OrderingTerm.desc(r.lastFrameSyncAt)]))

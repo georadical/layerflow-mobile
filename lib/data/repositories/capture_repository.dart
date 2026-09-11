@@ -132,6 +132,21 @@ class CaptureRepository {
 
   Future<List<Capture>> pending(String routeId) => _db.pendingCaptures(routeId);
 
+  /// Records how a manual send attempt ended (Spec 4, BR7), so the send bar
+  /// can show "tried, and when" after the momentary message is gone.
+  /// `outcome` is one of the AppConfig.push* codes. Upserts: the route row
+  /// may not exist yet when the first send happens before any frame pull.
+  Future<void> recordPushAttempt({
+    required String routeId,
+    required String outcome,
+  }) async {
+    await _db.upsertRoute(RoutesCompanion(
+      routeId: Value(routeId),
+      lastPushAt: Value(DateTime.now()),
+      lastPushOutcome: Value(outcome),
+    ));
+  }
+
   Future<void> markSynced({
     required String clientId,
     int? loc,

@@ -309,12 +309,32 @@ class _QueueBar extends ConsumerWidget {
     }
   }
 
+  /// "hace X" from the device clock; best-effort, needs no server time.
+  static String _ago(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'hace un momento';
+    if (d.inMinutes < 60) return 'hace ${d.inMinutes} min';
+    if (d.inHours < 24) return 'hace ${d.inHours} h';
+    return 'hace ${d.inDays} d';
+  }
+
+  static const _outcomeLabels = <String, String>{
+    AppConfig.pushOk: 'todo enviado',
+    AppConfig.pushPartial: 'algunas rechazadas',
+    AppConfig.pushNetwork: 'sin señal',
+    AppConfig.pushAuth: 'token rechazado',
+    AppConfig.pushHttp: 'error del servidor',
+  };
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final waiting = ref.watch(pendingCountProvider(routeId));
     final sending = ref.watch(pushProvider(routeId));
     final online = ref.watch(isOnlineProvider);
+    final route = ref.watch(routeRowProvider(routeId)).valueOrNull;
+    final lastAt = route?.lastPushAt;
+    final lastOutcome = route?.lastPushOutcome;
 
     return Container(
       color: theme.colorScheme.secondaryContainer,
@@ -328,13 +348,29 @@ class _QueueBar extends ConsumerWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              online
-                  ? '$waiting sin enviar'
-                  : '$waiting sin enviar · sin conexión',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.onSecondaryContainer,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  online
+                      ? '$waiting sin enviar'
+                      : '$waiting sin enviar · sin conexión',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: theme.colorScheme.onSecondaryContainer,
+                  ),
+                ),
+                // "Tried, and when": tells never-tried from tried-and-failed
+                // even if the momentary message was missed (Spec 4, BR7).
+                if (lastAt != null)
+                  Text(
+                    'Último intento ${_ago(lastAt)}'
+                    '${_outcomeLabels[lastOutcome] != null ? ' · ${_outcomeLabels[lastOutcome]}' : ''}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSecondaryContainer
+                          .withValues(alpha: 0.8),
+                    ),
+                  ),
+              ],
             ),
           ),
           if (sending)

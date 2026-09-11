@@ -228,16 +228,45 @@ class PushNotifier extends FamilyNotifier<bool, String> {
   bool build(String routeId) => false;
 
   /// Returns the outcome, or throws ApiException for the caller to map.
+  ///
+  /// Every real attempt is recorded on the route — failures included — so
+  /// the send bar can show it after the message is gone (Spec 4, BR7). A
+  /// no-op (empty queue) is not an attempt and records nothing.
   Future<SyncResult?> send() async {
     if (state) return null;
     state = true;
+    final repo = ref.read(captureRepositoryProvider);
     try {
-      return await ref.read(syncServiceProvider).pushPending(arg);
+      final result = await ref.read(syncServiceProvider).pushPending(arg);
+      if (!result.isNoop) {
+        await repo.recordPushAttempt(
+          routeId: arg,
+          outcome: result.isOk ? AppConfig.pushOk : AppConfig.pushPartial,
+        );
+      }
+      return result;
+    } on ApiException catch (e) {
+      // No verdict reached the items (BR3); the attempt itself still counts.
+      await repo.recordPushAttempt(
+        routeId: arg,
+        outcome: switch (e.statusCode) {
+          null => AppConfig.pushNetwork,
+          401 || 403 => AppConfig.pushAuth,
+          _ => AppConfig.pushHttp,
+        },
+      );
+      rethrow;
     } finally {
       state = false;
     }
   }
 }
+
+/// A route's row as stored on the device, watched live — the send bar reads
+/// the last attempt from here (Spec 4, BR7).
+final routeRowProvider = StreamProvider.autoDispose.family<Route?, String>(
+  (ref, routeId) => ref.watch(databaseProvider).watchRoute(routeId),
+);
 
 /// How many of a route's rows are still waiting or were refused.
 final pendingCountProvider = Provider.family<int, String>((ref, routeId) {
