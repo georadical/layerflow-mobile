@@ -1,10 +1,10 @@
 # Spec — Field login (surveyor credentials + multi-ESP tokens)
 
-> **Shared spec, mirrored copy (2026-09-11).** The source of truth lives in
-> the backend repo (`specs/field-login.md`); both repos build against this one
-> document. Do not edit here — changes go through the backend session and get
-> re-copied. App-side tickets derived from it: see [README.md](README.md),
-> Spec 5.
+> **Shared spec, mirrored copy** — source of truth in the backend repo
+> (`specs/field-login.md`) @ `f371076` (adds `rutas_asignadas` to the login
+> response). Both repos build against this one document. Do not edit here —
+> changes go through the backend session and get re-copied. App-side tickets:
+> see [README.md](README.md), Spec 5.
 
 Status: draft (awaiting approval to implement)
 Type: Backend / API (no UI except the operator provisioning section) → pipeline:
@@ -68,10 +68,16 @@ Response `200`:
   "worker": { "nombre": "Ana", "documento": "123" },
   "esps": [
     { "tenant_id": 3, "esp_nombre": "ESP Isnos", "field_worker_id": "uuid",
+      "rutas_asignadas": 1,
       "field_token": "<jwt kind='field', 30 días>" }
   ]
 }
 ```
+- `rutas_asignadas` (requested by the app for the ESP picker, T5.2): count of
+  **distinct `verificada` routes assigned to that field_worker** (holder or
+  pareja) — the exact criterion `GET /field/routes` filters by, so the number
+  the surveyor sees at login matches the list they get after picking. Read-only
+  context; no coordinates, no capture data.
 - **BR-FRESH:** login **always** issues fresh 30-day tokens — for every ESP, on
   every login, unconditionally. The grace window is a refresh-only concept;
   login authenticates with credentials, so it is the final recovery path and
@@ -161,6 +167,8 @@ Response `200`:
   MVP.
 
 ## Acceptance criteria
+- Each `esps` entry carries `rutas_asignadas` equal to what `GET /field/routes`
+  would list for that worker (distinct, verificada, holder or pareja).
 - Login returns one fresh 30-day token per active linked ESP; repeated logins
   always return fresh tokens (BR-FRESH).
 - Refresh renews within grace (including expired ≤ 7 days) and refuses beyond.
