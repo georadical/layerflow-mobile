@@ -164,6 +164,54 @@ void main() {
     });
   });
 
+  group('LoginResponse.fromJson (Spec 5)', () {
+    // Verbatim shape documented in field-login.md @ f371076.
+    Map<String, dynamic> wirePayload() => {
+          'worker': {'nombre': 'Ana', 'documento': '123'},
+          'esps': [
+            {
+              'tenant_id': 2,
+              'esp_nombre': 'ESP Elías',
+              'field_worker_id': 'fw-2',
+              'rutas_asignadas': 1,
+              'field_token': 'jwt-elias',
+            },
+            {
+              'tenant_id': 3,
+              'esp_nombre': 'ESP Isnos',
+              'field_worker_id': 'fw-3',
+              'rutas_asignadas': 1,
+              'field_token': 'jwt-isnos',
+            },
+          ],
+        };
+
+    test('parses the documented multi-ESP payload', () {
+      final res = LoginResponse.fromJson(wirePayload());
+      expect(res.workerNombre, 'Ana');
+      expect(res.esps, hasLength(2));
+      expect(res.esps.last.tenantId, 3);
+      expect(res.esps.last.rutasAsignadas, 1);
+      expect(res.esps.last.fieldToken, 'jwt-isnos');
+    });
+
+    test('FieldSession round-trips through its storage JSON', () {
+      final session = FieldSession(
+        email: 'campo1@layerflow.co',
+        workerNombre: 'Ana',
+        esps: LoginResponse.fromJson(wirePayload()).esps,
+        activeTenantId: 3,
+      );
+
+      final back = FieldSession.fromJson(session.toJson());
+
+      expect(back.email, session.email);
+      expect(back.activeTenantId, 3);
+      expect(back.activeEsp!.espNombre, 'ESP Isnos');
+      expect(back.esps.first.fieldToken, 'jwt-elias');
+    });
+  });
+
   group('ins_after (Spec 2.1)', () {
     test('request serialises a mark, 0 included; omits only null', () {
       // 0 is a real value — start of route — never conflated with "no mark".
@@ -176,16 +224,19 @@ void main() {
       expect(none.containsKey('ins_after'), isFalse);
     });
 
-    test('frame item reads posicion, falling back to the deprecated alias', () {
-      // Compatibility window (backend edf0f4f): the frame emits both keys.
-      final both = RouteFrameItem.fromJson(
-          {'client_id': 'a', 'posicion': 2, 'orden': 2, 'loc': 10});
-      expect(both.posicion, 2);
+    test('frame item requires posicion; the retired alias is ignored', () {
+      // Alias retired contract-wide (backend de28c1f). If 'orden' somehow
+      // arrived anyway, it must not be honoured.
+      final item = RouteFrameItem.fromJson(
+          {'client_id': 'a', 'posicion': 2, 'orden': 99, 'loc': 10});
+      expect(item.posicion, 2);
 
-      // An old payload (or cache) may still carry only the alias.
-      final aliasOnly =
-          RouteFrameItem.fromJson({'client_id': 'b', 'orden': 4, 'loc': 20});
-      expect(aliasOnly.posicion, 4);
+      // A payload carrying only the dead key fails loudly, never guesses.
+      expect(
+        () =>
+            RouteFrameItem.fromJson({'client_id': 'b', 'orden': 4, 'loc': 20}),
+        throwsA(isA<TypeError>()),
+      );
     });
 
     test('the request sends posicion, never the deprecated key', () {

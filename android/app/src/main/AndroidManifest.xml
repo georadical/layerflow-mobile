@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The app is offline-first, but login, refresh, frame pull and push
+         all need the network. Without this, a RELEASE build captures fine
+         and can never send — debug builds hide the gap because the debug
+         manifest adds the permission on its own. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="layerflow_capture"
         android:name="${applicationName}"

@@ -83,6 +83,105 @@ class CurrentRouteNotifier extends StateNotifier<String?> {
   }
 }
 
+/// The login session (Spec 5). Null = logged out (or pre-login, CL1 paste).
+final sessionProvider =
+    AsyncNotifierProvider<SessionNotifier, FieldSession?>(SessionNotifier.new);
+
+class SessionNotifier extends AsyncNotifier<FieldSession?> {
+  @override
+  Future<FieldSession?> build() => ref.read(settingsStoreProvider).getSession();
+
+  /// POST /field/login. On success the session is persisted; with exactly
+  /// one ESP it becomes active immediately (no pointless choice screen),
+  /// with several the gate shows the choice (CL5). Throws ApiException for
+  /// the screen to map (A1/A2/offline).
+  Future<void> login({required String email, required String password}) async {
+    final api = ref.read(apiClientProvider);
+    final store = ref.read(settingsStoreProvider);
+
+    final res = await api.login(email: email, password: password);
+    final session = FieldSession(
+      email: email.trim().toLowerCase(),
+      workerNombre: res.workerNombre,
+      workerDocumento: res.workerDocumento,
+      esps: res.esps,
+      activeTenantId: res.esps.length == 1 ? res.esps.single.tenantId : null,
+    );
+    await store.saveSession(session);
+    state = AsyncData(session);
+    _tokenChanged();
+  }
+
+  /// CL5: pick the active ESP. Rewrites the mirrored token. Also used by
+  /// the Spec 6 switcher — the active route is cleared because it belonged
+  /// to the previous ESP (BR5; a no-op on the login-time choice).
+  Future<void> chooseEsp(int tenantId) async {
+    final updated =
+        await ref.read(settingsStoreProvider).setActiveEsp(tenantId);
+    if (updated != null) {
+      await ref.read(currentRouteIdProvider.notifier).setRoute(null);
+      state = AsyncData(updated);
+      _tokenChanged();
+    }
+  }
+
+  /// CL2 — silent renewal, called on app open. Moves no capture data, so
+  /// the manual-only doctrine is untouched; it only renews the credential.
+  ///
+  /// Refreshes when the ACTIVE token is expired (the server's 7-day grace
+  /// decides if that still works) or expires within 7 days — the worker may
+  /// be heading into weeks without signal, so renew with maximum runway.
+  /// Recovery hierarchy: signal → refresh → login (field-login.md).
+  Future<void> refreshIfNeeded() async {
+    final session = state.valueOrNull;
+    final active = session?.activeEsp;
+    if (session == null || active == null) return;
+    if (!ref.read(isOnlineProvider)) return;
+
+    final info = parseJwt(active.fieldToken);
+    if (!info.isExpired && !info.expiresSoon(thresholdDays: 7)) return;
+
+    try {
+      // The interceptor sends the mirrored (= active) token.
+      final fresh = await ref.read(apiClientProvider).refreshToken();
+      final updated = session.withEspToken(active.tenantId, fresh);
+      await ref.read(settingsStoreProvider).saveSession(updated);
+      state = AsyncData(updated);
+      ref.invalidate(fieldTokenInfoProvider);
+      ref.invalidate(tokenStatusProvider);
+    } on ApiException catch (e) {
+      if (e.statusCode == 401 || e.statusCode == 403) {
+        // Beyond grace, or revoked: the hierarchy's next step is login,
+        // which re-issues every token fresh (BR-FRESH). Clearing the
+        // session is what routes the gate there. The queue is untouched,
+        // as always (CL4).
+        await ref.read(settingsStoreProvider).clearSession();
+        state = const AsyncData(null);
+      }
+      // Anything else (no route to host, 5xx): keep working with the
+      // current token; the next app open retries. Silent by design.
+    }
+  }
+
+  /// CL4: wipes tokens and session. The capture queue is NEVER touched —
+  /// this person's unsent rows stay parked on the device, bound to their
+  /// email, and resume when the SAME person logs back in.
+  Future<void> logout() async {
+    await ref.read(settingsStoreProvider).clearSession();
+    // The active route belonged to the closed session's ESP.
+    await ref.read(currentRouteIdProvider.notifier).setRoute(null);
+    state = const AsyncData(null);
+    _tokenChanged();
+  }
+
+  /// The mirrored token changed: everything derived from it must refetch.
+  void _tokenChanged() {
+    ref.invalidate(assignedRoutesProvider);
+    ref.invalidate(fieldTokenInfoProvider);
+    ref.invalidate(tokenStatusProvider);
+  }
+}
+
 /// State of the pasted field_token (to warn about expiry in the field).
 enum TokenStatus { missing, malformed, expired, expiringSoon, ok }
 
@@ -139,14 +238,19 @@ class AssignedRoutesNotifier extends AsyncNotifier<AssignedRoutesState> {
   Future<AssignedRoutesState> _fetch() async {
     final api = ref.read(apiClientProvider);
     final cache = ref.read(assignedRoutesCacheProvider);
+    // The cache slot follows the ACTIVE tenant (Spec 6, BR3): offline, ESP
+    // B must fall back to B's own copy or to nothing — never to A's list.
+    // Null (paste flow) keeps its single implicit slot.
+    final session = await ref.read(sessionProvider.future);
+    final tenantId = session?.activeTenantId;
     try {
       final routes = await api.getAssignedRoutes();
-      await cache.save(routes);
+      await cache.save(routes, tenantId: tenantId);
       return AssignedRoutesState(routes: routes, fromCache: false);
     } on ApiException catch (e) {
       final isAuth = e.statusCode == 401 || e.statusCode == 403;
       if (isAuth) rethrow;
-      final cached = await cache.load();
+      final cached = await cache.load(tenantId: tenantId);
       if (cached == null) rethrow;
       return AssignedRoutesState(routes: cached, fromCache: true);
     }
@@ -167,12 +271,15 @@ final routeFrameProvider =
 
 /// Name of the ESP the current token belongs to.
 ///
-/// Read from the cached route list rather than the network: the ESP is a
-/// property of the session, not of a route, and screens that show it must not
-/// pay for a request to do so. Null until the selector has run once.
-/// Reads the cache only. Watching `assignedRoutesProvider` here would make any
-/// screen that merely labels a route issue a request.
+/// From the session's active ESP when one exists — it follows a switch
+/// instantly and needs no request (Spec 6). The cache stays as fallback for
+/// the paste flow (per-tenant slots; null = the paste slot). Watching
+/// `assignedRoutesProvider` here would make any screen that merely labels a
+/// route issue a request.
 final espNameProvider = FutureProvider.autoDispose<String?>((ref) async {
+  final session = await ref.watch(sessionProvider.future);
+  final active = session?.activeEsp;
+  if (active != null) return active.espNombre;
   final cached = await ref.read(assignedRoutesCacheProvider).load();
   return cached?.esp;
 });
@@ -237,7 +344,9 @@ class PushNotifier extends FamilyNotifier<bool, String> {
     state = true;
     final repo = ref.read(captureRepositoryProvider);
     try {
-      final result = await ref.read(syncServiceProvider).pushPending(arg);
+      final result = await ref
+          .read(syncServiceProvider)
+          .pushPending(arg, owner: ref.read(queueOwnerProvider));
       if (!result.isNoop) {
         await repo.recordPushAttempt(
           routeId: arg,
@@ -268,6 +377,12 @@ final routeRowProvider = StreamProvider.autoDispose.family<Route?, String>(
   (ref, routeId) => ref.watch(databaseProvider).watchRoute(routeId),
 );
 
+/// The person key that owns new queue rows: the session's normalized email,
+/// or null in the paste flow (unowned rows, visible to any session).
+final queueOwnerProvider = Provider<String?>(
+  (ref) => ref.watch(sessionProvider).valueOrNull?.email,
+);
+
 /// How many of a route's rows are still waiting or were refused.
 final pendingCountProvider = Provider.family<int, String>((ref, routeId) {
   final rows = ref.watch(capturesProvider(routeId)).valueOrNull ?? const [];
@@ -277,5 +392,8 @@ final pendingCountProvider = Provider.family<int, String>((ref, routeId) {
 /// Stream of a route's captures (sorted by `posicion`).
 final capturesProvider =
     StreamProvider.family<List<Capture>, String>((ref, routeId) {
-  return ref.watch(captureRepositoryProvider).watchCaptures(routeId);
+  final owner = ref.watch(queueOwnerProvider);
+  return ref
+      .watch(captureRepositoryProvider)
+      .watchCaptures(routeId, owner: owner);
 });

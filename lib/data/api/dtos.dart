@@ -203,6 +203,159 @@ class AssignedRoutes {
       };
 }
 
+/// One ESP entry of the login response (Spec 5). Carries that ESP's field
+/// token — handle like the token it is: stored encrypted, never displayed,
+/// never logged (CL3/BR7).
+class LoginEsp {
+  const LoginEsp({
+    required this.tenantId,
+    required this.espNombre,
+    required this.fieldWorkerId,
+    required this.fieldToken,
+    this.rutasAsignadas,
+  });
+
+  final int tenantId;
+  final String espNombre;
+  final String fieldWorkerId;
+
+  /// Distinct `verificada` routes assigned to this field_worker (titular or
+  /// pareja) — same criterion as GET /field/routes, so the picker's number
+  /// always matches the list (contract, backend f371076).
+  final int? rutasAsignadas;
+
+  final String fieldToken;
+
+  factory LoginEsp.fromJson(Map<String, dynamic> json) {
+    return LoginEsp(
+      tenantId: (json['tenant_id'] as num).toInt(),
+      espNombre: json['esp_nombre']?.toString() ?? '',
+      fieldWorkerId: json['field_worker_id'] as String,
+      rutasAsignadas: (json['rutas_asignadas'] as num?)?.toInt(),
+      fieldToken: json['field_token'] as String,
+    );
+  }
+
+  /// For the encrypted session store only — this JSON contains the token and
+  /// must never travel anywhere else.
+  Map<String, dynamic> toJson() => {
+        'tenant_id': tenantId,
+        'esp_nombre': espNombre,
+        'field_worker_id': fieldWorkerId,
+        if (rutasAsignadas != null) 'rutas_asignadas': rutasAsignadas,
+        'field_token': fieldToken,
+      };
+}
+
+/// Response of POST /field/login.
+class LoginResponse {
+  const LoginResponse({
+    required this.workerNombre,
+    this.workerDocumento,
+    required this.esps,
+  });
+
+  final String workerNombre;
+  final String? workerDocumento;
+
+  /// One entry per ACTIVE linked field_worker. Never empty on 200 (an empty
+  /// linkage answers 403, A2).
+  final List<LoginEsp> esps;
+
+  factory LoginResponse.fromJson(Map<String, dynamic> json) {
+    final worker = json['worker'] as Map<String, dynamic>? ?? const {};
+    return LoginResponse(
+      workerNombre: worker['nombre']?.toString() ?? '',
+      workerDocumento: worker['documento']?.toString(),
+      esps: (json['esps'] as List<dynamic>? ?? const [])
+          .map((e) => LoginEsp.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+/// The logged-in session as the device holds it (Spec 5, T5.1).
+///
+/// Persisted ONLY in secure storage: it contains every ESP's token. The
+/// active ESP's token is additionally mirrored into the legacy `field_token`
+/// slot, so the API client and every existing flow keep working untouched.
+class FieldSession {
+  const FieldSession({
+    required this.email,
+    required this.workerNombre,
+    this.workerDocumento,
+    required this.esps,
+    this.activeTenantId,
+  });
+
+  /// Normalized login email — the person key that binds the local queue to
+  /// its owner (CL4; the wire carries no person id).
+  final String email;
+
+  final String workerNombre;
+  final String? workerDocumento;
+  final List<LoginEsp> esps;
+
+  /// Tenant chosen as active (CL5). Null only between login and the choice.
+  final int? activeTenantId;
+
+  LoginEsp? get activeEsp {
+    for (final e in esps) {
+      if (e.tenantId == activeTenantId) return e;
+    }
+    return null;
+  }
+
+  FieldSession withActiveTenant(int tenantId) => FieldSession(
+        email: email,
+        workerNombre: workerNombre,
+        workerDocumento: workerDocumento,
+        esps: esps,
+        activeTenantId: tenantId,
+      );
+
+  /// Replaces one ESP's token (silent refresh, T5.3) without touching the
+  /// rest of the session.
+  FieldSession withEspToken(int tenantId, String token) => FieldSession(
+        email: email,
+        workerNombre: workerNombre,
+        workerDocumento: workerDocumento,
+        esps: [
+          for (final e in esps)
+            e.tenantId == tenantId
+                ? LoginEsp(
+                    tenantId: e.tenantId,
+                    espNombre: e.espNombre,
+                    fieldWorkerId: e.fieldWorkerId,
+                    rutasAsignadas: e.rutasAsignadas,
+                    fieldToken: token,
+                  )
+                : e,
+        ],
+        activeTenantId: activeTenantId,
+      );
+
+  factory FieldSession.fromJson(Map<String, dynamic> json) {
+    return FieldSession(
+      email: json['email'] as String,
+      workerNombre: json['worker_nombre']?.toString() ?? '',
+      workerDocumento: json['worker_documento']?.toString(),
+      esps: (json['esps'] as List<dynamic>? ?? const [])
+          .map((e) => LoginEsp.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      activeTenantId: (json['active_tenant_id'] as num?)?.toInt(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'email': email,
+        'worker_nombre': workerNombre,
+        if (workerDocumento != null) 'worker_documento': workerDocumento,
+        'esps': esps.map((e) => e.toJson()).toList(),
+        if (activeTenantId != null) 'active_tenant_id': activeTenantId,
+      };
+}
+
 /// Frame item (GET). What was already captured, used to resume.
 class RouteFrameItem {
   const RouteFrameItem({
@@ -227,9 +380,9 @@ class RouteFrameItem {
   factory RouteFrameItem.fromJson(Map<String, dynamic> json) {
     return RouteFrameItem(
       clientId: json['client_id'] as String,
-      // Compatibility window: the frame emits both keys today; old cached
-      // payloads may carry only the deprecated alias.
-      posicion: ((json['posicion'] ?? json['orden']) as num).toInt(),
+      // The 'orden' alias was retired contract-wide (backend de28c1f), and
+      // frames are never cached, so nothing feeds the old key any more.
+      posicion: (json['posicion'] as num).toInt(),
       loc: (json['loc'] as num?)?.toInt(),
       placa: json['placa'] as String?,
       manzanaCatastral: json['manzana_catastral'] as String?,

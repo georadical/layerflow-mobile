@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'ui/theme.dart';
+import 'ui/wireframes/login_wireframe.dart';
 import 'ui/wireframes/resume_route_wireframe.dart';
 import 'ui/wireframes/route_selector_wireframe.dart';
 
@@ -53,8 +54,43 @@ class WireframeIndex extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const _ResumeHost()),
             ),
           ),
+          const Divider(height: 1),
+          ListTile(
+            title: const Text('Login de encuestador'),
+            subtitle: const Text('Spec 5 · T5.2'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const _LoginHost()),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _LoginHost extends StatefulWidget {
+  const _LoginHost();
+
+  @override
+  State<_LoginHost> createState() => _LoginHostState();
+}
+
+class _LoginHostState extends State<_LoginHost> {
+  int _i = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _StateSwitcher(
+          labels: [for (final s in LoginState.values) s.name],
+          selected: _i,
+          onSelect: (i) => setState(() => _i = i),
+        ),
+        const Divider(height: 1),
+        Expanded(child: LoginWireframe(state: LoginState.values[_i])),
+      ],
     );
   }
 }

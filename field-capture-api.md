@@ -1,9 +1,10 @@
 # Spec — Minimal field-capture API (placa capture in strict order)
 
-> **Copy — source of truth lives in the backend repo** @ `edf0f4f`
-> (branch `feature/extended-census`). Field rename applied there:
-> `posicion` → `posicion` (deprecated alias accepted during a compatibility
-> window). This mirror was updated accordingly; do not edit doctrine here.
+> **Copy — source of truth lives in the backend repo** @ `de28c1f`
+> (branch `feature/extended-census`). Field rename completed there:
+> `orden` → `posicion`, and the deprecated alias is **retired** — a push
+> carrying `orden` answers 422 and the frame no longer emits the key
+> (verified live 2026-09-11). Do not edit doctrine here.
 
 Status: draft (awaiting approval to implement)
 Type: Backend / API (no UI) → pipeline: Spec → Tickets → Implementation

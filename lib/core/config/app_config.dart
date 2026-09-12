@@ -23,6 +23,12 @@ class AppConfig {
   /// Routes assigned to the authenticated field worker.
   static const String assignedRoutesPath = '/field/routes';
 
+  /// Field login (Spec 5): credentials → one fresh token per active ESP.
+  static const String loginPath = '/field/login';
+
+  /// Silent renewal; the 7-day grace window exists only here.
+  static const String refreshPath = '/field/token/refresh';
+
   /// Local sync states.
   static const String syncPending = 'pending';
   static const String syncSynced = 'synced';

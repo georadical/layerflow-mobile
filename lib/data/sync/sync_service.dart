@@ -40,8 +40,10 @@ class SyncService {
 
   /// Pushes the route's pending queue as an idempotent batch.
   /// It is not all-or-nothing: each item is marked according to its result.
-  Future<SyncResult> pushPending(String routeId) async {
-    final pending = await _repo.pending(routeId);
+  /// [owner] scopes the queue to the current person: a predecessor's parked
+  /// rows never travel under someone else's token (CL4).
+  Future<SyncResult> pushPending(String routeId, {String? owner}) async {
+    final pending = await _repo.pending(routeId, owner: owner);
     if (pending.isEmpty) {
       return const SyncResult(attempted: 0, synced: 0, failed: 0);
     }

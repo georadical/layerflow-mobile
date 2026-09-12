@@ -8,6 +8,42 @@ import '../widgets/token_warning_banner.dart';
 import 'resume_route_screen.dart';
 import 'settings_screen.dart';
 
+/// CL4 — logout wipes tokens, never the queue. With unsent rows it warns
+/// and, on confirmation, parks them bound to this person: they are invisible
+/// to any other login and travel only when the same person returns.
+Future<void> _logout(BuildContext context, WidgetRef ref) async {
+  final owner = ref.read(queueOwnerProvider);
+  final pending =
+      await ref.read(captureRepositoryProvider).pendingCountForOwner(owner);
+  if (!context.mounted) return;
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Cerrar sesión'),
+      content: Text(pending == 0
+          ? 'Se borrarán tus accesos de este teléfono. '
+              'Lo capturado ya enviado está a salvo en el servidor.'
+          : 'Tienes $pending capturas sin enviar. Se quedan guardadas en '
+              'este teléfono y viajan cuando vuelvas a entrar tú; nadie '
+              'más puede verlas ni enviarlas.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Cerrar sesión'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true) return;
+  await ref.read(sessionProvider.notifier).logout();
+  // The RootGate swaps to the login screen on its own.
+}
+
 /// Route selector — Spec 1, T1.5. Wires the approved design to
 /// `GET /field/routes`.
 ///
@@ -20,6 +56,7 @@ class RouteSelectorScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(assignedRoutesProvider);
+    final hasSession = ref.watch(sessionProvider).valueOrNull != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -30,6 +67,14 @@ class RouteSelectorScreen extends ConsumerWidget {
             tooltip: 'Ajustes',
             onPressed: () => _openSettings(context),
           ),
+          // Only a logged-in session can log out; the paste flow (CL1) has
+          // nothing to close.
+          if (hasSession)
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'Cerrar sesión',
+              onPressed: () => _logout(context, ref),
+            ),
         ],
       ),
       body: Column(
@@ -220,7 +265,7 @@ class _RouteList extends StatelessWidget {
   }
 }
 
-class _EspHeader extends StatelessWidget {
+class _EspHeader extends ConsumerWidget {
   const _EspHeader({
     required this.esp,
     required this.total,
@@ -231,30 +276,81 @@ class _EspHeader extends StatelessWidget {
   final int total;
   final bool fromCache;
 
+  /// Spec 6 (T6.2): the same choice UI as login, as a sheet. Picking calls
+  /// `chooseEsp`, which swaps the mirrored token, clears the active route
+  /// (BR5) and refetches the list — all local, works offline (BR2).
+  Future<void> _switchEsp(
+      BuildContext context, WidgetRef ref, FieldSession session) async {
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text('¿Con cuál ESP sigues?',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            for (final e in session.esps)
+              ListTile(
+                leading: Icon(e.tenantId == session.activeTenantId
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_off),
+                title: Text(e.espNombre),
+                subtitle: e.rutasAsignadas == null
+                    ? null
+                    : Text('${e.rutasAsignadas} rutas asignadas'),
+                onTap: () => Navigator.of(context).pop(e.tenantId),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || picked == session.activeTenantId) return;
+    await ref.read(sessionProvider.notifier).chooseEsp(picked);
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    return Container(
-      color: theme.colorScheme.surfaceContainerLow,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              esp,
-              style: theme.textTheme.titleSmall,
-              overflow: TextOverflow.ellipsis,
+    final session = ref.watch(sessionProvider).valueOrNull;
+    // BR6: with one ESP (or the paste flow) there is nothing to switch and
+    // nothing changes visually — zero friction for the exclusive case.
+    final switchable = session != null && session.esps.length > 1;
+
+    return InkWell(
+      onTap: switchable ? () => _switchEsp(context, ref, session) : null,
+      child: Container(
+        color: theme.colorScheme.surfaceContainerLow,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                esp,
+                style: theme.textTheme.titleSmall,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
-          Text(
-            // Says plainly that the list is stale rather than implying it is
-            // current.
-            fromCache ? 'sin sincronizar (offline)' : '$total rutas',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+            Text(
+              // Says plainly that the list is stale rather than implying it
+              // is current.
+              fromCache ? 'sin sincronizar (offline)' : '$total rutas',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-          ),
-        ],
+            if (switchable) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.swap_horiz,
+                  size: 18, color: theme.colorScheme.primary),
+              const SizedBox(width: 2),
+              Text('cambiar',
+                  style: theme.textTheme.labelMedium
+                      ?.copyWith(color: theme.colorScheme.primary)),
+            ],
+          ],
+        ),
       ),
     );
   }
