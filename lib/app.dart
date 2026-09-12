@@ -26,11 +26,33 @@ class LayerFlowCaptureApp extends StatelessWidget {
 /// - no session but a pasted token → routes, exactly as before login
 ///   existed (CL1: the paste path keeps working);
 /// - nothing → login.
-class RootGate extends ConsumerWidget {
+class RootGate extends ConsumerStatefulWidget {
   const RootGate({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RootGate> createState() => _RootGateState();
+}
+
+class _RootGateState extends ConsumerState<RootGate> {
+  @override
+  void initState() {
+    super.initState();
+    // CL2: silent token renewal on app open. Waits for the stored session
+    // and the first connectivity reading, then refreshes only if due.
+    // Fire-and-forget: the gate never blocks on it.
+    Future.microtask(() async {
+      try {
+        await ref.read(connectivityProvider.future);
+        await ref.read(sessionProvider.future);
+        await ref.read(sessionProvider.notifier).refreshIfNeeded();
+      } catch (_) {
+        // Offline or unreadable session: the gate handles both already.
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
 
     return switch (session) {

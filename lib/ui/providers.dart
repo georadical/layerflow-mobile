@@ -122,6 +122,44 @@ class SessionNotifier extends AsyncNotifier<FieldSession?> {
     }
   }
 
+  /// CL2 — silent renewal, called on app open. Moves no capture data, so
+  /// the manual-only doctrine is untouched; it only renews the credential.
+  ///
+  /// Refreshes when the ACTIVE token is expired (the server's 7-day grace
+  /// decides if that still works) or expires within 7 days — the worker may
+  /// be heading into weeks without signal, so renew with maximum runway.
+  /// Recovery hierarchy: signal → refresh → login (field-login.md).
+  Future<void> refreshIfNeeded() async {
+    final session = state.valueOrNull;
+    final active = session?.activeEsp;
+    if (session == null || active == null) return;
+    if (!ref.read(isOnlineProvider)) return;
+
+    final info = parseJwt(active.fieldToken);
+    if (!info.isExpired && !info.expiresSoon(thresholdDays: 7)) return;
+
+    try {
+      // The interceptor sends the mirrored (= active) token.
+      final fresh = await ref.read(apiClientProvider).refreshToken();
+      final updated = session.withEspToken(active.tenantId, fresh);
+      await ref.read(settingsStoreProvider).saveSession(updated);
+      state = AsyncData(updated);
+      ref.invalidate(fieldTokenInfoProvider);
+      ref.invalidate(tokenStatusProvider);
+    } on ApiException catch (e) {
+      if (e.statusCode == 401 || e.statusCode == 403) {
+        // Beyond grace, or revoked: the hierarchy's next step is login,
+        // which re-issues every token fresh (BR-FRESH). Clearing the
+        // session is what routes the gate there. The queue is untouched,
+        // as always (CL4).
+        await ref.read(settingsStoreProvider).clearSession();
+        state = const AsyncData(null);
+      }
+      // Anything else (no route to host, 5xx): keep working with the
+      // current token; the next app open retries. Silent by design.
+    }
+  }
+
   /// The mirrored token changed: everything derived from it must refetch.
   void _tokenChanged() {
     ref.invalidate(assignedRoutesProvider);
