@@ -6,6 +6,7 @@ import 'package:layerflow_capture/data/api/api_client.dart';
 import 'package:layerflow_capture/data/api/dtos.dart';
 import 'package:layerflow_capture/data/settings/settings_store.dart';
 import 'package:layerflow_capture/ui/providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/mem_secure.dart';
 
@@ -77,6 +78,9 @@ ProviderContainer _container(ApiClient api, SettingsStore store) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   test('login with ONE esp activates it immediately and mirrors its token',
       () async {
     final store = SettingsStore(secure: MemSecure());
@@ -225,6 +229,29 @@ void main() {
       expect(await store.getToken(), session.activeEsp!.fieldToken,
           reason: 'no verdict, no change — same doctrine as the queue');
     });
+  });
+
+  test('chooseEsp clears the active route — it belonged to the other ESP',
+      () async {
+    SharedPreferences.setMockInitialValues(
+        {'current_route_id': 'route-of-isnos'});
+    final store = SettingsStore(secure: MemSecure());
+    final api = _FakeLoginApi(
+      response:
+          const LoginResponse(workerNombre: 'Ana', esps: [_elias, _isnos]),
+    );
+    final c = _container(api, store);
+    await c.read(sessionProvider.future);
+    // Materialise the notifier that holds the persisted active route.
+    expect(await store.getCurrentRouteId(), 'route-of-isnos');
+
+    await c
+        .read(sessionProvider.notifier)
+        .login(email: 'campo1@layerflow.co', password: 'x');
+    await c.read(sessionProvider.notifier).chooseEsp(2);
+
+    expect(await store.getCurrentRouteId(), isNull,
+        reason: 'Spec 6 BR5: the active route never survives a switch');
   });
 
   test('a 401 leaves no session and no token behind', () async {

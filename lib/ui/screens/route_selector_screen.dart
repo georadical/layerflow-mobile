@@ -265,7 +265,7 @@ class _RouteList extends StatelessWidget {
   }
 }
 
-class _EspHeader extends StatelessWidget {
+class _EspHeader extends ConsumerWidget {
   const _EspHeader({
     required this.esp,
     required this.total,
@@ -276,30 +276,81 @@ class _EspHeader extends StatelessWidget {
   final int total;
   final bool fromCache;
 
+  /// Spec 6 (T6.2): the same choice UI as login, as a sheet. Picking calls
+  /// `chooseEsp`, which swaps the mirrored token, clears the active route
+  /// (BR5) and refetches the list — all local, works offline (BR2).
+  Future<void> _switchEsp(
+      BuildContext context, WidgetRef ref, FieldSession session) async {
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text('¿Con cuál ESP sigues?',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            for (final e in session.esps)
+              ListTile(
+                leading: Icon(e.tenantId == session.activeTenantId
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_off),
+                title: Text(e.espNombre),
+                subtitle: e.rutasAsignadas == null
+                    ? null
+                    : Text('${e.rutasAsignadas} rutas asignadas'),
+                onTap: () => Navigator.of(context).pop(e.tenantId),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || picked == session.activeTenantId) return;
+    await ref.read(sessionProvider.notifier).chooseEsp(picked);
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    return Container(
-      color: theme.colorScheme.surfaceContainerLow,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              esp,
-              style: theme.textTheme.titleSmall,
-              overflow: TextOverflow.ellipsis,
+    final session = ref.watch(sessionProvider).valueOrNull;
+    // BR6: with one ESP (or the paste flow) there is nothing to switch and
+    // nothing changes visually — zero friction for the exclusive case.
+    final switchable = session != null && session.esps.length > 1;
+
+    return InkWell(
+      onTap: switchable ? () => _switchEsp(context, ref, session) : null,
+      child: Container(
+        color: theme.colorScheme.surfaceContainerLow,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                esp,
+                style: theme.textTheme.titleSmall,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
-          Text(
-            // Says plainly that the list is stale rather than implying it is
-            // current.
-            fromCache ? 'sin sincronizar (offline)' : '$total rutas',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+            Text(
+              // Says plainly that the list is stale rather than implying it
+              // is current.
+              fromCache ? 'sin sincronizar (offline)' : '$total rutas',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-          ),
-        ],
+            if (switchable) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.swap_horiz,
+                  size: 18, color: theme.colorScheme.primary),
+              const SizedBox(width: 2),
+              Text('cambiar',
+                  style: theme.textTheme.labelMedium
+                      ?.copyWith(color: theme.colorScheme.primary)),
+            ],
+          ],
+        ),
       ),
     );
   }

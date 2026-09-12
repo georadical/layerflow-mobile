@@ -112,11 +112,14 @@ class SessionNotifier extends AsyncNotifier<FieldSession?> {
     _tokenChanged();
   }
 
-  /// CL5: pick the active ESP. Rewrites the mirrored token.
+  /// CL5: pick the active ESP. Rewrites the mirrored token. Also used by
+  /// the Spec 6 switcher — the active route is cleared because it belonged
+  /// to the previous ESP (BR5; a no-op on the login-time choice).
   Future<void> chooseEsp(int tenantId) async {
     final updated =
         await ref.read(settingsStoreProvider).setActiveEsp(tenantId);
     if (updated != null) {
+      await ref.read(currentRouteIdProvider.notifier).setRoute(null);
       state = AsyncData(updated);
       _tokenChanged();
     }
@@ -235,14 +238,19 @@ class AssignedRoutesNotifier extends AsyncNotifier<AssignedRoutesState> {
   Future<AssignedRoutesState> _fetch() async {
     final api = ref.read(apiClientProvider);
     final cache = ref.read(assignedRoutesCacheProvider);
+    // The cache slot follows the ACTIVE tenant (Spec 6, BR3): offline, ESP
+    // B must fall back to B's own copy or to nothing — never to A's list.
+    // Null (paste flow) keeps its single implicit slot.
+    final session = await ref.read(sessionProvider.future);
+    final tenantId = session?.activeTenantId;
     try {
       final routes = await api.getAssignedRoutes();
-      await cache.save(routes);
+      await cache.save(routes, tenantId: tenantId);
       return AssignedRoutesState(routes: routes, fromCache: false);
     } on ApiException catch (e) {
       final isAuth = e.statusCode == 401 || e.statusCode == 403;
       if (isAuth) rethrow;
-      final cached = await cache.load();
+      final cached = await cache.load(tenantId: tenantId);
       if (cached == null) rethrow;
       return AssignedRoutesState(routes: cached, fromCache: true);
     }
@@ -263,12 +271,15 @@ final routeFrameProvider =
 
 /// Name of the ESP the current token belongs to.
 ///
-/// Read from the cached route list rather than the network: the ESP is a
-/// property of the session, not of a route, and screens that show it must not
-/// pay for a request to do so. Null until the selector has run once.
-/// Reads the cache only. Watching `assignedRoutesProvider` here would make any
-/// screen that merely labels a route issue a request.
+/// From the session's active ESP when one exists — it follows a switch
+/// instantly and needs no request (Spec 6). The cache stays as fallback for
+/// the paste flow (per-tenant slots; null = the paste slot). Watching
+/// `assignedRoutesProvider` here would make any screen that merely labels a
+/// route issue a request.
 final espNameProvider = FutureProvider.autoDispose<String?>((ref) async {
+  final session = await ref.watch(sessionProvider.future);
+  final active = session?.activeEsp;
+  if (active != null) return active.espNombre;
   final cached = await ref.read(assignedRoutesCacheProvider).load();
   return cached?.esp;
 });
