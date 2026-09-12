@@ -15,6 +15,26 @@ with a verifiable gate, a commit and explicit approval.
 | 5 | Field worker login | [field-login.md](field-login.md) (shared) | Done — T5.1–T5.5 verified live against the backend |
 | 6 | ESP switching (multi-ESP, app side) | [esp-switching.md](esp-switching.md) | Done — switch verified live both ways |
 
+## Field deployment (backlog — noted 2026-09-12, not scheduled)
+
+The app is functionally field-ready (Specs 1–6 done, release APK builds
+with network). What remains to actually go to the field is deployment
+work, deliberately parked until the project decides to take that step:
+
+1. **Backend reachable from the street, HTTPS only.** Today it runs on the
+   dev laptop (`10.0.2.2`). Credentials and tokens must never travel over
+   plain HTTP, and Android release blocks cleartext by default anyway.
+   Needs the definitive base URL to configure in the app.
+2. **Real provisioning** (backend/operator side): `field`-role credentials
+   for the real surveyors and `verificada` routes of the real ESP.
+3. **Brute-force rate limiting on login** — the shared spec left it out of
+   the MVP "until any public deployment"; exposing the backend to the
+   internet is that moment.
+4. **Release APK on a physical phone** — never yet run outside the
+   emulator or debug mode.
+5. **Pilot before rollout**: one day, one surveyor, one real route, with
+   the office watching what lands.
+
 ## Spec 3 — notes carried in from Spec 1.1
 
 Both are now folded into [push-captured-batch.md](push-captured-batch.md),
