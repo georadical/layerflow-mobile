@@ -14,6 +14,36 @@ with a verifiable gate, a commit and explicit approval.
 | 4 | Offline-first queue and retry | [offline-queue-and-retry.md](offline-queue-and-retry.md) | Done — T4.1 verified on device |
 | 5 | Field worker login | [field-login.md](field-login.md) (shared) | Done — T5.1–T5.5 verified live against the backend |
 | 6 | ESP switching (multi-ESP, app side) | [esp-switching.md](esp-switching.md) | Done — switch verified live both ways |
+| 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Frozen — app tickets below; backend TI.1–TI.3 in parallel |
+
+## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
+
+Frozen at backend `8d06a61` with the app's four contract observations
+(frame carries `npn` — the ins_after lesson; normalization pinned as an
+exact algorithm; evidence limits pinned; directory `version` tag) and
+CL-R1…R5 as proposed. The worker never sees an NPN: they type the placa
+they see (stored raw, always) and optionally tap a matching R1 **address**;
+the NPN rides hidden behind it. "No está en la lista" is a first-class
+action — divergence is the census's product, not an error.
+
+**App tickets (against the shared contract):**
+- **T7.1 — R1 directory local**: drift table, fetch with `version` tag,
+  and the client normalizer mirroring the pinned algorithm exactly (tests
+  against the spec's own examples).
+- **T7.2 — Typeahead wireframe**: free placa field + suggestion panel with
+  "No está en la lista" as fixed first row (CL-R1), duplicate-NPN warning
+  (CL-R3 trigger 5). Wireframe → approval → design → wiring.
+- **T7.3 — `npn` end to end**: schema v5 column, request item, frame
+  merge, ride-on-every-push (the ins_after pattern), per-item error
+  mapping.
+- **T7.4 — Photo evidence**: camera per capture, compression (JPEG ~70,
+  1600px), evidence queue bound to the person, CL-R5 upload inside the
+  Enviar gesture (divergence any network, routine WiFi-only).
+- **T7.5 — OCR soft-check**: ML Kit on-device + edit distance over
+  normalized strings; silent unless mismatch (CL-R2).
+
+Blocked on backend TI.1–TI.3 for wiring; T7.1's normalizer, T7.2 and the
+schema work can start now.
 
 ## Field deployment (backlog — noted 2026-09-12, not scheduled)
 
