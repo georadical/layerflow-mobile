@@ -1,6 +1,6 @@
 # Spec 6 — ESP switching (multi-ESP field worker, app side)
 
-Status: approved 2026-09-12 — in progress
+Status: done — T6.3 verified live (Isnos ↔ Elías, both directions)
 Type: Mobile app (Flutter). Zero backend work: the contract side was decided
 and shipped with [field-login.md](field-login.md) (identity per person, one
 token per ESP, Path A, `rutas_asignadas`). This spec is the client half that
