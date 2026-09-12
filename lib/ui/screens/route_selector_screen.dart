@@ -8,6 +8,42 @@ import '../widgets/token_warning_banner.dart';
 import 'resume_route_screen.dart';
 import 'settings_screen.dart';
 
+/// CL4 — logout wipes tokens, never the queue. With unsent rows it warns
+/// and, on confirmation, parks them bound to this person: they are invisible
+/// to any other login and travel only when the same person returns.
+Future<void> _logout(BuildContext context, WidgetRef ref) async {
+  final owner = ref.read(queueOwnerProvider);
+  final pending =
+      await ref.read(captureRepositoryProvider).pendingCountForOwner(owner);
+  if (!context.mounted) return;
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Cerrar sesión'),
+      content: Text(pending == 0
+          ? 'Se borrarán tus accesos de este teléfono. '
+              'Lo capturado ya enviado está a salvo en el servidor.'
+          : 'Tienes $pending capturas sin enviar. Se quedan guardadas en '
+              'este teléfono y viajan cuando vuelvas a entrar tú; nadie '
+              'más puede verlas ni enviarlas.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Cerrar sesión'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true) return;
+  await ref.read(sessionProvider.notifier).logout();
+  // The RootGate swaps to the login screen on its own.
+}
+
 /// Route selector — Spec 1, T1.5. Wires the approved design to
 /// `GET /field/routes`.
 ///
@@ -20,6 +56,7 @@ class RouteSelectorScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(assignedRoutesProvider);
+    final hasSession = ref.watch(sessionProvider).valueOrNull != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -30,6 +67,14 @@ class RouteSelectorScreen extends ConsumerWidget {
             tooltip: 'Ajustes',
             onPressed: () => _openSettings(context),
           ),
+          // Only a logged-in session can log out; the paste flow (CL1) has
+          // nothing to close.
+          if (hasSession)
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'Cerrar sesión',
+              onPressed: () => _logout(context, ref),
+            ),
         ],
       ),
       body: Column(

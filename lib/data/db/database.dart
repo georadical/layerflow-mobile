@@ -72,6 +72,12 @@ class Captures extends Table {
   /// id of the remote census_code. Null until synced.
   TextColumn get remoteId => text().nullable()();
 
+  /// Person who owns this row's UNSENT content (normalized login email,
+  /// CL4). Null = unowned: legacy rows and the CL1 paste flow, visible to
+  /// any session. Ownership only gates queue rows — synced rows are the
+  /// route's shared truth and are always visible.
+  TextColumn get ownerEmail => text().nullable()();
+
   /// pending | synced | error
   TextColumn get syncStatus =>
       text().withDefault(const Constant(AppConfig.syncPending))();
@@ -92,10 +98,11 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   /// All added columns are nullable, so old rows come out as null — "no
-  /// relocation mark" (v2) and "never attempted a send" (v3); no backfill.
+  /// relocation mark" (v2), "never attempted a send" (v3) and "unowned row"
+  /// (v4); no backfill.
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onUpgrade: (m, from, to) async {
@@ -105,6 +112,9 @@ class AppDatabase extends _$AppDatabase {
           if (from < 3) {
             await m.addColumn(routes, routes.lastPushAt);
             await m.addColumn(routes, routes.lastPushOutcome);
+          }
+          if (from < 4) {
+            await m.addColumn(captures, captures.ownerEmail);
           }
         },
       );
@@ -139,16 +149,26 @@ class AppDatabase extends _$AppDatabase {
     return (currentMax ?? 0) + 1;
   }
 
-  Stream<List<Capture>> watchCaptures(String routeId) {
+  /// CL4 visibility: synced rows are the route's shared truth, always
+  /// shown; an UNSENT row is shown only to its owner (or to everyone when
+  /// unowned — legacy rows and the paste flow). Another person's parked
+  /// queue is neither listed nor pushed.
+  Expression<bool> _visibleTo(Captures c, String? owner) {
+    final base =
+        c.syncStatus.equals(AppConfig.syncSynced) | c.ownerEmail.isNull();
+    return owner == null ? base : base | c.ownerEmail.equals(owner);
+  }
+
+  Stream<List<Capture>> watchCaptures(String routeId, {String? owner}) {
     return (select(captures)
-          ..where((c) => c.routeId.equals(routeId))
+          ..where((c) => c.routeId.equals(routeId) & _visibleTo(c, owner))
           ..orderBy([(c) => OrderingTerm.asc(c.posicion)]))
         .watch();
   }
 
-  Future<List<Capture>> capturesForRoute(String routeId) {
+  Future<List<Capture>> capturesForRoute(String routeId, {String? owner}) {
     return (select(captures)
-          ..where((c) => c.routeId.equals(routeId))
+          ..where((c) => c.routeId.equals(routeId) & _visibleTo(c, owner))
           ..orderBy([(c) => OrderingTerm.asc(c.posicion)]))
         .get();
   }
@@ -157,13 +177,26 @@ class AppDatabase extends _$AppDatabase {
       (select(captures)..where((c) => c.clientId.equals(clientId)))
           .getSingleOrNull();
 
-  Future<List<Capture>> pendingCaptures(String routeId) {
+  Future<List<Capture>> pendingCaptures(String routeId, {String? owner}) {
     return (select(captures)
           ..where((c) =>
               c.routeId.equals(routeId) &
-              c.syncStatus.equals(AppConfig.syncSynced).not())
+              c.syncStatus.equals(AppConfig.syncSynced).not() &
+              _visibleTo(c, owner))
           ..orderBy([(c) => OrderingTerm.asc(c.posicion)]))
         .get();
+  }
+
+  /// Device-wide unsent count for the logout warning ("tienes N sin
+  /// enviar"). Counts this person's rows and unowned ones.
+  Future<int> pendingCountForOwner(String? owner) async {
+    final countExpr = captures.clientId.count();
+    final query = selectOnly(captures)
+      ..where(captures.syncStatus.equals(AppConfig.syncSynced).not() &
+          _visibleTo(captures, owner))
+      ..addColumns([countExpr]);
+    final row = await query.getSingle();
+    return row.read(countExpr) ?? 0;
   }
 
   Future<void> insertCapture(CapturesCompanion capture) =>

@@ -51,6 +51,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         manzanaCatastral: _manzanaCtrl.text,
         tipoAcceso: _tipoAcceso,
         observacion: _obsCtrl.text,
+        // CL4: unsent content belongs to the person who captured it.
+        owner: ref.read(queueOwnerProvider),
       );
       // Clear for the next household. manzana_catastral is kept (same block).
       _placaCtrl.clear();

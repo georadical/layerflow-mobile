@@ -523,6 +523,7 @@ class _UnitTile extends ConsumerWidget {
     if (edit == null) return;
 
     final repo = ref.read(captureRepositoryProvider);
+    final owner = ref.read(queueOwnerProvider);
     // editCapture leaves insAfter alone (A3); the relocation change, if any,
     // is applied as its own step so cancelling one never loses the other.
     await repo.editCapture(
@@ -534,13 +535,14 @@ class _UnitTile extends ConsumerWidget {
       // clear it on the server the next time this row travels.
       manzanaCatastral: row.manzanaCatastral,
       observacion: edit.observacion,
+      owner: owner,
     );
     if (edit.insAfterChanged) {
       if (edit.insAfter == null) {
-        await repo.clearInsAfter(row.clientId);
+        await repo.clearInsAfter(row.clientId, owner: owner);
       } else {
         await repo.setInsAfter(
-            clientId: row.clientId, insAfter: edit.insAfter!);
+            clientId: row.clientId, insAfter: edit.insAfter!, owner: owner);
       }
     }
   }

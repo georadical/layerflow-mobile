@@ -16,29 +16,33 @@ class CaptureRepository {
   final AppDatabase _db;
   final Uuid _uuid;
 
-  Stream<List<Capture>> watchCaptures(String routeId) =>
-      _db.watchCaptures(routeId);
+  /// Reads take an optional [owner] (the person's normalized email): another
+  /// person's parked, unsent rows are neither listed nor counted (CL4).
+  Stream<List<Capture>> watchCaptures(String routeId, {String? owner}) =>
+      _db.watchCaptures(routeId, owner: owner);
 
-  Future<List<Capture>> capturesForRoute(String routeId) =>
-      _db.capturesForRoute(routeId);
+  Future<List<Capture>> capturesForRoute(String routeId, {String? owner}) =>
+      _db.capturesForRoute(routeId, owner: owner);
 
   Future<int> nextPosicion(String routeId) => _db.nextPosicion(routeId);
 
-  Future<Capture?> lastCapture(String routeId) async {
-    final rows = await _db.capturesForRoute(routeId);
+  Future<Capture?> lastCapture(String routeId, {String? owner}) async {
+    final rows = await _db.capturesForRoute(routeId, owner: owner);
     return rows.isEmpty ? null : rows.last;
   }
 
   /// Appends a capture at the end (append-only). Returns the new `clientId`.
   ///
   /// It does NOT take `posicion`: the repository computes it as max(posicion)+1 to
-  /// prevent arbitrary reordering from the UI.
+  /// prevent arbitrary reordering from the UI. [owner] stamps whose unsent
+  /// content this is (null in the paste flow: unowned).
   Future<String> appendCapture({
     required String routeId,
     String? placa,
     String? manzanaCatastral,
     String? tipoAcceso,
     String? observacion,
+    String? owner,
   }) async {
     final now = DateTime.now();
     final clientId = _uuid.v4();
@@ -53,6 +57,7 @@ class CaptureRepository {
         manzanaCatastral: Value(_nullIfBlank(manzanaCatastral)),
         tipoAcceso: Value(_nullIfBlank(tipoAcceso)),
         observacion: Value(_nullIfBlank(observacion)),
+        ownerEmail: Value(owner),
         syncStatus: const Value(AppConfig.syncPending),
         createdAt: now,
         updatedAt: now,
@@ -71,6 +76,7 @@ class CaptureRepository {
     String? manzanaCatastral,
     String? tipoAcceso,
     String? observacion,
+    String? owner,
   }) async {
     await _db.updateCaptureRow(
       clientId,
@@ -79,6 +85,8 @@ class CaptureRepository {
         manzanaCatastral: Value(_nullIfBlank(manzanaCatastral)),
         tipoAcceso: Value(_nullIfBlank(tipoAcceso)),
         observacion: Value(_nullIfBlank(observacion)),
+        // Re-queued content belongs to whoever queued it (CL4).
+        ownerEmail: Value(owner),
         syncStatus: const Value(AppConfig.syncPending),
         syncError: const Value(null),
         updatedAt: Value(DateTime.now()),
@@ -101,6 +109,7 @@ class CaptureRepository {
   Future<void> setInsAfter({
     required String clientId,
     required int insAfter,
+    String? owner,
   }) async {
     if (insAfter < 0 || insAfter > 9999) {
       throw ArgumentError.value(insAfter, 'insAfter', 'must be within 0–9999');
@@ -109,6 +118,7 @@ class CaptureRepository {
       clientId,
       CapturesCompanion(
         insAfter: Value(insAfter),
+        ownerEmail: Value(owner),
         syncStatus: const Value(AppConfig.syncPending),
         syncError: const Value(null),
         updatedAt: Value(DateTime.now()),
@@ -118,11 +128,12 @@ class CaptureRepository {
 
   /// Removes the relocation mark and re-queues the row: the next push goes
   /// out without `ins_after`, which is how the contract clears it.
-  Future<void> clearInsAfter(String clientId) async {
+  Future<void> clearInsAfter(String clientId, {String? owner}) async {
     await _db.updateCaptureRow(
       clientId,
       CapturesCompanion(
         insAfter: const Value(null),
+        ownerEmail: Value(owner),
         syncStatus: const Value(AppConfig.syncPending),
         syncError: const Value(null),
         updatedAt: Value(DateTime.now()),
@@ -130,7 +141,12 @@ class CaptureRepository {
     );
   }
 
-  Future<List<Capture>> pending(String routeId) => _db.pendingCaptures(routeId);
+  Future<List<Capture>> pending(String routeId, {String? owner}) =>
+      _db.pendingCaptures(routeId, owner: owner);
+
+  /// Device-wide unsent count for the logout warning (CL4).
+  Future<int> pendingCountForOwner(String? owner) =>
+      _db.pendingCountForOwner(owner);
 
   /// Records how a manual send attempt ended (Spec 4, BR7), so the send bar
   /// can show "tried, and when" after the momentary message is gone.

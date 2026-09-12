@@ -160,6 +160,17 @@ class SessionNotifier extends AsyncNotifier<FieldSession?> {
     }
   }
 
+  /// CL4: wipes tokens and session. The capture queue is NEVER touched —
+  /// this person's unsent rows stay parked on the device, bound to their
+  /// email, and resume when the SAME person logs back in.
+  Future<void> logout() async {
+    await ref.read(settingsStoreProvider).clearSession();
+    // The active route belonged to the closed session's ESP.
+    await ref.read(currentRouteIdProvider.notifier).setRoute(null);
+    state = const AsyncData(null);
+    _tokenChanged();
+  }
+
   /// The mirrored token changed: everything derived from it must refetch.
   void _tokenChanged() {
     ref.invalidate(assignedRoutesProvider);
@@ -322,7 +333,9 @@ class PushNotifier extends FamilyNotifier<bool, String> {
     state = true;
     final repo = ref.read(captureRepositoryProvider);
     try {
-      final result = await ref.read(syncServiceProvider).pushPending(arg);
+      final result = await ref
+          .read(syncServiceProvider)
+          .pushPending(arg, owner: ref.read(queueOwnerProvider));
       if (!result.isNoop) {
         await repo.recordPushAttempt(
           routeId: arg,
@@ -353,6 +366,12 @@ final routeRowProvider = StreamProvider.autoDispose.family<Route?, String>(
   (ref, routeId) => ref.watch(databaseProvider).watchRoute(routeId),
 );
 
+/// The person key that owns new queue rows: the session's normalized email,
+/// or null in the paste flow (unowned rows, visible to any session).
+final queueOwnerProvider = Provider<String?>(
+  (ref) => ref.watch(sessionProvider).valueOrNull?.email,
+);
+
 /// How many of a route's rows are still waiting or were refused.
 final pendingCountProvider = Provider.family<int, String>((ref, routeId) {
   final rows = ref.watch(capturesProvider(routeId)).valueOrNull ?? const [];
@@ -362,5 +381,8 @@ final pendingCountProvider = Provider.family<int, String>((ref, routeId) {
 /// Stream of a route's captures (sorted by `posicion`).
 final capturesProvider =
     StreamProvider.family<List<Capture>, String>((ref, routeId) {
-  return ref.watch(captureRepositoryProvider).watchCaptures(routeId);
+  final owner = ref.watch(queueOwnerProvider);
+  return ref
+      .watch(captureRepositoryProvider)
+      .watchCaptures(routeId, owner: owner);
 });

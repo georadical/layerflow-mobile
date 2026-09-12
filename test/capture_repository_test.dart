@@ -235,6 +235,98 @@ void main() {
     expect((await repo.capturesForRoute(routeId)).single.insAfter, 0);
   });
 
+  group('queue ownership (Spec 5, T5.4 / CL4)', () {
+    test('an unsent row is invisible to another person and to the paste flow',
+        () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      // A synced row (shared truth) and A's unsent capture.
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [RouteFrameItem(clientId: 's1', posicion: 1, loc: 5)],
+      ));
+      await repo.appendCapture(
+          routeId: routeId, placa: 'DE A', owner: 'a@x.co');
+
+      // A sees both; B and the paste flow see only the synced row.
+      expect((await repo.capturesForRoute(routeId, owner: 'a@x.co')).length, 2);
+      final forB = await repo.capturesForRoute(routeId, owner: 'b@x.co');
+      expect(forB.length, 1,
+          reason: "A's parked queue must not appear under B");
+      expect(forB.single.syncStatus, AppConfig.syncSynced);
+      expect((await repo.capturesForRoute(routeId)).length, 1);
+    });
+
+    test("the push scope excludes another person's parked rows", () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      await repo.appendCapture(
+          routeId: routeId, placa: 'DE A', owner: 'a@x.co');
+      await repo.appendCapture(routeId: routeId, placa: 'LIBRE'); // unowned
+      await repo.appendCapture(
+          routeId: routeId, placa: 'DE B', owner: 'b@x.co');
+
+      final forB = await repo.pending(routeId, owner: 'b@x.co');
+      expect(forB.map((c) => c.placa), ['LIBRE', 'DE B'],
+          reason: "B pushes their own rows and unowned ones, never A's");
+    });
+
+    test('pendingCountForOwner backs the logout warning', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      await repo.appendCapture(routeId: routeId, placa: 'A1', owner: 'a@x.co');
+      await repo.appendCapture(
+          routeId: 'route-2', placa: 'A2', owner: 'a@x.co');
+      await repo.appendCapture(routeId: routeId, placa: 'B1', owner: 'b@x.co');
+
+      expect(await repo.pendingCountForOwner('a@x.co'), 2,
+          reason: 'device-wide, across routes, only this person + unowned');
+    });
+
+    test('editing a synced row hands its unsent content to the editor',
+        () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [RouteFrameItem(clientId: 's1', posicion: 1, loc: 5)],
+      ));
+      await repo.editCapture(
+          clientId: 's1', placa: 'CORREGIDA', owner: 'a@x.co');
+
+      final row =
+          (await repo.capturesForRoute(routeId, owner: 'a@x.co')).single;
+      expect(row.ownerEmail, 'a@x.co');
+      expect(row.syncStatus, AppConfig.syncPending);
+      // And that pending edit is now parked away from everyone else.
+      expect(await repo.capturesForRoute(routeId, owner: 'b@x.co'), isEmpty);
+    });
+  });
+
   test('recordPushAttempt: first attempt inserts, the next one replaces it',
       () async {
     final db = await _tryMemoryDb();
