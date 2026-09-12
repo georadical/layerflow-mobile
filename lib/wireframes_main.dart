@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'ui/theme.dart';
+import 'ui/wireframes/assisted_capture_wireframe.dart';
 import 'ui/wireframes/login_wireframe.dart';
 import 'ui/wireframes/resume_route_wireframe.dart';
 import 'ui/wireframes/route_selector_wireframe.dart';
@@ -63,8 +64,45 @@ class WireframeIndex extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const _LoginHost()),
             ),
           ),
+          const Divider(height: 1),
+          ListTile(
+            title: const Text('Captura asistida (R1)'),
+            subtitle: const Text('Spec 7 · T7.2'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const _AssistHost()),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _AssistHost extends StatefulWidget {
+  const _AssistHost();
+
+  @override
+  State<_AssistHost> createState() => _AssistHostState();
+}
+
+class _AssistHostState extends State<_AssistHost> {
+  int _i = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _StateSwitcher(
+          labels: [for (final s in AssistState.values) s.name],
+          selected: _i,
+          onSelect: (i) => setState(() => _i = i),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: AssistedCaptureWireframe(state: AssistState.values[_i]),
+        ),
+      ],
     );
   }
 }
