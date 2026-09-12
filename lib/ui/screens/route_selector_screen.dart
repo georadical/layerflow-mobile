@@ -93,7 +93,7 @@ class RouteSelectorScreen extends ConsumerWidget {
                   ref.read(assignedRoutesProvider.notifier).refresh(),
               child: async.when(
                 loading: () => const _Loading(),
-                error: (e, _) => _errorView(context, e),
+                error: (e, _) => _errorView(context, ref, e),
                 data: (data) => data.routes.items.isEmpty
                     ? const _Message(
                         icon: Icons.inbox,
@@ -110,28 +110,54 @@ class RouteSelectorScreen extends ConsumerWidget {
     );
   }
 
-  /// Maps the failure to the copy that tells the worker what to actually do.
-  Widget _errorView(BuildContext context, Object error) {
+  /// Maps the failure to the copy that tells the worker what to actually
+  /// do. With a session the way out is logging in again (BR-FRESH re-issues
+  /// everything; the queue stays parked, CL4) — Ajustes only helps the
+  /// paste flow.
+  Widget _errorView(BuildContext context, WidgetRef ref, Object error) {
+    final hasSession = ref.read(sessionProvider).valueOrNull != null;
+    Future<void> relogin() =>
+        ref.read(sessionProvider.notifier).logout(); // gate → login
+
     if (error is ApiException) {
       switch (error.statusCode) {
         case 401:
-          return _Message(
-            icon: Icons.lock_outline,
-            title: 'Token vencido o inválido.',
-            body: 'Renuévalo en Ajustes.',
-            action: 'Ajustes',
-            onAction: () => _openSettings(context),
-          );
+          return hasSession
+              ? _Message(
+                  icon: Icons.lock_outline,
+                  title: 'Tu acceso venció.',
+                  body: 'Entra de nuevo con tu correo y contraseña. '
+                      'Lo capturado en este teléfono no se pierde.',
+                  action: 'Entrar de nuevo',
+                  onAction: relogin,
+                )
+              : _Message(
+                  icon: Icons.lock_outline,
+                  title: 'Token vencido o inválido.',
+                  body: 'Renuévalo en Ajustes.',
+                  action: 'Ajustes',
+                  onAction: () => _openSettings(context),
+                );
         case 403:
-          // Valid token of the wrong kind: re-pasting the same one will not
-          // help, so the copy asks for a different token instead.
-          return _Message(
-            icon: Icons.block,
-            title: 'Ese token no es de campo.',
-            body: 'Pide un field_token al operador.',
-            action: 'Ajustes',
-            onAction: () => _openSettings(context),
-          );
+          // With a session this is revocation in THIS ESP; re-login returns
+          // only the ESPs still active. Without one, it is a token of the
+          // wrong kind: re-pasting the same one will not help.
+          return hasSession
+              ? _Message(
+                  icon: Icons.block,
+                  title: 'Tu acceso a esta ESP fue desactivado.',
+                  body: 'Entra de nuevo para ver tus ESPs activas, o '
+                      'consulta al operador.',
+                  action: 'Entrar de nuevo',
+                  onAction: relogin,
+                )
+              : _Message(
+                  icon: Icons.block,
+                  title: 'Ese token no es de campo.',
+                  body: 'Pide un field_token al operador.',
+                  action: 'Ajustes',
+                  onAction: () => _openSettings(context),
+                );
       }
     }
     return const _Message(
