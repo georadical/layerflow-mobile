@@ -12,7 +12,7 @@ with a verifiable gate, a commit and explicit approval.
 | 2.1 | Move a unit's localización | [relocate-unit.md](relocate-unit.md) | Done — verified against the backend |
 | 3 | Batch push (`POST /field/capture/placas`) | [push-captured-batch.md](push-captured-batch.md) | Done — verified against the backend |
 | 4 | Offline-first queue and retry | [offline-queue-and-retry.md](offline-queue-and-retry.md) | Done — T4.1 verified on device |
-| 5 | Field worker login | [field-login.md](field-login.md) (shared) | Defined — app tickets below; backend implementing |
+| 5 | Field worker login | [field-login.md](field-login.md) (shared) | Done — T5.1–T5.5 verified live against the backend |
 | 6 | Field worker across several ESPs | [field-login.md](field-login.md) (shared) | Defined — Path A confirmed; app work after Spec 5 |
 
 ## Spec 3 — notes carried in from Spec 1.1
