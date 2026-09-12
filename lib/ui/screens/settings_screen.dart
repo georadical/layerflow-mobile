@@ -6,7 +6,9 @@ import '../../core/jwt.dart';
 import '../../data/api/api_client.dart';
 import '../providers.dart';
 
-/// Settings: backend URL and field_token (MVP: issued by the operator).
+/// Settings: backend URL, plus the EXCEPTIONAL operator-token paste (CL1).
+/// Login is the normal way in; with a session active the paste section is
+/// hidden entirely and the mirrored token belongs to the session.
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -47,7 +49,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _save() async {
     final settings = ref.read(settingsStoreProvider);
     await settings.setBaseUrl(_baseUrlCtrl.text);
-    await settings.setToken(_tokenCtrl.text);
+    // With a session active the mirrored token is the login's to manage
+    // (CL1): the paste section is hidden and must never clobber it.
+    if (ref.read(sessionProvider).valueOrNull == null) {
+      await settings.setToken(_tokenCtrl.text);
+    }
     // Refresh the expiry warnings with the new token.
     ref.invalidate(fieldTokenInfoProvider);
     ref.invalidate(tokenStatusProvider);
@@ -153,6 +159,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final session = ref.watch(sessionProvider).valueOrNull;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Ajustes')),
       body: _loading
@@ -170,26 +178,54 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   autocorrect: false,
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _tokenCtrl,
-                  obscureText: _obscureToken,
-                  decoration: InputDecoration(
-                    labelText: 'field_token (JWT)',
-                    hintText: 'Bearer token emitido por el operador',
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscureToken
-                          ? Icons.visibility
-                          : Icons.visibility_off),
-                      onPressed: () =>
-                          setState(() => _obscureToken = !_obscureToken),
+                if (session != null)
+                  // Logged in: access is the login's business. No paste
+                  // field at all — nothing here may clobber the session's
+                  // mirrored token (CL1).
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.verified_user),
+                      title: Text('Sesión activa · ${session.workerNombre}'),
+                      subtitle: const Text(
+                          'Tus accesos se gestionan con tu sesión y se '
+                          'renuevan solos. El pegado manual de token queda '
+                          'deshabilitado.'),
                     ),
+                  )
+                else
+                  // CL1: the paste path survives as a visibly exceptional
+                  // fallback, folded away — login is the norm.
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.warning_amber),
+                    title: const Text('Vía excepcional: token del operador'),
+                    subtitle: const Text(
+                        'Solo si aún no tienes credenciales de acceso. '
+                        'La vía normal es entrar con correo y contraseña.'),
+                    children: [
+                      TextField(
+                        controller: _tokenCtrl,
+                        obscureText: _obscureToken,
+                        decoration: InputDecoration(
+                          labelText: 'field_token (JWT)',
+                          hintText: 'Bearer token emitido por el operador',
+                          suffixIcon: IconButton(
+                            icon: Icon(_obscureToken
+                                ? Icons.visibility
+                                : Icons.visibility_off),
+                            onPressed: () =>
+                                setState(() => _obscureToken = !_obscureToken),
+                          ),
+                        ),
+                        autocorrect: false,
+                        maxLines: 1,
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: 8),
+                      _expiryInfo(),
+                      const SizedBox(height: 8),
+                    ],
                   ),
-                  autocorrect: false,
-                  maxLines: 1,
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 8),
-                _expiryInfo(),
                 const SizedBox(height: 24),
                 FilledButton.icon(
                   onPressed: _save,
