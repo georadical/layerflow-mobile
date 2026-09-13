@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/camera/plate_camera.dart';
+import '../../core/ocr/plate_ocr.dart';
 import '../../data/repositories/evidence_repository.dart';
 
 import '../../data/db/database.dart';
@@ -49,6 +50,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   // Camera per capture (CL-R3): opens with the form, one frame per save,
   // no gesture. Degrades to "sin foto" — capture NEVER blocks on it.
   final _camera = PlateCamera();
+  final _ocr = PlateOcr();
   bool _cameraReady = false;
 
   @override
@@ -67,11 +69,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     });
   }
 
-  /// Grabs, compresses and queues the plate photo. Fire-and-forget from
+  /// Compresses and queues the ALREADY-taken shot. Fire-and-forget from
   /// the save gesture: the worker moves to the next door immediately.
-  Future<void> _snapEvidence(
-      String clientId, String soporte, String? owner) async {
-    final path = await _camera.captureFor(clientId);
+  Future<void> _storeEvidence(
+      String clientId, String soporte, String? owner, XFile shot) async {
+    final path = await _camera.storeShotFor(clientId, shot);
     if (path == null) return; // sin foto: degraded, never blocking
     await ref.read(evidenceRepositoryProvider).enqueue(
           clientId: clientId,
@@ -80,6 +82,41 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
           soporte: soporte,
           owner: owner,
         );
+  }
+
+  /// CL-R2: reads the shot and, ONLY on a mismatch against what the worker
+  /// typed/selected, asks "¿confirmas?". Returns false when the worker
+  /// wants to correct (save aborts, the form stays); true otherwise —
+  /// including every silent path (no OCR reading, no mismatch, any error).
+  Future<bool> _ocrSoftCheck(XFile shot) async {
+    final read = await _ocr.readPlate(shot.path);
+    if (read == null) return true; // nothing plausible: total silence
+
+    final typed = _placaCtrl.text;
+    final reference =
+        typed.trim().isNotEmpty ? typed : (_linked?.direccionNorm ?? '');
+    if (!plateMismatch(read, reference)) return true;
+
+    if (!mounted) return true;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('La cámara leyó otra cosa'),
+        content: Text('La cámara leyó "$read" y tú escribiste '
+            '"$typed". ¿Confirmas lo escrito?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Corregir'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Confirmo lo escrito'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? true; // dismissed = keep going: assist, not cage
   }
 
   /// Filters the directory as the worker types (CL-R1). The typed text is
@@ -133,6 +170,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     _manzanaCtrl.dispose();
     _placaFocus.dispose();
     unawaited(_camera.dispose());
+    unawaited(_ocr.dispose());
     super.dispose();
   }
 
@@ -149,6 +187,13 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         typedPlaca: _placaCtrl.text,
         linkedDireccionNorm: _linked?.direccionNorm,
       );
+      // One frame per save, no gesture (CL-R3); the SAME shot feeds the
+      // OCR check now and the evidence photo after.
+      final shot = _cameraReady ? await _camera.takeShot() : null;
+      if (shot != null && !await _ocrSoftCheck(shot)) {
+        // The worker chose "Corregir": abort, keep the form as-is.
+        return;
+      }
       final clientId = await repo.appendCapture(
         routeId: widget.routeId,
         placa: _placaCtrl.text,
@@ -160,10 +205,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         // Spec 7: the pair is the record — raw placa above, npn here.
         npn: _linked?.npn,
       );
-      // One frame per save, no gesture; the worker walks on while the
-      // photo compresses and queues in the background.
-      if (_cameraReady) {
-        unawaited(_snapEvidence(clientId, soporte, owner));
+      // The worker walks on while the photo compresses and queues.
+      if (shot != null) {
+        unawaited(_storeEvidence(clientId, soporte, owner, shot));
       }
       // Clear for the next household. manzana_catastral is kept (same block).
       _placaCtrl.clear();

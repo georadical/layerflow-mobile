@@ -44,14 +44,23 @@ class PlateCamera {
     }
   }
 
-  /// Grabs one frame, compresses it to the contract limits (JPEG, longest
-  /// side <=1600px, <=500KB) and stores it under the app's documents dir as
-  /// evidence/<clientId>.jpg. Returns the file path, or null on any failure.
-  Future<String?> captureFor(String clientId) async {
+  /// Grabs ONE frame. The same shot feeds the OCR soft-check (CL-R2) and
+  /// the evidence photo (CL-R3) — one flash of the shutter per capture.
+  Future<XFile?> takeShot() async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return null;
     try {
-      final shot = await controller.takePicture();
+      return await controller.takePicture();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Compresses [shot] to the contract limits (JPEG, longest side <=1600px,
+  /// <=500KB) and stores it as evidence/<clientId>.jpg under the app's
+  /// documents dir. Returns the file path, or null on any failure.
+  Future<String?> storeShotFor(String clientId, XFile shot) async {
+    try {
       final raw = await File(shot.path).readAsBytes();
       // Compression is CPU-bound (~1s): run it off the UI thread.
       final jpeg = await Isolate.run(() => compressPlateJpeg(raw));
@@ -62,13 +71,14 @@ class PlateCamera {
       await dir.create(recursive: true);
       final out = File('${dir.path}/$clientId.jpg');
       await out.writeAsBytes(jpeg, flush: true);
-      // The camera's temp shot is no longer needed.
-      try {
-        await File(shot.path).delete();
-      } catch (_) {}
       return out.path;
     } catch (_) {
       return null;
+    } finally {
+      // The camera's temp shot is no longer needed either way.
+      try {
+        await File(shot.path).delete();
+      } catch (_) {}
     }
   }
 

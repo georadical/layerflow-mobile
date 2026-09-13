@@ -27,6 +27,8 @@ dependencies:
   # JPEG en cliente (tope del contrato: 500KB / lado 1600px).
   camera: ^0.11.0
   image: ^4.2.0
+  # OCR en el dispositivo (CL-R2): soft-check silencioso; nada sale al backend.
+  google_mlkit_text_recognition: ^0.13.0
 
   # Utilidades
   uuid: ^4.4.0
