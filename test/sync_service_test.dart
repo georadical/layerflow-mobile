@@ -37,6 +37,10 @@ class _FakeApi implements ApiClient {
       throw UnimplementedError();
 
   @override
+  Future<R1DirectoryResponse> getR1Directory({String? knownVersion}) =>
+      throw UnimplementedError();
+
+  @override
   Future<LoginResponse> login({
     required String email,
     required String password,

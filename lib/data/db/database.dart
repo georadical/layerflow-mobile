@@ -92,17 +92,39 @@ class Captures extends Table {
   Set<Column<Object>> get primaryKey => {clientId};
 }
 
-@DriftDatabase(tables: [Routes, Captures])
+/// Local copy of the tenant's addressed R1 slice (Spec 7, T7.1). Replaced
+/// wholesale per tenant on refresh (full snapshot, CL-R4). The typeahead
+/// reads it; capture NEVER blocks on it being stale or empty.
+class R1Directory extends Table {
+  /// Tenant the row belongs to: directories of different ESPs coexist
+  /// without mixing (Spec 6 isolation applies here too).
+  IntColumn get tenantId => integer()();
+
+  TextColumn get npn => text()();
+
+  /// Raw address as the R1 carries it.
+  TextColumn get direccion => text()();
+
+  /// Server-normalized address (the pinned algorithm) — what the typeahead
+  /// matches against and what the worker sees.
+  TextColumn get direccionNorm => text()();
+
+  TextColumn get manzana => text().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {tenantId, npn};
+}
+
+@DriftDatabase(tables: [Routes, Captures, R1Directory])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
-  /// All added columns are nullable, so old rows come out as null — "no
-  /// relocation mark" (v2), "never attempted a send" (v3) and "unowned row"
-  /// (v4); no backfill.
+  /// v2–v4 add nullable columns (null = the correct legacy meaning);
+  /// v5 creates the R1 directory table (starts empty until first refresh).
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onUpgrade: (m, from, to) async {
@@ -115,6 +137,9 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 4) {
             await m.addColumn(captures, captures.ownerEmail);
+          }
+          if (from < 5) {
+            await m.createTable(r1Directory);
           }
         },
       );
@@ -209,5 +234,43 @@ class AppDatabase extends _$AppDatabase {
     return (update(captures)..where((c) => c.clientId.equals(clientId)))
         .write(patch)
         .then((rows) => rows > 0);
+  }
+
+  // ---- R1 directory (Spec 7) ----
+
+  /// Replaces the tenant's whole slice atomically (full snapshot, CL-R4).
+  Future<void> replaceR1Slice(int tenantId, List<R1DirectoryCompanion> rows) {
+    return transaction(() async {
+      await (delete(r1Directory)..where((r) => r.tenantId.equals(tenantId)))
+          .go();
+      for (final row in rows) {
+        await into(r1Directory).insert(row);
+      }
+    });
+  }
+
+  /// Typeahead lookup: prefix-match over the normalized address, capped —
+  /// the panel shows a handful, never the whole directory. The repository
+  /// builds [normPrefix] from the raw typed text via the pinned normalizer.
+  Future<List<R1DirectoryData>> searchR1(
+    int tenantId,
+    String normPrefix, {
+    int limit = 8,
+  }) {
+    return (select(r1Directory)
+          ..where((r) =>
+              r.tenantId.equals(tenantId) &
+              r.direccionNorm.like('$normPrefix%'))
+          ..orderBy([(r) => OrderingTerm.asc(r.direccionNorm)])
+          ..limit(limit))
+        .get();
+  }
+
+  Future<int> r1CountForTenant(int tenantId) async {
+    final countExpr = r1Directory.npn.count();
+    final query = selectOnly(r1Directory)
+      ..where(r1Directory.tenantId.equals(tenantId))
+      ..addColumns([countExpr]);
+    return (await query.getSingle()).read(countExpr) ?? 0;
   }
 }

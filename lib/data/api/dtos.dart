@@ -356,6 +356,56 @@ class FieldSession {
       };
 }
 
+/// One row of GET /field/r1-directory (Spec 7): an addressed R1 unit for
+/// the typeahead. The NPN is carried but NEVER displayed — the worker only
+/// ever sees addresses.
+class R1DirectoryItem {
+  const R1DirectoryItem({
+    required this.npn,
+    required this.direccion,
+    required this.direccionNorm,
+    this.manzana,
+  });
+
+  final String npn;
+  final String direccion;
+  final String direccionNorm;
+  final String? manzana;
+
+  factory R1DirectoryItem.fromJson(Map<String, dynamic> json) {
+    return R1DirectoryItem(
+      npn: json['npn'] as String,
+      direccion: json['direccion']?.toString() ?? '',
+      direccionNorm: json['direccion_norm']?.toString() ?? '',
+      manzana: json['manzana']?.toString(),
+    );
+  }
+}
+
+/// Response of GET /field/r1-directory. With `?version=<known>` matching,
+/// the server answers `unchanged: true` and no items (CL-R4).
+class R1DirectoryResponse {
+  const R1DirectoryResponse({
+    required this.version,
+    this.unchanged = false,
+    this.items = const [],
+  });
+
+  final String version;
+  final bool unchanged;
+  final List<R1DirectoryItem> items;
+
+  factory R1DirectoryResponse.fromJson(Map<String, dynamic> json) {
+    return R1DirectoryResponse(
+      version: json['version']?.toString() ?? '',
+      unchanged: json['unchanged'] as bool? ?? false,
+      items: (json['items'] as List<dynamic>? ?? const [])
+          .map((e) => R1DirectoryItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
 /// Frame item (GET). What was already captured, used to resume.
 class RouteFrameItem {
   const RouteFrameItem({

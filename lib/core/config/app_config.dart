@@ -29,6 +29,9 @@ class AppConfig {
   /// Silent renewal; the 7-day grace window exists only here.
   static const String refreshPath = '/field/token/refresh';
 
+  /// R1 directory for the typeahead (Spec 7). Tenant-scoped by the token.
+  static const String r1DirectoryPath = '/field/r1-directory';
+
   /// Local sync states.
   static const String syncPending = 'pending';
   static const String syncSynced = 'synced';
