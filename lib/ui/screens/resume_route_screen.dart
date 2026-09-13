@@ -4,9 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/config/app_config.dart';
 import '../../data/api/api_client.dart';
 import '../../data/db/database.dart';
-import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
 import 'capture_screen.dart';
+import 'edit_unit_screen.dart';
 import 'settings_screen.dart';
 
 /// Resume view — Spec 1, T1.6/T1.7. Read-only list of what the route already
@@ -395,12 +395,6 @@ class _QueueBar extends ConsumerWidget {
   }
 }
 
-const _tipoAccesoLabels = <String, String>{
-  'puerta_calle': 'Puerta a la calle',
-  'area_comun': 'Área común',
-  'otro': 'Otro',
-};
-
 class _UnitTile extends ConsumerWidget {
   const _UnitTile({required this.row, required this.allRows});
 
@@ -476,7 +470,7 @@ class _UnitTile extends ConsumerWidget {
                           const SizedBox(width: 4),
                           Flexible(
                             child: Text(
-                              'tras ${_anchorLabel(allRows, row.clientId, row.insAfter!)}',
+                              'tras ${anchorLabel(allRows, row.clientId, row.insAfter!)}',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
                                 fontStyle: FontStyle.italic,
@@ -510,356 +504,14 @@ class _UnitTile extends ConsumerWidget {
     );
   }
 
-  /// Edits the unit's attributes. `posicion` is shown but never editable (BR1):
-  /// it is the walking order the backend turns into `loc`.
-  ///
-  /// Saving marks the row `pending`; the push is idempotent by `client_id`, so
-  /// a unit that came from the server is updated in place, not duplicated.
-  Future<void> _edit(BuildContext context, WidgetRef ref) async {
-    final edit = await showDialog<_UnitEdit>(
-      context: context,
-      builder: (_) => _EditUnitDialog(row: row, allRows: allRows),
-    );
-    if (edit == null) return;
-
-    final repo = ref.read(captureRepositoryProvider);
-    final owner = ref.read(queueOwnerProvider);
-    // editCapture leaves insAfter alone (A3); the relocation change, if any,
-    // is applied as its own step so cancelling one never loses the other.
-    await repo.editCapture(
-      clientId: row.clientId,
-      placa: edit.placa,
-      tipoAcceso: edit.tipoAcceso,
-      // Not editable here (it belongs to capture, set per block), but it must
-      // be preserved: the push is full-replacement, so dropping it would
-      // clear it on the server the next time this row travels.
-      manzanaCatastral: row.manzanaCatastral,
-      observacion: edit.observacion,
-      owner: owner,
-    );
-    if (edit.insAfterChanged) {
-      if (edit.insAfter == null) {
-        await repo.clearInsAfter(row.clientId, owner: owner);
-      } else {
-        await repo.setInsAfter(
-            clientId: row.clientId, insAfter: edit.insAfter!, owner: owner);
-      }
-    }
-  }
-}
-
-/// Human name for a row's anchor: the placa of the unit whose loc matches,
-/// "el inicio de la ruta" for 0, or the bare loc when the anchor is not on
-/// this device (set elsewhere, or dangling).
-String _anchorLabel(List<Capture> rows, String excludeClientId, int target) {
-  if (target == 0) return 'el inicio de la ruta';
-  for (final r in rows) {
-    if (r.clientId == excludeClientId) continue;
-    if (CaptureRepository.anchorLoc(r) == target) {
-      final placa = r.placa?.trim();
-      return (placa == null || placa.isEmpty)
-          ? 'la unidad ${r.posicion}'
-          : placa;
-    }
-  }
-  // Anchor not on this device: set elsewhere, or dangling after a rejection.
-  return 'loc $target';
-}
-
-/// What the editor hands back. Null means the worker cancelled.
-typedef _UnitEdit = ({
-  String placa,
-  String? tipoAcceso,
-  String observacion,
-  bool insAfterChanged,
-  int? insAfter,
-});
-
-/// Editor for one captured unit.
-///
-/// Stateful on purpose: it owns its TextEditingControllers and disposes them
-/// with itself. Creating them in the caller and disposing right after
-/// `await showDialog` looks equivalent but is not — the route keeps rebuilding
-/// through its exit animation, and the rebuild hits controllers that were
-/// already disposed.
-class _EditUnitDialog extends StatefulWidget {
-  const _EditUnitDialog({required this.row, required this.allRows});
-
-  final Capture row;
-
-  /// The whole route, for the anchor picker.
-  final List<Capture> allRows;
-
-  @override
-  State<_EditUnitDialog> createState() => _EditUnitDialogState();
-}
-
-class _EditUnitDialogState extends State<_EditUnitDialog> {
-  late final TextEditingController _placa;
-  late final TextEditingController _obs;
-  String? _tipo;
-  int? _insAfter;
-  bool _insAfterChanged = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _placa = TextEditingController(text: widget.row.placa ?? '');
-    _obs = TextEditingController(text: widget.row.observacion ?? '');
-    _tipo = widget.row.tipoAcceso;
-    _insAfter = widget.row.insAfter;
-  }
-
-  /// Opens the anchor picker. The worker points at a unit; the number that
-  /// travels as `ins_after` is derived, never typed (Spec 2.1, BR1/BR2).
-  Future<void> _pickAnchor() async {
-    final choice = await showDialog<_AnchorChoice>(
-      context: context,
-      builder: (_) => _AnchorPicker(
-        candidates: [
-          for (final r in widget.allRows)
-            if (r.clientId != widget.row.clientId) r,
-        ],
+  /// Opens the full-screen editor (Spec 1.1's dialog outgrew Spec 7: the
+  /// editor now carries the R1 typeahead and the door link, which never fit
+  /// a modal). The screen persists on save; nothing to hand back here.
+  Future<void> _edit(BuildContext context, WidgetRef ref) {
+    return Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EditUnitScreen(row: row, allRows: allRows),
       ),
-    );
-    if (choice == null || !mounted) return;
-    if (choice.loc > 9999) {
-      // Cannot happen through normal routes (loc 9999 = posicion ~2000), but one
-      // bad value would cost the whole batch a 422 (BR6).
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Esa unidad queda fuera del rango permitido.')));
-      return;
-    }
-    setState(() {
-      _insAfter = choice.loc;
-      _insAfterChanged = true;
-    });
-    if (choice.anchorRefused) {
-      // A5: warn, never block — the intent is still information, but a
-      // dangling anchor can hold up other relocations behind it.
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Ojo: esa unidad fue rechazada por el servidor. '
-            'La oficina no podrá aplicar el movimiento hasta corregirla.'),
-      ));
-    }
-  }
-
-  @override
-  void dispose() {
-    _placa.dispose();
-    _obs.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      // posicion is shown, never editable (BR1).
-      // Same rule as the picker: the loc shown is the row's effective one
-      // (anchorLoc), so a never-synced row reads the value it will get.
-      title: Text(
-        'Posición ${widget.row.posicion} · '
-        'Loc ${CaptureRepository.anchorLoc(widget.row)}',
-      ),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _placa,
-              autofocus: true,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                labelText: 'Placa (dirección en la puerta)',
-                helperText: 'Opcional: puede quedar en blanco.',
-              ),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              // Not migrated to `initialValue`: FormFieldState ignores it
-              // after the first build, and this rebuilds on every selection.
-              // ignore: deprecated_member_use
-              value: _tipo,
-              decoration: const InputDecoration(
-                labelText: 'Tipo de acceso (opcional)',
-              ),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('—')),
-                for (final e in _tipoAccesoLabels.entries)
-                  DropdownMenuItem(value: e.key, child: Text(e.value)),
-              ],
-              onChanged: (v) => setState(() => _tipo = v),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _obs,
-              decoration: const InputDecoration(
-                labelText: 'Observación (opcional)',
-              ),
-              minLines: 1,
-              maxLines: 3,
-            ),
-            const SizedBox(height: 12),
-            // Spec 2.1: the answer to the question the append-only note
-            // raises — "what if I put it in the wrong place?".
-            _RelocateRow(
-              anchorLabel: _insAfter == null
-                  ? null
-                  : _anchorLabel(
-                      widget.allRows, widget.row.clientId, _insAfter!),
-              onPick: _pickAnchor,
-              onClear: () => setState(() {
-                _insAfter = null;
-                _insAfterChanged = true;
-              }),
-            ),
-            const SizedBox(height: 12),
-            const Text('La posición no se puede cambiar (append-only).'),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, (
-            placa: _placa.text,
-            tipoAcceso: _tipo,
-            observacion: _obs.text,
-            insAfterChanged: _insAfterChanged,
-            insAfter: _insAfter,
-          )),
-          child: const Text('Guardar'),
-        ),
-      ],
-    );
-  }
-}
-
-/// What the anchor picker hands back. [loc] is what travels as `ins_after`;
-/// [anchorRefused] triggers the dangling-anchor warning (A5).
-class _AnchorChoice {
-  const _AnchorChoice({required this.loc, this.anchorRefused = false});
-  final int loc;
-  final bool anchorRefused;
-}
-
-/// Entry to "Mover localización" inside the editor: shows the current anchor
-/// or invites setting one. "Quitar" appears only when there is a mark.
-class _RelocateRow extends StatelessWidget {
-  const _RelocateRow({
-    required this.anchorLabel,
-    required this.onPick,
-    required this.onClear,
-  });
-
-  final String? anchorLabel;
-  final VoidCallback onPick;
-  final VoidCallback onClear;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final marked = anchorLabel != null;
-
-    return InkWell(
-      onTap: onPick,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
-            Icon(
-              Icons.low_priority,
-              size: 20,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Mover localización', style: theme.textTheme.bodyLarge),
-                  Text(
-                    marked
-                        ? 'Va tras $anchorLabel'
-                        : 'Va al final del recorrido',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (marked)
-              TextButton(onPressed: onClear, child: const Text('Quitar')),
-            Icon(Icons.chevron_right,
-                color: theme.colorScheme.onSurfaceVariant),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Anchor picker. The worker points at a unit — placa and posicion on show —
-/// and the loc that travels as `ins_after` is derived (BR1/BR2). There is no
-/// numeric field anywhere.
-class _AnchorPicker extends StatelessWidget {
-  const _AnchorPicker({required this.candidates});
-
-  /// The route's units, already excluding the one being moved.
-  final List<Capture> candidates;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return AlertDialog(
-      title: const Text('¿Después de cuál va?'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.vertical_align_top),
-              title: const Text('Al inicio de la ruta'),
-              onTap: () => Navigator.pop(context, const _AnchorChoice(loc: 0)),
-            ),
-            Divider(height: 1, color: theme.colorScheme.outlineVariant),
-            for (final r in candidates)
-              ListTile(
-                title: Text(
-                  (r.placa?.trim().isNotEmpty ?? false)
-                      ? r.placa!.trim()
-                      : 'Sin dirección aún',
-                  style: (r.placa?.trim().isNotEmpty ?? false)
-                      ? null
-                      : const TextStyle(fontStyle: FontStyle.italic),
-                ),
-                // The loc shown is the very value that will travel as
-                // ins_after — never a second, different number.
-                subtitle: Text(
-                    'posición ${r.posicion} · loc ${CaptureRepository.anchorLoc(r)}'),
-                onTap: () => Navigator.pop(
-                  context,
-                  _AnchorChoice(
-                    loc: CaptureRepository.anchorLoc(r),
-                    anchorRefused: r.syncStatus == AppConfig.syncError,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-      ],
     );
   }
 }

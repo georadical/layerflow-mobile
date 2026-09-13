@@ -361,6 +361,13 @@ class AppDatabase extends _$AppDatabase {
     return row?.posicion;
   }
 
+  /// The directory row behind an npn, to NAME an existing link in the
+  /// editor (the worker sees the address, never the npn).
+  Future<R1DirectoryData?> r1ByNpn(int tenantId, String npn) =>
+      (select(r1Directory)
+            ..where((r) => r.tenantId.equals(tenantId) & r.npn.equals(npn)))
+          .getSingleOrNull();
+
   Future<int> r1CountForTenant(int tenantId) async {
     final countExpr = r1Directory.npn.count();
     final query = selectOnly(r1Directory)

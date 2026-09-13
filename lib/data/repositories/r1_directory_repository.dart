@@ -66,6 +66,11 @@ class R1DirectoryRepository {
   /// screen shows no panel at all — classic capture).
   Future<int> countFor(int tenantId) => _db.r1CountForTenant(tenantId);
 
+  /// Names an existing link: the address behind [npn], or null when the
+  /// local slice does not carry it (linked elsewhere / directory reloaded).
+  Future<R1DirectoryData?> byNpn(int tenantId, String npn) =>
+      _db.r1ByNpn(tenantId, npn);
+
   /// Builds the progressive normalized prefix, or null when the text does
   /// not (yet) look like a street address. Exposed for tests.
   static String? typeaheadPrefix(String rawTyped) {
