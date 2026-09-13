@@ -53,6 +53,14 @@ class _FakeLoginApi implements ApiClient {
       throw UnimplementedError();
 
   @override
+  Future<void> uploadEvidence({
+    required String clientId,
+    required String soporte,
+    required String filePath,
+  }) =>
+      throw UnimplementedError();
+
+  @override
   Future<PlacaBatchResponse> postPlacas(PlacaBatchRequest batch) =>
       throw UnimplementedError();
 }

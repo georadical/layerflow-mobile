@@ -164,6 +164,8 @@ class CaptureRepository {
     );
   }
 
+  Future<Capture?> captureOf(String clientId) => _db.getCapture(clientId);
+
   /// CL-R3 trigger 5: posicion of the unit already holding [npn] in this
   /// route, or null. The caller warns and marks divergence; never blocks.
   Future<int?> npnPosicionInRoute(String routeId, String npn) =>

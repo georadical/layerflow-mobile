@@ -124,13 +124,45 @@ class R1Directory extends Table {
   Set<Column<Object>> get primaryKey => {tenantId, npn};
 }
 
-@DriftDatabase(tables: [Routes, Captures, R1Directory])
+/// Photo evidence queue (Spec 7, T7.4). One photo per unit (the contract's
+/// proposito is fixed to 'placa'); re-capturing replaces. Rows leave the
+/// queue only after the server confirmed reception (2xx) — then the local
+/// file is purged too. CL4 ownership applies: unsent photos belong to the
+/// person who captured them.
+class Evidence extends Table {
+  /// The unit's capture key — also the upload's idempotency key.
+  TextColumn get clientId => text()();
+
+  TextColumn get routeId => text()();
+
+  /// Local JPEG path (already compressed to fit the 500KB cap).
+  TextColumn get filePath => text()();
+
+  /// AppConfig.soporteDivergencia | soporteRutina (CL-R3 triggers).
+  TextColumn get soporte => text()();
+
+  TextColumn get ownerEmail => text().nullable()();
+
+  /// pending | error (sent rows are purged, never kept).
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant(AppConfig.syncPending))();
+
+  TextColumn get syncError => text().nullable()();
+
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {clientId};
+}
+
+@DriftDatabase(tables: [Routes, Captures, R1Directory, Evidence])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -153,6 +185,9 @@ class AppDatabase extends _$AppDatabase {
           if (from < 6) {
             await m.addColumn(captures, captures.npn);
             await m.addColumn(captures, captures.npnMatchMethod);
+          }
+          if (from < 7) {
+            await m.createTable(evidence);
           }
         },
       );
@@ -277,6 +312,43 @@ class AppDatabase extends _$AppDatabase {
           ..orderBy([(r) => OrderingTerm.asc(r.direccionNorm)])
           ..limit(limit))
         .get();
+  }
+
+  // ---- Evidence queue (Spec 7, T7.4) ----
+
+  Future<void> upsertEvidence(EvidenceCompanion row) =>
+      into(evidence).insertOnConflictUpdate(row);
+
+  Future<EvidenceData?> getEvidence(String clientId) =>
+      (select(evidence)..where((e) => e.clientId.equals(clientId)))
+          .getSingleOrNull();
+
+  /// Unsent photos of a route, CL4-scoped like the capture queue.
+  Future<List<EvidenceData>> pendingEvidenceForRoute(
+    String routeId, {
+    String? owner,
+  }) {
+    return (select(evidence)
+          ..where((e) {
+            final visible = owner == null
+                ? e.ownerEmail.isNull()
+                : e.ownerEmail.isNull() | e.ownerEmail.equals(owner);
+            return e.routeId.equals(routeId) & visible;
+          })
+          ..orderBy([(e) => OrderingTerm.asc(e.createdAt)]))
+        .get();
+  }
+
+  Future<void> deleteEvidence(String clientId) =>
+      (delete(evidence)..where((e) => e.clientId.equals(clientId))).go();
+
+  Future<void> markEvidenceError(String clientId, String error) {
+    return (update(evidence)..where((e) => e.clientId.equals(clientId)))
+        .write(EvidenceCompanion(
+      syncStatus: const Value(AppConfig.syncError),
+      syncError: Value(error),
+      updatedAt: Value(DateTime.now()),
+    ));
   }
 
   /// Whether [npn] is already linked to a unit of this route; returns that

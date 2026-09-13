@@ -148,6 +148,31 @@ class ApiClient {
     }
   }
 
+  /// POST /field/capture/evidence — one JPEG per request (Spec 7).
+  /// Idempotent per unit: re-uploading replaces file and record.
+  /// 415 = not JPEG, 413 = over 500KB, 400 = bad soporte, 404 = the unit's
+  /// placa push has not landed yet (the caller holds the photo).
+  Future<void> uploadEvidence({
+    required String clientId,
+    required String soporte,
+    required String filePath,
+  }) async {
+    final base = await _baseUrl();
+    try {
+      final form = FormData.fromMap({
+        'client_id': clientId,
+        'soporte': soporte,
+        'foto': await MultipartFile.fromFile(
+          filePath,
+          contentType: DioMediaType('image', 'jpeg'),
+        ),
+      });
+      await _dio.post<void>('$base${AppConfig.evidencePath}', data: form);
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
   ApiException _mapError(DioException e) {
     final code = e.response?.statusCode;
     final data = e.response?.data;

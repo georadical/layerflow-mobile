@@ -1,8 +1,10 @@
 import 'package:uuid/uuid.dart';
 
+import '../../core/config/app_config.dart';
 import '../api/api_client.dart';
 import '../api/dtos.dart';
 import '../repositories/capture_repository.dart';
+import '../repositories/evidence_repository.dart';
 
 /// Result of a sync push (for the UI).
 class SyncResult {
@@ -22,14 +24,86 @@ class SyncResult {
   bool get isNoop => attempted == 0;
 }
 
+/// Result of the evidence leg of a send (CL-R5).
+class EvidenceResult {
+  const EvidenceResult({
+    required this.uploaded,
+    required this.held,
+    required this.failed,
+  });
+
+  final int uploaded;
+
+  /// Waiting rows: routine photos without WiFi, or photos whose unit has
+  /// not synced yet. They stay queued, untouched.
+  final int held;
+
+  /// Server verdicts against the photo (413/415/400/404): recorded per
+  /// row; a re-shot replaces.
+  final int failed;
+}
+
 /// Orchestrates pull (frame to resume) and push (pending queue → backend).
 class SyncService {
-  SyncService(this._api, this._repo, {Uuid? uuid})
-      : _uuid = uuid ?? const Uuid();
+  SyncService(this._api, this._repo, {Uuid? uuid, EvidenceRepository? evidence})
+      : _evidence = evidence,
+        _uuid = uuid ?? const Uuid();
 
   final ApiClient _api;
   final CaptureRepository _repo;
+  final EvidenceRepository? _evidence;
   final Uuid _uuid;
+
+  /// CL-R5 — the evidence leg of the SAME Enviar gesture, chained after
+  /// the placa push so the census_codes exist. Divergence photos ship on
+  /// any network; routine photos only when [wifiAvailable]. A photo whose
+  /// unit is still unsent is held (its upload would 404). A transport
+  /// failure stops the chain with everything left pending — no verdict,
+  /// no change, like the capture queue.
+  Future<EvidenceResult> pushEvidence(
+    String routeId, {
+    String? owner,
+    required bool wifiAvailable,
+  }) async {
+    final evidenceRepo = _evidence;
+    if (evidenceRepo == null) {
+      return const EvidenceResult(uploaded: 0, held: 0, failed: 0);
+    }
+    final rows = await evidenceRepo.pendingForRoute(routeId, owner: owner);
+    var uploaded = 0, held = 0, failed = 0;
+
+    for (final row in rows) {
+      if (row.soporte == AppConfig.soporteRutina && !wifiAvailable) {
+        held++;
+        continue;
+      }
+      final unit = await _repo.captureOf(row.clientId);
+      if (unit == null || unit.syncStatus != AppConfig.syncSynced) {
+        held++; // the placa push has not landed; uploading would 404
+        continue;
+      }
+      try {
+        await _api.uploadEvidence(
+          clientId: row.clientId,
+          soporte: row.soporte,
+          filePath: row.filePath,
+        );
+        await evidenceRepo.confirmUploaded(row);
+        uploaded++;
+      } on ApiException catch (e) {
+        if (e.statusCode != null) {
+          // A verdict on the photo's merits: record it; a re-shot replaces.
+          await evidenceRepo.markError(row.clientId, e.message);
+          failed++;
+        } else {
+          // Transport died mid-chain: everything else stays pending.
+          held += 1;
+          break;
+        }
+      }
+    }
+    return EvidenceResult(uploaded: uploaded, held: held, failed: failed);
+  }
 
   /// Fetches the route frame and merges it locally (resume).
   Future<RouteFrame> pullFrame(String routeId) async {

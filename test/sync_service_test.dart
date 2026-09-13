@@ -41,6 +41,14 @@ class _FakeApi implements ApiClient {
       throw UnimplementedError();
 
   @override
+  Future<void> uploadEvidence({
+    required String clientId,
+    required String soporte,
+    required String filePath,
+  }) =>
+      throw UnimplementedError();
+
+  @override
   Future<LoginResponse> login({
     required String email,
     required String password,
