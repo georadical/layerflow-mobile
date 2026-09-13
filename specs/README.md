@@ -14,7 +14,7 @@ with a verifiable gate, a commit and explicit approval.
 | 4 | Offline-first queue and retry | [offline-queue-and-retry.md](offline-queue-and-retry.md) | Done — T4.1 verified on device |
 | 5 | Field worker login | [field-login.md](field-login.md) (shared) | Done — T5.1–T5.5 verified live against the backend |
 | 6 | ESP switching (multi-ESP, app side) | [esp-switching.md](esp-switching.md) | Done — switch verified live both ways |
-| 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | App side built (T7.1–T7.5) — coordinated E2E pending |
+| 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done — E2E verified both sides on the sacrifice route |
 
 ## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
 
