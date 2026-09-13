@@ -61,8 +61,10 @@ class SyncService {
             tipoAcceso: c.tipoAcceso,
             observacion: c.observacion,
             // Full-replacement contract: every push carries the row's current
-            // mark, or the backend clears it (Spec 2.1, BR3).
+            // mark, or the backend clears it (Spec 2.1, BR3). The npn link
+            // rides under the same rule (Spec 7).
             insAfter: c.insAfter,
+            npn: c.npn,
           ),
       ],
     );

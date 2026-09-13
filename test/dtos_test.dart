@@ -245,6 +245,33 @@ void main() {
       expect(json.containsKey('orden'), isFalse);
     });
 
+    test('request serialises npn only when present (full replacement)', () {
+      final linked =
+          const PlacaItemRequest(clientId: 'a', posicion: 1, npn: 'npn-1')
+              .toJson();
+      expect(linked['npn'], 'npn-1');
+
+      final clean = const PlacaItemRequest(clientId: 'b', posicion: 2).toJson();
+      expect(clean.containsKey('npn'), isFalse,
+          reason: 'omitting clears the link server-side, by contract');
+    });
+
+    test('frame item parses npn and its provenance', () {
+      final item = RouteFrameItem.fromJson({
+        'client_id': 'a',
+        'posicion': 1,
+        'loc': 5,
+        'npn': 'npn-1',
+        'npn_match_method': 'field_confirmed',
+      });
+      expect(item.npn, 'npn-1');
+      expect(item.npnMatchMethod, 'field_confirmed');
+
+      final clean =
+          RouteFrameItem.fromJson({'client_id': 'b', 'posicion': 2, 'loc': 10});
+      expect(clean.npn, isNull);
+    });
+
     test('frame item parses ins_after, and its absence, as the server sends it',
         () {
       final marked = RouteFrameItem.fromJson(

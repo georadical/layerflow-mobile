@@ -43,6 +43,7 @@ class CaptureRepository {
     String? tipoAcceso,
     String? observacion,
     String? owner,
+    String? npn,
   }) async {
     final now = DateTime.now();
     final clientId = _uuid.v4();
@@ -58,12 +59,34 @@ class CaptureRepository {
         tipoAcceso: Value(_nullIfBlank(tipoAcceso)),
         observacion: Value(_nullIfBlank(observacion)),
         ownerEmail: Value(owner),
+        npn: Value(npn),
         syncStatus: const Value(AppConfig.syncPending),
         createdAt: now,
         updatedAt: now,
       ),
     );
     return clientId;
+  }
+
+  /// Sets or clears the door link (Spec 7). Changing the npn is a FIELD
+  /// decision (provenance rule: the server only re-stamps the method when
+  /// the value changes) and re-queues the row. editCapture deliberately
+  /// leaves npn alone, exactly like the relocation mark (A3 analog).
+  Future<void> setNpn({
+    required String clientId,
+    required String? npn,
+    String? owner,
+  }) async {
+    await _db.updateCaptureRow(
+      clientId,
+      CapturesCompanion(
+        npn: Value(npn),
+        ownerEmail: Value(owner),
+        syncStatus: const Value(AppConfig.syncPending),
+        syncError: const Value(null),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
   }
 
   /// Edits the attributes of an existing capture. It does NOT touch `posicion`
@@ -219,6 +242,8 @@ class CaptureRepository {
             manzanaCatastral: Value(item.manzanaCatastral),
             loc: Value(item.loc),
             insAfter: Value(item.insAfter),
+            npn: Value(item.npn),
+            npnMatchMethod: Value(item.npnMatchMethod),
             syncStatus: const Value(AppConfig.syncSynced),
             createdAt: now,
             updatedAt: now,
@@ -234,8 +259,12 @@ class CaptureRepository {
             loc: Value(item.loc),
             // Written unconditionally, nulls included: once the office applies
             // the shift the frame comes back clean and the local mark must
-            // follow it (Spec 2.1, BR5).
+            // follow it (Spec 2.1, BR5). The npn link follows the same rule
+            // (Spec 7): the frame is the source of truth on resume, and the
+            // next push re-carries exactly what it says.
             insAfter: Value(item.insAfter),
+            npn: Value(item.npn),
+            npnMatchMethod: Value(item.npnMatchMethod),
             updatedAt: Value(now),
           ),
         );

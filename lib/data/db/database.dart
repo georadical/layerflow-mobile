@@ -72,6 +72,15 @@ class Captures extends Table {
   /// id of the remote census_code. Null until synced.
   TextColumn get remoteId => text().nullable()();
 
+  /// NPN linked at the door (Spec 7). Rides on EVERY push of the row —
+  /// full-replacement contract: omitting it clears the link server-side,
+  /// exactly like ins_after. The worker never sees this value.
+  TextColumn get npn => text().nullable()();
+
+  /// Server-side provenance of the link (field_confirmed | manual | ...),
+  /// read from the frame. Informational; never sent on push.
+  TextColumn get npnMatchMethod => text().nullable()();
+
   /// Person who owns this row's UNSENT content (normalized login email,
   /// CL4). Null = unowned: legacy rows and the CL1 paste flow, visible to
   /// any session. Ownership only gates queue rows — synced rows are the
@@ -121,7 +130,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -140,6 +149,10 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 5) {
             await m.createTable(r1Directory);
+          }
+          if (from < 6) {
+            await m.addColumn(captures, captures.npn);
+            await m.addColumn(captures, captures.npnMatchMethod);
           }
         },
       );

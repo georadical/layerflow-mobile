@@ -17,6 +17,7 @@ class PlacaItemRequest {
     this.tipoAcceso,
     this.observacion,
     this.insAfter,
+    this.npn,
   });
 
   final String clientId;
@@ -31,6 +32,11 @@ class PlacaItemRequest {
   /// server — the caller must always pass the row's current value.
   final int? insAfter;
 
+  /// NPN linked at the door (Spec 7). Same full-replacement trap as the
+  /// mark: omitting it on a re-push clears the link, so every push carries
+  /// the row's current value.
+  final String? npn;
+
   Map<String, dynamic> toJson() => {
         'client_id': clientId,
         'posicion': posicion,
@@ -42,6 +48,7 @@ class PlacaItemRequest {
         // Omitted and explicit null mean the same to the server (clear), so
         // only a real mark is serialised.
         if (insAfter != null) 'ins_after': insAfter,
+        if (npn != null) 'npn': npn,
       };
 }
 
@@ -415,6 +422,8 @@ class RouteFrameItem {
     this.placa,
     this.manzanaCatastral,
     this.insAfter,
+    this.npn,
+    this.npnMatchMethod,
   });
 
   final String clientId;
@@ -427,6 +436,13 @@ class RouteFrameItem {
   /// applies the shift — the frame is the source of truth on resume.
   final int? insAfter;
 
+  /// NPN link as the server holds it (Spec 7). The frame is the source of
+  /// truth on resume; the app re-carries this on every push (BR5).
+  final String? npn;
+
+  /// Provenance of the link (field_confirmed | manual | ...); informational.
+  final String? npnMatchMethod;
+
   factory RouteFrameItem.fromJson(Map<String, dynamic> json) {
     return RouteFrameItem(
       clientId: json['client_id'] as String,
@@ -437,6 +453,8 @@ class RouteFrameItem {
       placa: json['placa'] as String?,
       manzanaCatastral: json['manzana_catastral'] as String?,
       insAfter: (json['ins_after'] as num?)?.toInt(),
+      npn: json['npn'] as String?,
+      npnMatchMethod: json['npn_match_method'] as String?,
     );
   }
 }
