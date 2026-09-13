@@ -23,6 +23,11 @@ dependencies:
   # Red
   dio: ^5.4.3
 
+  # Evidencia de placa (Spec 7, T7.4c): cámara por captura + compresión
+  # JPEG en cliente (tope del contrato: 500KB / lado 1600px).
+  camera: ^0.11.0
+  image: ^4.2.0
+
   # Utilidades
   uuid: ^4.4.0
   connectivity_plus: ^6.0.3

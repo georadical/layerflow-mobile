@@ -1,6 +1,12 @@
+import 'dart:async';
+
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/camera/plate_camera.dart';
+import '../../data/repositories/evidence_repository.dart';
 
 import '../../data/db/database.dart';
 import '../providers.dart';
@@ -40,6 +46,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   bool _directoryAvailable = false;
   int _searchSeq = 0;
 
+  // Camera per capture (CL-R3): opens with the form, one frame per save,
+  // no gesture. Degrades to "sin foto" — capture NEVER blocks on it.
+  final _camera = PlateCamera();
+  bool _cameraReady = false;
+
   @override
   void initState() {
     super.initState();
@@ -50,6 +61,25 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
           await ref.read(r1DirectoryRepositoryProvider).countFor(tenantId);
       if (mounted) setState(() => _directoryAvailable = count > 0);
     });
+    Future.microtask(() async {
+      final ok = await _camera.start();
+      if (mounted) setState(() => _cameraReady = ok);
+    });
+  }
+
+  /// Grabs, compresses and queues the plate photo. Fire-and-forget from
+  /// the save gesture: the worker moves to the next door immediately.
+  Future<void> _snapEvidence(
+      String clientId, String soporte, String? owner) async {
+    final path = await _camera.captureFor(clientId);
+    if (path == null) return; // sin foto: degraded, never blocking
+    await ref.read(evidenceRepositoryProvider).enqueue(
+          clientId: clientId,
+          routeId: widget.routeId,
+          filePath: path,
+          soporte: soporte,
+          owner: owner,
+        );
   }
 
   /// Filters the directory as the worker types (CL-R1). The typed text is
@@ -102,6 +132,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     _obsCtrl.dispose();
     _manzanaCtrl.dispose();
     _placaFocus.dispose();
+    unawaited(_camera.dispose());
     super.dispose();
   }
 
@@ -110,17 +141,30 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() => _saving = true);
     final repo = ref.read(captureRepositoryProvider);
     try {
-      await repo.appendCapture(
+      final owner = ref.read(queueOwnerProvider);
+      // Snapshot the divergence state BEFORE the form resets (CL-R3).
+      final soporte = EvidenceRepository.classifySoporte(
+        notInList: _notInList,
+        duplicateNpn: _duplicateOfPosicion != null,
+        typedPlaca: _placaCtrl.text,
+        linkedDireccionNorm: _linked?.direccionNorm,
+      );
+      final clientId = await repo.appendCapture(
         routeId: widget.routeId,
         placa: _placaCtrl.text,
         manzanaCatastral: _manzanaCtrl.text,
         tipoAcceso: _tipoAcceso,
         observacion: _obsCtrl.text,
         // CL4: unsent content belongs to the person who captured it.
-        owner: ref.read(queueOwnerProvider),
+        owner: owner,
         // Spec 7: the pair is the record — raw placa above, npn here.
         npn: _linked?.npn,
       );
+      // One frame per save, no gesture; the worker walks on while the
+      // photo compresses and queues in the background.
+      if (_cameraReady) {
+        unawaited(_snapEvidence(clientId, soporte, owner));
+      }
       // Clear for the next household. manzana_catastral is kept (same block).
       _placaCtrl.clear();
       _obsCtrl.clear();
@@ -180,6 +224,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     ),
                   ],
                 ),
+                if (_cameraReady) ...[
+                  const SizedBox(height: 16),
+                  _CameraStrip(camera: _camera),
+                ],
                 const SizedBox(height: 16),
                 TextField(
                   controller: _placaCtrl,
@@ -494,6 +542,37 @@ class _DuplicateBanner extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Slim viewfinder while the form is open (CL-R3: camera per capture, no
+/// permanent viewfinder across the walk). Purely passive: the frame is
+/// grabbed by the save gesture, never by a tap here.
+class _CameraStrip extends StatelessWidget {
+  const _CameraStrip({required this.camera});
+
+  final PlateCamera camera;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = camera.controller;
+    if (controller == null) return const SizedBox.shrink();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        height: 140,
+        width: double.infinity,
+        child: FittedBox(
+          fit: BoxFit.cover,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: controller.value.previewSize?.height ?? 320,
+            height: controller.value.previewSize?.width ?? 240,
+            child: CameraPreview(controller),
+          ),
         ),
       ),
     );
