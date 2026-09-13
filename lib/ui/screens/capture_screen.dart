@@ -31,6 +31,71 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   bool _saving = false;
   bool _showAdvanced = false;
 
+  // R1-assisted capture (Spec 7). The typeahead only exists where a
+  // directory exists; rural / paste-flow capture stays classic.
+  List<R1DirectoryData> _suggestions = [];
+  R1DirectoryData? _linked;
+  bool _notInList = false;
+  int? _duplicateOfPosicion;
+  bool _directoryAvailable = false;
+  int _searchSeq = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() async {
+      final tenantId = ref.read(activeTenantIdProvider);
+      if (tenantId == null) return;
+      final count =
+          await ref.read(r1DirectoryRepositoryProvider).countFor(tenantId);
+      if (mounted) setState(() => _directoryAvailable = count > 0);
+    });
+  }
+
+  /// Filters the directory as the worker types (CL-R1). The typed text is
+  /// NEVER modified by anything here — it is the observed truth.
+  Future<void> _onPlacaChanged(String text) async {
+    if (_linked != null || _notInList || !_directoryAvailable) return;
+    final tenantId = ref.read(activeTenantIdProvider);
+    if (tenantId == null) return;
+    final seq = ++_searchSeq;
+    final hits =
+        await ref.read(r1DirectoryRepositoryProvider).search(tenantId, text);
+    if (!mounted || seq != _searchSeq) return;
+    setState(() => _suggestions = hits);
+  }
+
+  /// Links the unit to the tapped R1 address. The NPN rides hidden; the
+  /// typed placa stays untouched. A second use of the same NPN in the route
+  /// warns and marks divergence — never blocks (CL-R3 trigger 5, PH share).
+  Future<void> _select(R1DirectoryData hit) async {
+    final dup = await ref
+        .read(captureRepositoryProvider)
+        .npnPosicionInRoute(widget.routeId, hit.npn);
+    if (!mounted) return;
+    setState(() {
+      _linked = hit;
+      _duplicateOfPosicion = dup;
+      _suggestions = [];
+    });
+  }
+
+  void _unlink() => setState(() {
+        _linked = null;
+        _duplicateOfPosicion = null;
+      });
+
+  void _markNotInList() => setState(() {
+        _notInList = true;
+        _linked = null;
+        _duplicateOfPosicion = null;
+        _suggestions = [];
+      });
+
+  String get _directoryHelper => _directoryAvailable
+      ? 'Escribe lo que VES. Se guarda tal cual, siempre.'
+      : 'Opcional: puede quedar en blanco.';
+
   @override
   void dispose() {
     _placaCtrl.dispose();
@@ -53,11 +118,19 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         observacion: _obsCtrl.text,
         // CL4: unsent content belongs to the person who captured it.
         owner: ref.read(queueOwnerProvider),
+        // Spec 7: the pair is the record — raw placa above, npn here.
+        npn: _linked?.npn,
       );
       // Clear for the next household. manzana_catastral is kept (same block).
       _placaCtrl.clear();
       _obsCtrl.clear();
-      setState(() => _tipoAcceso = null);
+      setState(() {
+        _tipoAcceso = null;
+        _linked = null;
+        _notInList = false;
+        _duplicateOfPosicion = null;
+        _suggestions = [];
+      });
       _placaFocus.requestFocus();
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -113,13 +186,37 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   focusNode: _placaFocus,
                   autofocus: true,
                   textCapitalization: TextCapitalization.characters,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Placa (dirección en la puerta)',
                     hintText: 'C 5 1 11',
-                    helperText: 'Opcional: puede quedar en blanco.',
+                    helperText: _directoryHelper,
                   ),
                   textInputAction: TextInputAction.next,
+                  onChanged: _onPlacaChanged,
                 ),
+                if (_duplicateOfPosicion != null) ...[
+                  const SizedBox(height: 8),
+                  _DuplicateBanner(posicion: _duplicateOfPosicion!),
+                ],
+                if (_linked != null) ...[
+                  const SizedBox(height: 8),
+                  _LinkedCard(
+                    direccion: _linked!.direccionNorm,
+                    typed: _placaCtrl.text,
+                    onUnlink: _unlink,
+                  ),
+                ] else if (_notInList) ...[
+                  const SizedBox(height: 8),
+                  _NotInListCard(
+                      onUndo: () => setState(() => _notInList = false)),
+                ] else if (_suggestions.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _SuggestionPanel(
+                    suggestions: _suggestions,
+                    onNotInList: _markNotInList,
+                    onSelect: _select,
+                  ),
+                ],
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   // Not migrated to `initialValue`: FormFieldState ignores it
@@ -248,6 +345,153 @@ class _LastCaptureCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The panel that filters the R1 directory as the worker types (CL-R1).
+/// "No está en la lista" is a FIXED FIRST ROW with the same tap size as any
+/// suggestion — never a small link, never at the bottom.
+class _SuggestionPanel extends StatelessWidget {
+  const _SuggestionPanel({
+    required this.suggestions,
+    required this.onNotInList,
+    required this.onSelect,
+  });
+
+  final List<R1DirectoryData> suggestions;
+  final VoidCallback onNotInList;
+  final ValueChanged<R1DirectoryData> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Column(
+        children: [
+          ListTile(
+            leading: Icon(Icons.block, color: theme.colorScheme.error),
+            title: Text(
+              'No está en la lista',
+              style: TextStyle(
+                color: theme.colorScheme.error,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            subtitle: const Text('Lo que ves manda. Queda como hallazgo.'),
+            onTap: onNotInList,
+          ),
+          const Divider(height: 1),
+          for (final hit in suggestions)
+            ListTile(
+              leading: const Icon(Icons.location_city),
+              title: Text(hit.direccionNorm),
+              subtitle: hit.manzana == null
+                  ? null
+                  : Text('R1 · manzana …${_tail(hit.manzana!)}'),
+              onTap: () => onSelect(hit),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static String _tail(String s) =>
+      s.length <= 3 ? s : s.substring(s.length - 3);
+}
+
+/// The pair, both halves visible (CL-R1 hard rule: selecting never
+/// overwrites the typed placa). The NPN itself is never shown.
+class _LinkedCard extends StatelessWidget {
+  const _LinkedCard({
+    required this.direccion,
+    required this.typed,
+    required this.onUnlink,
+  });
+
+  final String direccion;
+  final String typed;
+  final VoidCallback onUnlink;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.secondaryContainer,
+      child: ListTile(
+        leading: const Icon(Icons.link),
+        title: Text('Enlazada a: $direccion'),
+        subtitle: Text('Tú escribiste: "$typed" — se guardan las dos.'),
+        trailing: IconButton(
+          icon: const Icon(Icons.close),
+          tooltip: 'Quitar enlace',
+          onPressed: onUnlink,
+        ),
+      ),
+    );
+  }
+}
+
+/// First-class outcome, not an error state (doctrine).
+class _NotInListCard extends StatelessWidget {
+  const _NotInListCard({required this.onUndo});
+
+  final VoidCallback onUndo;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.errorContainer,
+      child: ListTile(
+        leading: Icon(Icons.flag, color: theme.colorScheme.onErrorContainer),
+        title: Text('No está en la lista',
+            style: TextStyle(color: theme.colorScheme.onErrorContainer)),
+        subtitle: Text(
+          'Se captura tal cual y queda como hallazgo del censo.',
+          style: TextStyle(color: theme.colorScheme.onErrorContainer),
+        ),
+        trailing: IconButton(
+          icon: Icon(Icons.close, color: theme.colorScheme.onErrorContainer),
+          tooltip: 'Deshacer',
+          onPressed: onUndo,
+        ),
+      ),
+    );
+  }
+}
+
+/// CL-R3 trigger 5: warns, never blocks (PH legitimately share an NPN).
+class _DuplicateBanner extends StatelessWidget {
+  const _DuplicateBanner({required this.posicion});
+
+  final int posicion;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(Icons.copy_all, color: theme.colorScheme.onTertiaryContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Esa dirección ya se usó en esta ruta (posición $posicion). '
+                'Puedes continuar — varias unidades pueden compartirla (PH).',
+                style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
+              ),
             ),
           ],
         ),

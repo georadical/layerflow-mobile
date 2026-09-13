@@ -279,6 +279,16 @@ class AppDatabase extends _$AppDatabase {
         .get();
   }
 
+  /// Whether [npn] is already linked to a unit of this route; returns that
+  /// unit's posicion (CL-R3 trigger 5 — warn, never block).
+  Future<int?> npnPosicionInRoute(String routeId, String npn) async {
+    final row = await (select(captures)
+          ..where((c) => c.routeId.equals(routeId) & c.npn.equals(npn))
+          ..limit(1))
+        .getSingleOrNull();
+    return row?.posicion;
+  }
+
   Future<int> r1CountForTenant(int tenantId) async {
     final countExpr = r1Directory.npn.count();
     final query = selectOnly(r1Directory)

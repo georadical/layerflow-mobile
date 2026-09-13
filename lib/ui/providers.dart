@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,6 +11,7 @@ import '../data/api/dtos.dart';
 import '../data/cache/assigned_routes_cache.dart';
 import '../data/db/database.dart';
 import '../data/repositories/capture_repository.dart';
+import '../data/repositories/r1_directory_repository.dart';
 import '../data/settings/settings_store.dart';
 import '../data/sync/sync_service.dart';
 
@@ -27,6 +30,20 @@ final apiClientProvider = Provider<ApiClient>(
 
 final captureRepositoryProvider = Provider<CaptureRepository>(
   (ref) => CaptureRepository(ref.watch(databaseProvider)),
+);
+
+final r1DirectoryRepositoryProvider = Provider<R1DirectoryRepository>(
+  (ref) => R1DirectoryRepository(
+    ref.watch(databaseProvider),
+    ref.watch(apiClientProvider),
+    ref.watch(settingsStoreProvider),
+  ),
+);
+
+/// Tenant of the active session's ESP; null in the paste flow, where the
+/// typeahead has no directory to draw from.
+final activeTenantIdProvider = Provider<int?>(
+  (ref) => ref.watch(sessionProvider).valueOrNull?.activeTenantId,
 );
 
 final syncServiceProvider = Provider<SyncService>(
@@ -266,6 +283,17 @@ class AssignedRoutesNotifier extends AsyncNotifier<AssignedRoutesState> {
 final routeFrameProvider =
     FutureProvider.autoDispose.family<void, String>((ref, routeId) async {
   if (!ref.read(isOnlineProvider)) return;
+  // Opening a route online is a sync moment (CL-R4): refresh the R1
+  // directory in the background. Fire-and-forget — capture NEVER blocks
+  // on a stale directory, and a failure only means fewer suggestions.
+  final tenantId = ref.read(activeTenantIdProvider);
+  if (tenantId != null) {
+    unawaited(
+      ref.read(r1DirectoryRepositoryProvider).refresh(tenantId).catchError(
+            (_) => const R1RefreshResult(unchanged: true, count: 0),
+          ),
+    );
+  }
   await ref.read(syncServiceProvider).pullFrame(routeId);
 });
 

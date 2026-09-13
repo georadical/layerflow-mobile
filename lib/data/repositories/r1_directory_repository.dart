@@ -62,6 +62,10 @@ class R1DirectoryRepository {
     return _db.searchR1(tenantId, prefix);
   }
 
+  /// Rows held locally for the tenant (0 = no directory yet: the capture
+  /// screen shows no panel at all — classic capture).
+  Future<int> countFor(int tenantId) => _db.r1CountForTenant(tenantId);
+
   /// Builds the progressive normalized prefix, or null when the text does
   /// not (yet) look like a street address. Exposed for tests.
   static String? typeaheadPrefix(String rawTyped) {
