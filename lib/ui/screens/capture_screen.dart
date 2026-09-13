@@ -71,17 +71,27 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
 
   /// Compresses and queues the ALREADY-taken shot. Fire-and-forget from
   /// the save gesture: the worker moves to the next door immediately.
+  ///
+  /// [evidenceRepo] is captured BEFORE the async gap: this future outlives
+  /// the screen (the worker may leave while it compresses), and touching
+  /// `ref` after dispose would silently kill the enqueue — found live in
+  /// the E2E when case C's file landed but its row never did.
   Future<void> _storeEvidence(
-      String clientId, String soporte, String? owner, XFile shot) async {
+    EvidenceRepository evidenceRepo,
+    String clientId,
+    String soporte,
+    String? owner,
+    XFile shot,
+  ) async {
     final path = await _camera.storeShotFor(clientId, shot);
     if (path == null) return; // sin foto: degraded, never blocking
-    await ref.read(evidenceRepositoryProvider).enqueue(
-          clientId: clientId,
-          routeId: widget.routeId,
-          filePath: path,
-          soporte: soporte,
-          owner: owner,
-        );
+    await evidenceRepo.enqueue(
+      clientId: clientId,
+      routeId: widget.routeId,
+      filePath: path,
+      soporte: soporte,
+      owner: owner,
+    );
   }
 
   /// CL-R2: reads the shot and, ONLY on a mismatch against what the worker
@@ -129,8 +139,17 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     final hits =
         await ref.read(r1DirectoryRepositoryProvider).search(tenantId, text);
     if (!mounted || seq != _searchSeq) return;
+    // setState even when empty: the panel must show "No está en la lista"
+    // for text that matches NOTHING — the most divergent case of all is
+    // exactly where that action must stay one tap away (CL-R1).
     setState(() => _suggestions = hits);
   }
+
+  bool get _panelVisible =>
+      _directoryAvailable &&
+      _linked == null &&
+      !_notInList &&
+      _placaCtrl.text.trim().isNotEmpty;
 
   /// Links the unit to the tapped R1 address. The NPN rides hidden; the
   /// typed placa stays untouched. A second use of the same NPN in the route
@@ -207,7 +226,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       );
       // The worker walks on while the photo compresses and queues.
       if (shot != null) {
-        unawaited(_storeEvidence(clientId, soporte, owner, shot));
+        final evidenceRepo = ref.read(evidenceRepositoryProvider);
+        unawaited(_storeEvidence(evidenceRepo, clientId, soporte, owner, shot));
       }
       // Clear for the next household. manzana_catastral is kept (same block).
       _placaCtrl.clear();
@@ -301,7 +321,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   const SizedBox(height: 8),
                   _NotInListCard(
                       onUndo: () => setState(() => _notInList = false)),
-                ] else if (_suggestions.isNotEmpty) ...[
+                ] else if (_panelVisible) ...[
                   const SizedBox(height: 8),
                   _SuggestionPanel(
                     suggestions: _suggestions,
