@@ -130,6 +130,49 @@ class ApiClient {
     }
   }
 
+  /// GET /field/r1-directory — the tenant's addressed R1 slice (Spec 7).
+  /// Pass [knownVersion] to skip the download when nothing changed (CL-R4).
+  Future<R1DirectoryResponse> getR1Directory({String? knownVersion}) async {
+    final base = await _baseUrl();
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '$base${AppConfig.r1DirectoryPath}',
+        queryParameters: {
+          if (knownVersion != null && knownVersion.isNotEmpty)
+            'version': knownVersion,
+        },
+      );
+      return R1DirectoryResponse.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// POST /field/capture/evidence — one JPEG per request (Spec 7).
+  /// Idempotent per unit: re-uploading replaces file and record.
+  /// 415 = not JPEG, 413 = over 500KB, 400 = bad soporte, 404 = the unit's
+  /// placa push has not landed yet (the caller holds the photo).
+  Future<void> uploadEvidence({
+    required String clientId,
+    required String soporte,
+    required String filePath,
+  }) async {
+    final base = await _baseUrl();
+    try {
+      final form = FormData.fromMap({
+        'client_id': clientId,
+        'soporte': soporte,
+        'foto': await MultipartFile.fromFile(
+          filePath,
+          contentType: DioMediaType('image', 'jpeg'),
+        ),
+      });
+      await _dio.post<void>('$base${AppConfig.evidencePath}', data: form);
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
   ApiException _mapError(DioException e) {
     final code = e.response?.statusCode;
     final data = e.response?.data;

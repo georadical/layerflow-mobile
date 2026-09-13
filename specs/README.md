@@ -14,6 +14,56 @@ with a verifiable gate, a commit and explicit approval.
 | 4 | Offline-first queue and retry | [offline-queue-and-retry.md](offline-queue-and-retry.md) | Done — T4.1 verified on device |
 | 5 | Field worker login | [field-login.md](field-login.md) (shared) | Done — T5.1–T5.5 verified live against the backend |
 | 6 | ESP switching (multi-ESP, app side) | [esp-switching.md](esp-switching.md) | Done — switch verified live both ways |
+| 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done — E2E verified both sides on the sacrifice route |
+
+## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
+
+Frozen at backend `8d06a61` with the app's four contract observations
+(frame carries `npn` — the ins_after lesson; normalization pinned as an
+exact algorithm; evidence limits pinned; directory `version` tag) and
+CL-R1…R5 as proposed. The worker never sees an NPN: they type the placa
+they see (stored raw, always) and optionally tap a matching R1 **address**;
+the NPN rides hidden behind it. "No está en la lista" is a first-class
+action — divergence is the census's product, not an error.
+
+**App tickets (against the shared contract):**
+- **T7.1 — R1 directory local**: drift table, fetch with `version` tag,
+  and the client normalizer mirroring the pinned algorithm exactly (tests
+  against the spec's own examples).
+- **T7.2 — Typeahead wireframe**: free placa field + suggestion panel with
+  "No está en la lista" as fixed first row (CL-R1), duplicate-NPN warning
+  (CL-R3 trigger 5). Wireframe → approval → design → wiring.
+- **T7.3 — `npn` end to end**: schema v5 column, request item, frame
+  merge, ride-on-every-push (the ins_after pattern), per-item error
+  mapping.
+- **T7.4 — Photo evidence**: camera per capture, compression (JPEG ~70,
+  1600px), evidence queue bound to the person, CL-R5 upload inside the
+  Enviar gesture (divergence any network, routine WiFi-only).
+- **T7.5 — OCR soft-check**: ML Kit on-device + edit distance over
+  normalized strings; silent unless mismatch (CL-R2).
+
+Blocked on backend TI.1–TI.3 for wiring; T7.1's normalizer, T7.2 and the
+schema work can start now.
+
+## Field deployment (backlog — noted 2026-09-12, not scheduled)
+
+The app is functionally field-ready (Specs 1–6 done, release APK builds
+with network). What remains to actually go to the field is deployment
+work, deliberately parked until the project decides to take that step:
+
+1. **Backend reachable from the street, HTTPS only.** Today it runs on the
+   dev laptop (`10.0.2.2`). Credentials and tokens must never travel over
+   plain HTTP, and Android release blocks cleartext by default anyway.
+   Needs the definitive base URL to configure in the app.
+2. **Real provisioning** (backend/operator side): `field`-role credentials
+   for the real surveyors and `verificada` routes of the real ESP.
+3. **Brute-force rate limiting on login** — the shared spec left it out of
+   the MVP "until any public deployment"; exposing the backend to the
+   internet is that moment.
+4. **Release APK on a physical phone** — never yet run outside the
+   emulator or debug mode.
+5. **Pilot before rollout**: one day, one surveyor, one real route, with
+   the office watching what lands.
 
 ## Spec 3 — notes carried in from Spec 1.1
 

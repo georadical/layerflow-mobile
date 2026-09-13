@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,6 +11,8 @@ import '../data/api/dtos.dart';
 import '../data/cache/assigned_routes_cache.dart';
 import '../data/db/database.dart';
 import '../data/repositories/capture_repository.dart';
+import '../data/repositories/evidence_repository.dart';
+import '../data/repositories/r1_directory_repository.dart';
 import '../data/settings/settings_store.dart';
 import '../data/sync/sync_service.dart';
 
@@ -29,10 +33,29 @@ final captureRepositoryProvider = Provider<CaptureRepository>(
   (ref) => CaptureRepository(ref.watch(databaseProvider)),
 );
 
+final r1DirectoryRepositoryProvider = Provider<R1DirectoryRepository>(
+  (ref) => R1DirectoryRepository(
+    ref.watch(databaseProvider),
+    ref.watch(apiClientProvider),
+    ref.watch(settingsStoreProvider),
+  ),
+);
+
+/// Tenant of the active session's ESP; null in the paste flow, where the
+/// typeahead has no directory to draw from.
+final activeTenantIdProvider = Provider<int?>(
+  (ref) => ref.watch(sessionProvider).valueOrNull?.activeTenantId,
+);
+
+final evidenceRepositoryProvider = Provider<EvidenceRepository>(
+  (ref) => EvidenceRepository(ref.watch(databaseProvider)),
+);
+
 final syncServiceProvider = Provider<SyncService>(
   (ref) => SyncService(
     ref.watch(apiClientProvider),
     ref.watch(captureRepositoryProvider),
+    evidence: ref.watch(evidenceRepositoryProvider),
   ),
 );
 
@@ -58,6 +81,16 @@ bool _isOnline(List<ConnectivityResult> r) =>
 final isOnlineProvider = Provider<bool>((ref) {
   final conn = ref.watch(connectivityProvider);
   return conn.maybeWhen(data: _isOnline, orElse: () => false);
+});
+
+/// WiFi right now — the gate for ROUTINE photo uploads (CL-R5). Divergence
+/// ships on any network; routine waits for a send made under WiFi.
+final isOnWifiProvider = Provider<bool>((ref) {
+  final conn = ref.watch(connectivityProvider);
+  return conn.maybeWhen(
+    data: (r) => r.contains(ConnectivityResult.wifi),
+    orElse: () => false,
+  );
 });
 
 /// Active route (persisted in Settings).
@@ -266,6 +299,17 @@ class AssignedRoutesNotifier extends AsyncNotifier<AssignedRoutesState> {
 final routeFrameProvider =
     FutureProvider.autoDispose.family<void, String>((ref, routeId) async {
   if (!ref.read(isOnlineProvider)) return;
+  // Opening a route online is a sync moment (CL-R4): refresh the R1
+  // directory in the background. Fire-and-forget — capture NEVER blocks
+  // on a stale directory, and a failure only means fewer suggestions.
+  final tenantId = ref.read(activeTenantIdProvider);
+  if (tenantId != null) {
+    unawaited(
+      ref.read(r1DirectoryRepositoryProvider).refresh(tenantId).catchError(
+            (_) => const R1RefreshResult(unchanged: true, count: 0),
+          ),
+    );
+  }
   await ref.read(syncServiceProvider).pullFrame(routeId);
 });
 
@@ -344,13 +388,32 @@ class PushNotifier extends FamilyNotifier<bool, String> {
     state = true;
     final repo = ref.read(captureRepositoryProvider);
     try {
-      final result = await ref
-          .read(syncServiceProvider)
-          .pushPending(arg, owner: ref.read(queueOwnerProvider));
+      final owner = ref.read(queueOwnerProvider);
+      final result =
+          await ref.read(syncServiceProvider).pushPending(arg, owner: owner);
       if (!result.isNoop) {
         await repo.recordPushAttempt(
           routeId: arg,
           outcome: result.isOk ? AppConfig.pushOk : AppConfig.pushPartial,
+        );
+      }
+      // CL-R5: the evidence leg rides the SAME gesture, after the placa
+      // push so the census_codes exist. Its transport failures are silent
+      // here (held rows just wait); verdicts are recorded per row.
+      final evidence = await ref.read(syncServiceProvider).pushEvidence(
+            arg,
+            owner: owner,
+            wifiAvailable: ref.read(isOnWifiProvider),
+          );
+      if (evidence.uploaded > 0 || evidence.failed > 0) {
+        final extra = 'fotos: ${evidence.uploaded} subidas'
+            '${evidence.failed > 0 ? ', ${evidence.failed} rechazadas' : ''}'
+            '${evidence.held > 0 ? ', ${evidence.held} en espera' : ''}';
+        return SyncResult(
+          attempted: result.attempted,
+          synced: result.synced,
+          failed: result.failed,
+          message: result.isNoop ? extra : '${result.message} · $extra',
         );
       }
       return result;

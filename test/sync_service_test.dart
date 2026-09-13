@@ -37,6 +37,18 @@ class _FakeApi implements ApiClient {
       throw UnimplementedError();
 
   @override
+  Future<R1DirectoryResponse> getR1Directory({String? knownVersion}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> uploadEvidence({
+    required String clientId,
+    required String soporte,
+    required String filePath,
+  }) =>
+      throw UnimplementedError();
+
+  @override
   Future<LoginResponse> login({
     required String email,
     required String password,
@@ -47,6 +59,7 @@ class _FakeApi implements ApiClient {
   Future<String> refreshToken() => throw UnimplementedError();
 }
 
+// (Spec 7) The npn must ride on every push — see the dedicated test below.
 PlacaItemResult _ok(String clientId, int loc) =>
     PlacaItemResult(clientId: clientId, ok: true, id: 'r-$clientId', loc: loc);
 
@@ -282,5 +295,29 @@ void main() {
     // Marked row: the mark rides along — full-replacement contract (BR3).
     expect(items.last.insAfter, 5);
     expect(items.last.toJson()['ins_after'], 5);
+  });
+
+  test('the npn link travels on every push of the row (Spec 7)', () async {
+    final db = await memoryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final (repo, ids) = await seed(db, 2);
+    await repo.setNpn(clientId: ids.last, npn: 'npn-1');
+
+    final api = _FakeApi(
+      respond: (b) => _response([
+        for (final i in b.items) _ok(i.clientId, i.posicion * 5),
+      ]),
+    );
+    await SyncService(api, repo).pushPending(routeId);
+
+    final items = api.lastBatch!.items;
+    // Unlinked row: no npn key at all (omitting clears, by contract).
+    expect(items.first.toJson().containsKey('npn'), isFalse);
+    // Linked row: the link rides along, like the mark.
+    expect(items.last.toJson()['npn'], 'npn-1');
   });
 }

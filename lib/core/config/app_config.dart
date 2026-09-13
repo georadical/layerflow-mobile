@@ -29,6 +29,17 @@ class AppConfig {
   /// Silent renewal; the 7-day grace window exists only here.
   static const String refreshPath = '/field/token/refresh';
 
+  /// R1 directory for the typeahead (Spec 7). Tenant-scoped by the token.
+  static const String r1DirectoryPath = '/field/r1-directory';
+
+  /// Placa photo evidence upload (Spec 7). Multipart; JPEG only, <=500KB.
+  static const String evidencePath = '/field/capture/evidence';
+
+  /// Retention class of a photo (CL-R3): divergence ships on any network,
+  /// routine only under WiFi (CL-R5); the server keeps divergence forever.
+  static const String soporteDivergencia = 'divergencia';
+  static const String soporteRutina = 'rutina';
+
   /// Local sync states.
   static const String syncPending = 'pending';
   static const String syncSynced = 'synced';

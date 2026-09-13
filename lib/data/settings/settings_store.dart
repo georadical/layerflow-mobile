@@ -49,6 +49,18 @@ class SettingsStore {
     }
   }
 
+  /// R1 directory version tag per tenant (Spec 7, CL-R4). Plain prefs: it
+  /// is an opaque cache tag, not a secret.
+  Future<String?> getR1Version(int tenantId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('r1_version_t$tenantId');
+  }
+
+  Future<void> setR1Version(int tenantId, String version) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('r1_version_t$tenantId', version);
+  }
+
   Future<String?> getToken() async {
     try {
       return await _secure.read(key: _kToken);

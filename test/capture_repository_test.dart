@@ -327,6 +327,112 @@ void main() {
     });
   });
 
+  group('npn link (Spec 7, T7.3 — the ins_after pattern)', () {
+    test('REGRESSION: editing the placa preserves the door link', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id = await repo.appendCapture(
+          routeId: routeId, placa: 'C 5 2 06', npn: 'npn-1');
+
+      // The exact path that would silently clear the link under the
+      // full-replacement contract.
+      await repo.editCapture(clientId: id, placa: 'C 5 2-06 corregida');
+
+      final row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, 'npn-1', reason: 'a placa fix must never drop the link');
+      expect(row.syncStatus, AppConfig.syncPending);
+    });
+
+    test('setNpn links, replaces and clears, re-queuing each time', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id = await repo.appendCapture(routeId: routeId, placa: 'X');
+      await repo.markSynced(clientId: id, loc: 5, remoteId: 'r1');
+
+      await repo.setNpn(clientId: id, npn: 'npn-1');
+      var row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, 'npn-1');
+      expect(row.syncStatus, AppConfig.syncPending);
+
+      await repo.setNpn(clientId: id, npn: null); // unlink = field decision
+      row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, isNull);
+      expect(row.syncStatus, AppConfig.syncPending);
+    });
+
+    test('mergeFrame: the frame is the source of truth for the link', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      // Linked on the server (e.g. by the office: method 'manual').
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [
+          RouteFrameItem(
+              clientId: 's1',
+              posicion: 1,
+              loc: 5,
+              npn: 'npn-9',
+              npnMatchMethod: 'manual'),
+        ],
+      ));
+      var row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, 'npn-9');
+      expect(row.npnMatchMethod, 'manual');
+
+      // Office removed the link: null wins on a synced row.
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [RouteFrameItem(clientId: 's1', posicion: 1, loc: 5)],
+      ));
+      row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, isNull);
+      expect(row.npnMatchMethod, isNull);
+    });
+
+    test('mergeFrame preserves an UNSENT local link on a queued row', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [RouteFrameItem(clientId: 's1', posicion: 1, loc: 5)],
+      ));
+      await repo.setNpn(clientId: 's1', npn: 'npn-nuevo'); // now pending
+
+      // A frame arrives before the push: position updates, content stays.
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [RouteFrameItem(clientId: 's1', posicion: 2, loc: 10)],
+      ));
+
+      final row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.posicion, 2, reason: 'position belongs to the server');
+      expect(row.npn, 'npn-nuevo',
+          reason: 'the unsent link belongs to the worker until sent');
+    });
+  });
+
   test('recordPushAttempt: first attempt inserts, the next one replaces it',
       () async {
     final db = await _tryMemoryDb();

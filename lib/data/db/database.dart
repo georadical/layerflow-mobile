@@ -72,6 +72,15 @@ class Captures extends Table {
   /// id of the remote census_code. Null until synced.
   TextColumn get remoteId => text().nullable()();
 
+  /// NPN linked at the door (Spec 7). Rides on EVERY push of the row —
+  /// full-replacement contract: omitting it clears the link server-side,
+  /// exactly like ins_after. The worker never sees this value.
+  TextColumn get npn => text().nullable()();
+
+  /// Server-side provenance of the link (field_confirmed | manual | ...),
+  /// read from the frame. Informational; never sent on push.
+  TextColumn get npnMatchMethod => text().nullable()();
+
   /// Person who owns this row's UNSENT content (normalized login email,
   /// CL4). Null = unowned: legacy rows and the CL1 paste flow, visible to
   /// any session. Ownership only gates queue rows — synced rows are the
@@ -92,17 +101,71 @@ class Captures extends Table {
   Set<Column<Object>> get primaryKey => {clientId};
 }
 
-@DriftDatabase(tables: [Routes, Captures])
+/// Local copy of the tenant's addressed R1 slice (Spec 7, T7.1). Replaced
+/// wholesale per tenant on refresh (full snapshot, CL-R4). The typeahead
+/// reads it; capture NEVER blocks on it being stale or empty.
+class R1Directory extends Table {
+  /// Tenant the row belongs to: directories of different ESPs coexist
+  /// without mixing (Spec 6 isolation applies here too).
+  IntColumn get tenantId => integer()();
+
+  TextColumn get npn => text()();
+
+  /// Raw address as the R1 carries it.
+  TextColumn get direccion => text()();
+
+  /// Server-normalized address (the pinned algorithm) — what the typeahead
+  /// matches against and what the worker sees.
+  TextColumn get direccionNorm => text()();
+
+  TextColumn get manzana => text().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {tenantId, npn};
+}
+
+/// Photo evidence queue (Spec 7, T7.4). One photo per unit (the contract's
+/// proposito is fixed to 'placa'); re-capturing replaces. Rows leave the
+/// queue only after the server confirmed reception (2xx) — then the local
+/// file is purged too. CL4 ownership applies: unsent photos belong to the
+/// person who captured them.
+class Evidence extends Table {
+  /// The unit's capture key — also the upload's idempotency key.
+  TextColumn get clientId => text()();
+
+  TextColumn get routeId => text()();
+
+  /// Local JPEG path (already compressed to fit the 500KB cap).
+  TextColumn get filePath => text()();
+
+  /// AppConfig.soporteDivergencia | soporteRutina (CL-R3 triggers).
+  TextColumn get soporte => text()();
+
+  TextColumn get ownerEmail => text().nullable()();
+
+  /// pending | error (sent rows are purged, never kept).
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant(AppConfig.syncPending))();
+
+  TextColumn get syncError => text().nullable()();
+
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {clientId};
+}
+
+@DriftDatabase(tables: [Routes, Captures, R1Directory, Evidence])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 7;
 
-  /// All added columns are nullable, so old rows come out as null — "no
-  /// relocation mark" (v2), "never attempted a send" (v3) and "unowned row"
-  /// (v4); no backfill.
+  /// v2–v4 add nullable columns (null = the correct legacy meaning);
+  /// v5 creates the R1 directory table (starts empty until first refresh).
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onUpgrade: (m, from, to) async {
@@ -115,6 +178,16 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 4) {
             await m.addColumn(captures, captures.ownerEmail);
+          }
+          if (from < 5) {
+            await m.createTable(r1Directory);
+          }
+          if (from < 6) {
+            await m.addColumn(captures, captures.npn);
+            await m.addColumn(captures, captures.npnMatchMethod);
+          }
+          if (from < 7) {
+            await m.createTable(evidence);
           }
         },
       );
@@ -209,5 +282,90 @@ class AppDatabase extends _$AppDatabase {
     return (update(captures)..where((c) => c.clientId.equals(clientId)))
         .write(patch)
         .then((rows) => rows > 0);
+  }
+
+  // ---- R1 directory (Spec 7) ----
+
+  /// Replaces the tenant's whole slice atomically (full snapshot, CL-R4).
+  Future<void> replaceR1Slice(int tenantId, List<R1DirectoryCompanion> rows) {
+    return transaction(() async {
+      await (delete(r1Directory)..where((r) => r.tenantId.equals(tenantId)))
+          .go();
+      for (final row in rows) {
+        await into(r1Directory).insert(row);
+      }
+    });
+  }
+
+  /// Typeahead lookup: prefix-match over the normalized address, capped —
+  /// the panel shows a handful, never the whole directory. The repository
+  /// builds [normPrefix] from the raw typed text via the pinned normalizer.
+  Future<List<R1DirectoryData>> searchR1(
+    int tenantId,
+    String normPrefix, {
+    int limit = 8,
+  }) {
+    return (select(r1Directory)
+          ..where((r) =>
+              r.tenantId.equals(tenantId) &
+              r.direccionNorm.like('$normPrefix%'))
+          ..orderBy([(r) => OrderingTerm.asc(r.direccionNorm)])
+          ..limit(limit))
+        .get();
+  }
+
+  // ---- Evidence queue (Spec 7, T7.4) ----
+
+  Future<void> upsertEvidence(EvidenceCompanion row) =>
+      into(evidence).insertOnConflictUpdate(row);
+
+  Future<EvidenceData?> getEvidence(String clientId) =>
+      (select(evidence)..where((e) => e.clientId.equals(clientId)))
+          .getSingleOrNull();
+
+  /// Unsent photos of a route, CL4-scoped like the capture queue.
+  Future<List<EvidenceData>> pendingEvidenceForRoute(
+    String routeId, {
+    String? owner,
+  }) {
+    return (select(evidence)
+          ..where((e) {
+            final visible = owner == null
+                ? e.ownerEmail.isNull()
+                : e.ownerEmail.isNull() | e.ownerEmail.equals(owner);
+            return e.routeId.equals(routeId) & visible;
+          })
+          ..orderBy([(e) => OrderingTerm.asc(e.createdAt)]))
+        .get();
+  }
+
+  Future<void> deleteEvidence(String clientId) =>
+      (delete(evidence)..where((e) => e.clientId.equals(clientId))).go();
+
+  Future<void> markEvidenceError(String clientId, String error) {
+    return (update(evidence)..where((e) => e.clientId.equals(clientId)))
+        .write(EvidenceCompanion(
+      syncStatus: const Value(AppConfig.syncError),
+      syncError: Value(error),
+      updatedAt: Value(DateTime.now()),
+    ));
+  }
+
+  /// Whether [npn] is already linked to a unit of this route; returns that
+  /// unit's posicion (CL-R3 trigger 5 — warn, never block).
+  Future<int?> npnPosicionInRoute(String routeId, String npn) async {
+    final row = await (select(captures)
+          ..where((c) => c.routeId.equals(routeId) & c.npn.equals(npn))
+          ..limit(1))
+        .getSingleOrNull();
+    return row?.posicion;
+  }
+
+  Future<int> r1CountForTenant(int tenantId) async {
+    final countExpr = r1Directory.npn.count();
+    final query = selectOnly(r1Directory)
+      ..where(r1Directory.tenantId.equals(tenantId))
+      ..addColumns([countExpr]);
+    return (await query.getSingle()).read(countExpr) ?? 0;
   }
 }
