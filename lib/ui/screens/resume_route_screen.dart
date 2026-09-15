@@ -236,10 +236,11 @@ class _UnitList extends StatelessWidget {
           return Column(
             children: [
               _FrameSummary(total: rows.length, stale: stale),
-              // Only when there is a queue: a fully sent route carries no
-              // dead control (Spec 3, BR2).
-              if (rows.any((r) => r.syncStatus != AppConfig.syncSynced))
-                _QueueBar(routeId: rows.first.routeId),
+              // Only when there is something to send: a fully sent route
+              // carries no dead control (Spec 3, BR2). Photos count too —
+              // a routine one waits for WiFi and outlives its queue row,
+              // and without this the bar vanished with it (E2E finding).
+              _QueueBar(routeId: rows.first.routeId),
             ],
           );
         }
@@ -330,8 +331,12 @@ class _QueueBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final waiting = ref.watch(pendingCountProvider(routeId));
+    final photos =
+        ref.watch(pendingEvidenceCountProvider(routeId)).valueOrNull ?? 0;
+    if (waiting == 0 && photos == 0) return const SizedBox.shrink();
     final sending = ref.watch(pushProvider(routeId));
     final online = ref.watch(isOnlineProvider);
+    final onWifi = ref.watch(isOnWifiProvider);
     final route = ref.watch(routeRowProvider(routeId)).valueOrNull;
     final lastAt = route?.lastPushAt;
     final lastOutcome = route?.lastPushOutcome;
@@ -352,13 +357,28 @@ class _QueueBar extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  online
-                      ? '$waiting sin enviar'
-                      : '$waiting sin enviar · sin conexión',
+                  [
+                    if (waiting > 0) '$waiting sin enviar',
+                    // Photos are named apart: with the capture queue empty
+                    // this line is the only reason the bar is here.
+                    if (photos > 0) '$photos ${photos == 1 ? 'foto' : 'fotos'}',
+                    if (!online) 'sin conexión',
+                  ].join(' · '),
                   style: theme.textTheme.titleSmall?.copyWith(
                     color: theme.colorScheme.onSecondaryContainer,
                   ),
                 ),
+                // CL-R5: routine photos only travel under WiFi. Say so,
+                // rather than letting the worker press Enviar and wonder
+                // why the count did not move.
+                if (waiting == 0 && photos > 0 && online && !onWifi)
+                  Text(
+                    'Las fotos de rutina esperan WiFi',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSecondaryContainer
+                          .withValues(alpha: 0.8),
+                    ),
+                  ),
                 // "Tried, and when": tells never-tried from tried-and-failed
                 // even if the momentary message was missed (Spec 4, BR7).
                 if (lastAt != null)

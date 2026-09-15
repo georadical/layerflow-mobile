@@ -289,6 +289,35 @@ void main() {
       expect(files, isEmpty, reason: 'confirmed photos purge their files');
     });
 
+    test('REGRESSION: a held photo outlives its queue row and stays visible',
+        () async {
+      final db = await memoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final captures = CaptureRepository(db);
+      final evidence = EvidenceRepository(db);
+
+      // A fully SYNCED unit whose routine photo still waits for WiFi —
+      // exactly the E2E state where the send bar vanished and the photo
+      // had no way to travel.
+      await captures.mergeFrame(const RouteFrame(routeId: routeId, items: [
+        RouteFrameItem(clientId: 'u1', posicion: 1, loc: 5),
+      ]));
+      await evidence.enqueue(
+          clientId: 'u1',
+          routeId: routeId,
+          filePath: await photo('held'),
+          soporte: AppConfig.soporteRutina);
+
+      expect(await captures.pending(routeId), isEmpty,
+          reason: 'the capture queue is empty…');
+      expect(await evidence.watchPendingCount(routeId).first, 1,
+          reason: '…but the bar must still have a reason to exist');
+    });
+
     test('a photo whose unit has not synced is held (would 404)', () async {
       final db = await memoryDb();
       if (db == null) {

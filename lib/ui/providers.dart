@@ -446,6 +446,17 @@ final queueOwnerProvider = Provider<String?>(
   (ref) => ref.watch(sessionProvider).valueOrNull?.email,
 );
 
+/// Unsent PHOTOS of a route. Separate from the capture count because a
+/// routine photo waits for WiFi and can easily outlive its queue row —
+/// the send bar must stay alive for it (E2E finding).
+final pendingEvidenceCountProvider =
+    StreamProvider.autoDispose.family<int, String>((ref, routeId) {
+  final owner = ref.watch(queueOwnerProvider);
+  return ref
+      .watch(evidenceRepositoryProvider)
+      .watchPendingCount(routeId, owner: owner);
+});
+
 /// How many of a route's rows are still waiting or were refused.
 final pendingCountProvider = Provider.family<int, String>((ref, routeId) {
   final rows = ref.watch(capturesProvider(routeId)).valueOrNull ?? const [];

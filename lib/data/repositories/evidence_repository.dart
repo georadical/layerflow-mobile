@@ -89,6 +89,10 @@ class EvidenceRepository {
   Future<List<EvidenceData>> pendingForRoute(String routeId, {String? owner}) =>
       _db.pendingEvidenceForRoute(routeId, owner: owner);
 
+  /// Live count for the send bar (photos can outlive the capture queue).
+  Stream<int> watchPendingCount(String routeId, {String? owner}) =>
+      _db.watchPendingEvidenceCount(routeId, owner: owner);
+
   /// Server confirmed reception (2xx): purge row AND local file — the
   /// device holds no photo the server already has.
   Future<void> confirmUploaded(EvidenceData row) async {

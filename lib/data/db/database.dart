@@ -378,6 +378,22 @@ class AppDatabase extends _$AppDatabase {
         .get();
   }
 
+  /// Live count of a route's unsent photos, CL4-scoped. The send bar
+  /// watches it: photos held for WiFi outlive the capture queue, and
+  /// without this they would have no way to travel (found in the E2E —
+  /// the bar vanished with the queue empty while a routine photo waited).
+  Stream<int> watchPendingEvidenceCount(String routeId, {String? owner}) {
+    final countExpr = evidence.clientId.count();
+    final query = selectOnly(evidence)
+      ..where(evidence.routeId.equals(routeId) &
+          (owner == null
+              ? evidence.ownerEmail.isNull()
+              : evidence.ownerEmail.isNull() |
+                  evidence.ownerEmail.equals(owner)))
+      ..addColumns([countExpr]);
+    return query.watchSingle().map((row) => row.read(countExpr) ?? 0);
+  }
+
   Future<void> deleteEvidence(String clientId) =>
       (delete(evidence)..where((e) => e.clientId.equals(clientId))).go();
 
