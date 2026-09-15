@@ -14,7 +14,8 @@ with a verifiable gate, a commit and explicit approval.
 | 4 | Offline-first queue and retry | [offline-queue-and-retry.md](offline-queue-and-retry.md) | Done — T4.1 verified on device |
 | 5 | Field worker login | [field-login.md](field-login.md) (shared) | Done — T5.1–T5.5 verified live against the backend |
 | 6 | ESP switching (multi-ESP, app side) | [esp-switching.md](esp-switching.md) | Done — switch verified live both ways |
-| 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done — E2E verified both sides on the sacrifice route |
+| 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done + amendments: CL-R1 v1.2 built; CL-R3 v1.1 photos pending |
+| 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | Frozen — app tickets below; backend TJ.0–TJ.3 in parallel |
 
 ## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
 
@@ -44,6 +45,42 @@ action — divergence is the census's product, not an error.
 
 Blocked on backend TI.1–TI.3 for wiring; T7.1's normalizer, T7.2 and the
 schema work can start now.
+
+## Spec 8 — Extended survey PH/PV (shared spec, frozen 2026-09-13 @ a968d72)
+
+The census pass: the surveyor declares building structure WITH BUTTONS
+("agregar piso" / "agregar unidad"), the app generates PH/PV (never shown
+as editable digits — "Piso 2 · Unidad 3"), and office promotion expands
+the 00/00 anchor into real units. All four app blockers landed pinned:
+the /sync/push contract with field-capture-api rigor (point 0), frame
+invariance post-expansion — siblings have client_id NULL and never enter
+the placa frame (point 1, verified in code), the PH/PV generation
+algorithm including pre-send deletion with compact renumber (point 2),
+and instancia semantics (point 4). CL-E1..E7 pinned as proposed.
+
+**App tickets (against the shared contract):**
+- **T8.1 — Sync client**: /sync/push DTOs + operation builder (parents
+  before children), two-layer idempotency (batch replay, per-op
+  duplicada), partial-result mapping; local observation tables
+  (schema v8), person-bound (CL4).
+- **T8.2 — Survey rail wireframe**: per-unit survey-state chips in the
+  resume list, pre-loaded full-screen form (the editor refactor is the
+  chassis), structure buttons, CL-E3 questions verbatim, totalizador
+  gesture. Wireframe → approval → design → wiring.
+- **T8.3 — Local pyramid + pinned PH/PV generator**: gestures per the
+  spec's pseudocode (tests against it), pre-send deletion with compact
+  renumber, CL-E7 device-side convention validator (a convention 409
+  must be impossible from a healthy app).
+- **T8.4 — Totalizador photo**: evidence flow with
+  proposito='totalizador' (needs backend TJ.3), soporte=divergencia
+  fixed, required at declaration.
+- **T8.5 — The Enviar chain grows**: placas → evidence → /sync/push in
+  the same gesture (CL-E5); resumable survey state in drift (CL-E6).
+- **T8.6 — Coordinated E2E** on a sacrifice route, both sides.
+
+Also pending from Spec 7's amendments: **CL-R3 v1.1 photos** (deliberate
+shot required on divergence, 1/10 lottery on rutina — rate fixed in-app
+v1, full-screen camera with pinch-to-zoom, hardware valve intact).
 
 ## Field deployment (backlog — noted 2026-09-12, not scheduled)
 
