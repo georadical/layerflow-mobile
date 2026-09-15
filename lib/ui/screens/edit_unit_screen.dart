@@ -86,7 +86,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
     _tipo = widget.row.tipoAcceso;
     _insAfter = widget.row.insAfter;
     _npn = widget.row.npn;
-    _sinR1 = widget.row.sinR1;
+    _sinR1 = widget.row.sinR1 ?? false;
     Future.microtask(() async {
       final tenantId = ref.read(activeTenantIdProvider);
       if (tenantId == null) return;
@@ -206,7 +206,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
         await repo.setNpn(
             clientId: widget.row.clientId, npn: _npn, owner: owner);
       }
-      if (_sinR1 != widget.row.sinR1) {
+      if (_sinR1 != (widget.row.sinR1 ?? false)) {
         await repo.setSinR1(
             clientId: widget.row.clientId, sinR1: _sinR1, owner: owner);
       }

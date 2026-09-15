@@ -317,10 +317,15 @@ void main() {
 
     final items = api.lastBatch!.items;
     expect(items.first.toJson().containsKey('sin_r1'), isFalse,
-        reason: 'no assertion = unknown, never "not found"');
+        reason: 'nothing to declare: the server preserves what it holds');
     expect(items.last.toJson()['sin_r1'], true);
     expect(items.last.toJson().containsKey('npn'), isFalse,
         reason: 'mutually exclusive by contract');
+
+    // And a RETRACTION must travel as an explicit false.
+    await repo.setSinR1(clientId: ids.last, sinR1: false);
+    await SyncService(api, repo).pushPending(routeId);
+    expect(api.lastBatch!.items.last.toJson()['sin_r1'], false);
   });
 
   test('the npn link travels on every push of the row (Spec 7)', () async {

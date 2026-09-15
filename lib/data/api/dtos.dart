@@ -18,7 +18,7 @@ class PlacaItemRequest {
     this.observacion,
     this.insAfter,
     this.npn,
-    this.sinR1 = false,
+    this.sinR1,
   });
 
   final String clientId;
@@ -38,13 +38,11 @@ class PlacaItemRequest {
   /// the row's current value.
   final String? npn;
 
-  /// CL-R7: the worker EXPLICITLY declared this door is not in the R1
-  /// (tapped "No está en la lista"). The strongest assertion the census
-  /// produces — a person at the door who compared against their own
-  /// manzana's list. Mutually exclusive with [npn]; omitted means
-  /// "unknown" (the matcher will evaluate later), never "not found".
-  /// Same full-replacement trap: it rides on EVERY push of the row.
-  final bool sinR1;
+  /// CL-R7, TRI-STATE (backend 287cf2a): true asserts the finding (the
+  /// worker tapped "No está en la lista"), false RETRACTS it, null omits
+  /// the key and the server PRESERVES what it holds. Mutually exclusive
+  /// with [npn].
+  final bool? sinR1;
 
   Map<String, dynamic> toJson() => {
         'client_id': clientId,
@@ -58,9 +56,9 @@ class PlacaItemRequest {
         // only a real mark is serialised.
         if (insAfter != null) 'ins_after': insAfter,
         if (npn != null) 'npn': npn,
-        // Only the affirmative travels: false and absent both mean
-        // "not declared", and sending it with npn is a per-item error.
-        if (sinR1 && npn == null) 'sin_r1': true,
+        // Tri-state: the key travels only when there is something to say
+        // (assert or retract). Sending it beside npn is a per-item error.
+        if (sinR1 != null && npn == null) 'sin_r1': sinR1,
       };
 }
 

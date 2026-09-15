@@ -82,11 +82,18 @@ class Captures extends Table {
   /// 'field_sin_match' is how a sin_r1 finding comes back (see below).
   TextColumn get npnMatchMethod => text().nullable()();
 
-  /// CL-R7: the worker EXPLICITLY declared this door is not in the R1.
-  /// Rides on every push (full-replacement trap, third time) and is
-  /// reconstructed on resume from npn_match_method='field_sin_match', so
-  /// editing a placa can never evaporate a finding.
-  BoolColumn get sinR1 => boolean().withDefault(const Constant(false))();
+  /// CL-R7, TRI-STATE — the app mirrors the contract exactly (backend
+  /// 287cf2a): true asserts the finding, false RETRACTS it, and null says
+  /// nothing (the server preserves whatever it holds). It is the only
+  /// field exempt from full-replacement, because an evaporated
+  /// field_sin_match degrades a human finding in silence, while an
+  /// evaporated npn comes back as pending and the office sees it.
+  ///
+  /// null after a merge = "in sync, nothing to declare"; only a deliberate
+  /// local act writes true or false. Modelling it as a plain bool would
+  /// force a choice between breaking retraction (omit-always) and wiping
+  /// another device's finding (send-always).
+  BoolColumn get sinR1 => boolean().nullable()();
 
   /// Person who owns this row's UNSENT content (normalized login email,
   /// CL4). Null = unowned: legacy rows and the CL1 paste flow, visible to
@@ -174,7 +181,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -204,6 +211,22 @@ class AppDatabase extends _$AppDatabase {
           if (from < 8) {
             await m.addColumn(captures, captures.sinR1);
             await m.addColumn(r1Directory, r1Directory.enlazadoLoc);
+          }
+          if (from < 9) {
+            // bool NOT NULL → nullable tri-state. Existing `false` means
+            // "never asserted", which under the tri-state is null.
+            // TableMigration is drift's only way to change nullability
+            // (SQLite cannot ALTER a column); its experimental flag is
+            // accepted deliberately — the alternative is losing the
+            // distinction the contract is built on.
+            // ignore: experimental_member_use
+            await m.alterTable(TableMigration(
+              captures,
+              columnTransformer: {
+                captures.sinR1: const CustomExpression<bool>(
+                    'CASE WHEN sin_r1 THEN 1 ELSE NULL END'),
+              },
+            ));
           }
         },
       );

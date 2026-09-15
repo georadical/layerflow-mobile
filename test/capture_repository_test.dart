@@ -458,6 +458,29 @@ void main() {
       expect(row.syncStatus, AppConfig.syncPending);
     });
 
+    test('TRI-STATE: retracting is false (not an omission), merge leaves null',
+        () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id = await repo.appendCapture(routeId: routeId, placa: 'X');
+
+      // Never touched: null — the server preserves whatever it holds.
+      expect((await repo.capturesForRoute(routeId)).single.sinR1, isNull);
+
+      await repo.setSinR1(clientId: id, sinR1: true);
+      expect((await repo.capturesForRoute(routeId)).single.sinR1, isTrue);
+
+      // Undoing must RETRACT explicitly: omitting would preserve the
+      // finding on the server forever (tri-state, backend 287cf2a).
+      await repo.setSinR1(clientId: id, sinR1: false);
+      expect((await repo.capturesForRoute(routeId)).single.sinR1, isFalse);
+    });
+
     test('the frame reconstructs the finding from the method on resume',
         () async {
       final db = await _tryMemoryDb();
@@ -483,6 +506,14 @@ void main() {
       expect(row.sinR1, isTrue,
           reason: 'resuming on another device re-carries it on every push');
       expect(row.npn, isNull);
+
+      // A frame WITHOUT the method leaves null ("in sync, nothing to
+      // declare"), never false — false would retract other devices' work.
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [RouteFrameItem(clientId: 's1', posicion: 1, loc: 5)],
+      ));
+      expect((await repo.capturesForRoute(routeId)).single.sinR1, isNull);
     });
 
     test('linking and asserting are mutually exclusive, both ways', () async {
@@ -523,8 +554,9 @@ void main() {
 
       final row = (await repo.capturesForRoute(routeId)).single;
       expect(row.npn, isNull);
-      expect(row.sinR1, isFalse,
-          reason: 'a bad link must never masquerade as a census finding');
+      expect(row.sinR1, isNull,
+          reason: 'a bad link must never masquerade as a census finding, '
+              'and unlinking says nothing about the R1 at all');
     });
   });
 

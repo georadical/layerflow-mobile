@@ -44,7 +44,7 @@ class CaptureRepository {
     String? observacion,
     String? owner,
     String? npn,
-    bool sinR1 = false,
+    bool? sinR1,
   }) async {
     final now = DateTime.now();
     final clientId = _uuid.v4();
@@ -79,14 +79,14 @@ class CaptureRepository {
   /// must never masquerade as "not in the catastro".
   Future<void> setSinR1({
     required String clientId,
-    required bool sinR1,
+    required bool? sinR1,
     String? owner,
   }) async {
     await _db.updateCaptureRow(
       clientId,
       CapturesCompanion(
         sinR1: Value(sinR1),
-        npn: sinR1 ? const Value(null) : const Value.absent(),
+        npn: sinR1 == true ? const Value(null) : const Value.absent(),
         ownerEmail: Value(owner),
         syncStatus: const Value(AppConfig.syncPending),
         syncError: const Value(null),
@@ -104,8 +104,10 @@ class CaptureRepository {
       clientId,
       CapturesCompanion(
         npn: Value(npn),
-        // Linking supersedes a previous "not in the list" assertion; the
-        // two are mutually exclusive by contract.
+        // Linking supersedes a previous assertion: an explicit RETRACT
+        // (false), not an omission — otherwise the server would preserve
+        // the stale finding. Unlinking says nothing about the R1 and so
+        // touches this field not at all.
         sinR1: npn != null ? const Value(false) : const Value.absent(),
         ownerEmail: Value(owner),
         syncStatus: const Value(AppConfig.syncPending),
@@ -277,7 +279,8 @@ class CaptureRepository {
             insAfter: Value(item.insAfter),
             npn: Value(item.npn),
             npnMatchMethod: Value(item.npnMatchMethod),
-            sinR1: Value(item.npnMatchMethod == AppConfig.methodSinMatch),
+            sinR1: Value(
+                item.npnMatchMethod == AppConfig.methodSinMatch ? true : null),
             syncStatus: const Value(AppConfig.syncSynced),
             createdAt: now,
             updatedAt: now,
@@ -299,10 +302,11 @@ class CaptureRepository {
             insAfter: Value(item.insAfter),
             npn: Value(item.npn),
             npnMatchMethod: Value(item.npnMatchMethod),
-            // Reconstructed, not inferred: without this a later placa edit
-            // re-pushes without sin_r1 and the finding evaporates (the
-            // full-replacement trap, third occurrence).
-            sinR1: Value(item.npnMatchMethod == AppConfig.methodSinMatch),
+            // Re-carried from the frame's provenance (the general rule for
+            // fields with procedencia). null = in sync, nothing to declare;
+            // the server preserves its own state on the next push.
+            sinR1: Value(
+                item.npnMatchMethod == AppConfig.methodSinMatch ? true : null),
             updatedAt: Value(now),
           ),
         );

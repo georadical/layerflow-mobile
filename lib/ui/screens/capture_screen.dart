@@ -320,9 +320,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         // Spec 7: the pair is the record — raw placa above, npn here.
         npn: _linked?.npn,
         // CL-R7: only the EXPLICIT tap asserts it. Typing and saving
-        // without opening suggestions stays "unknown" — turning passivity
-        // into a "finding" would poison the very indicator.
-        sinR1: _notInList,
+        // without opening suggestions says nothing (null) — turning
+        // passivity into a "finding" would poison the very indicator.
+        sinR1: _notInList ? true : null,
       );
       // The worker walks on while the photo compresses and queues.
       if (shot != null) {
