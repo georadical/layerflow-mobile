@@ -27,8 +27,12 @@ class _FakeR1Api implements ApiClient {
   dynamic noSuchMethod(Invocation inv) => super.noSuchMethod(inv);
 }
 
-R1DirectoryItem _item(String npn, String norm) => R1DirectoryItem(
-    npn: npn, direccion: norm.replaceAll(' # ', ' '), direccionNorm: norm);
+R1DirectoryItem _item(String npn, String norm, {String? manzana}) =>
+    R1DirectoryItem(
+        npn: npn,
+        direccion: norm.replaceAll(' # ', ' '),
+        direccionNorm: norm,
+        manzana: manzana);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -150,5 +154,34 @@ void main() {
         reason: 'rural text yields no suggestions, by doctrine');
     expect(await repo.search(3, 'C 5'), isEmpty,
         reason: 'below the specificity gate nothing is suggested (v1.1)');
+  });
+
+  test('placa mode: part search, scoped by manzana suffix (v1.2)', () async {
+    final db = await tryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final store = SettingsStore(secure: MemSecure());
+    final api = _FakeR1Api([
+      R1DirectoryResponse(version: 'v1', items: [
+        _item('npn-1', 'CALLE 13 # 3A-08', manzana: '41359010000000107'),
+        _item('npn-2', 'CARRERA 9 # 3A-08', manzana: '41359010000000212'),
+        _item('npn-3', 'CALLE 13 # 3A-04', manzana: '41359010000000107'),
+      ]),
+    ]);
+    final repo = R1DirectoryRepository(db, api, store);
+    await repo.refresh(3);
+
+    // Without manzana: both 3A-08 across the tenant (ambiguous but capped).
+    expect((await repo.search(3, '3A 08')).length, 2);
+    // With the short block code: suffix match narrows to one (caso feliz).
+    expect((await repo.search(3, '3A 08', manzana: '107')).single.npn, 'npn-1');
+    expect((await repo.search(3, '3A 08', manzana: '212')).single.npn, 'npn-2');
+    // Progressive within the block.
+    expect((await repo.search(3, '3A 0', manzana: '107')).length, 2);
+    // Below the placa-mode gate: nothing.
+    expect(await repo.search(3, '3', manzana: '107'), isEmpty);
   });
 }

@@ -31,11 +31,11 @@ class EvidenceRepository {
     if (notInList || duplicateNpn) return AppConfig.soporteDivergencia;
     final blank = typedPlaca == null || typedPlaca.trim().isEmpty;
     if (blank) return AppConfig.soporteDivergencia; // triggers 3 and 4
-    if (linkedDireccionNorm != null) {
-      final norm = normalizeAddress(typedPlaca).direccionNorm;
-      if (norm != linkedDireccionNorm) {
-        return AppConfig.soporteDivergencia; // trigger 2 (or context link)
-      }
+    if (linkedDireccionNorm != null &&
+        !typedMatchesLinked(typedPlaca, linkedDireccionNorm)) {
+      // trigger 2 (or context link). Part-match counts as coincidente:
+      // door plates usually show only the cruce-placa part (v1.2).
+      return AppConfig.soporteDivergencia;
     }
     return AppConfig.soporteRutina;
   }

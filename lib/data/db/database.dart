@@ -361,6 +361,30 @@ class AppDatabase extends _$AppDatabase {
     return row?.posicion;
   }
 
+  /// PLACA-mode lookup (CL-R1 v1.2): contains-match on the cruce-placa
+  /// fragment, optionally scoped to the current manzana (suffix match:
+  /// short block codes against the R1's full 17-digit ones).
+  Future<List<R1DirectoryData>> searchR1Part(
+    int tenantId,
+    String partPattern, {
+    String? manzana,
+    int limit = 8,
+  }) {
+    return (select(r1Directory)
+          ..where((r) {
+            var cond = r.tenantId.equals(tenantId) &
+                r.direccionNorm.contains(partPattern);
+            final mz = manzana?.trim();
+            if (mz != null && mz.isNotEmpty) {
+              cond = cond & r.manzana.like('%$mz');
+            }
+            return cond;
+          })
+          ..orderBy([(r) => OrderingTerm.asc(r.direccionNorm)])
+          ..limit(limit))
+        .get();
+  }
+
   /// The directory row behind an npn, to NAME an existing link in the
   /// editor (the worker sees the address, never the npn).
   Future<R1DirectoryData?> r1ByNpn(int tenantId, String npn) =>

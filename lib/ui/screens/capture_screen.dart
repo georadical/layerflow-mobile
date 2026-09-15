@@ -138,8 +138,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     final tenantId = ref.read(activeTenantIdProvider);
     if (tenantId == null) return;
     final seq = ++_searchSeq;
-    final hits =
-        await ref.read(r1DirectoryRepositoryProvider).search(tenantId, text);
+    // CL-R1 v1.2: the current manzana (persisted per block; later fed by
+    // "paradas" with zero change here) scopes the placa-only mode.
+    final mz = _manzanaCtrl.text.trim();
+    final hits = await ref.read(r1DirectoryRepositoryProvider).search(
+          tenantId,
+          text,
+          manzana: mz.isEmpty ? null : mz,
+        );
     if (!mounted || seq != _searchSeq) return;
     // setState even when empty: the panel must show "No está en la lista"
     // for text that matches NOTHING — the most divergent case of all is
@@ -163,9 +169,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   /// divergence); dismissing links nothing. Silent overwrite stays
   /// forbidden.
   Future<void> _select(R1DirectoryData hit) async {
-    final typedComplete =
-        normalizeAddress(_placaCtrl.text).direccionNorm != null;
-    if (!typedComplete) {
+    // v1.2: full match OR cruce-placa part match ("3A 08" is literally
+    // what the door says) counts as coincidente — no dialog.
+    final matches = typedMatchesLinked(_placaCtrl.text, hit.direccionNorm);
+    if (!matches) {
       final saysExactly = await confirmExactPlate(context, hit.direccionNorm);
       if (saysExactly == null || !mounted) return; // dismissed: no link
       if (saysExactly) _placaCtrl.text = hit.direccionNorm;

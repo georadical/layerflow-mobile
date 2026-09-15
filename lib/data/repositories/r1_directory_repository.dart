@@ -56,10 +56,36 @@ class R1DirectoryRepository {
   /// onward; "C 5 2 0" narrows to "CALLE 5 # 2-0". Text that does not
   /// start with a street type (rural) yields no suggestions — the
   /// typeahead never pretends to cover that population.
-  Future<List<R1DirectoryData>> search(int tenantId, String rawTyped) async {
+  /// [manzana] scopes the PLACA mode to the current block when known —
+  /// today the form's manzana catastral field feeds it; when the backend
+  /// ships "paradas" they will feed the same argument with zero change
+  /// here (CL-R1 v1.2). Matching is by suffix: the worker types the short
+  /// block code, the R1 carries the full 17-digit one.
+  Future<List<R1DirectoryData>> search(
+    int tenantId,
+    String rawTyped, {
+    String? manzana,
+  }) async {
     final prefix = typeaheadPrefix(rawTyped);
-    if (prefix == null) return const [];
-    return _db.searchR1(tenantId, prefix);
+    if (prefix != null) return _db.searchR1(tenantId, prefix);
+    final part = placaPartPattern(rawTyped);
+    if (part != null) {
+      return _db.searchR1Part(tenantId, part, manzana: manzana);
+    }
+    return const [];
+  }
+
+  /// PLACA mode (CL-R1 v1.2): the worker types only the cruce-placa part
+  /// ("3A 08" for CALLE 13 # 3A-08). Auto-detected: first token is NOT a
+  /// street type. Gate: cruce + start of placa ("3A 0", never "3").
+  /// Returns the normalized fragment to contain-match ("# 3A-08").
+  static String? placaPartPattern(String rawTyped) {
+    final s = cleanAddress(rawTyped);
+    if (s.isEmpty) return null;
+    final tokens = dropNumberMarkers(s.split(' '));
+    if (tokens.isEmpty || viaFor(tokens.first) != null) return null;
+    if (tokens.length < 2) return null; // the gate, placa-mode flavour
+    return '# ${tokens[0]}-${tokens.sublist(1).join()}';
   }
 
   /// Rows held locally for the tenant (0 = no directory yet: the capture

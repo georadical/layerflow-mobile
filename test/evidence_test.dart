@@ -100,6 +100,19 @@ void main() {
       }
     });
 
+    test('v1.2: the cruce-placa part alone counts as coincidente (rutina)', () {
+      expect(
+        EvidenceRepository.classifySoporte(
+          notInList: false,
+          duplicateNpn: false,
+          typedPlaca: '3A 08',
+          linkedDireccionNorm: 'CALLE 13 # 3A-08',
+        ),
+        AppConfig.soporteRutina,
+        reason: 'door plates usually show only the part — honest match',
+      );
+    });
+
     test('trigger 5: duplicate NPN in the route', () {
       expect(
         EvidenceRepository.classifySoporte(

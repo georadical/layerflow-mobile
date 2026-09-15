@@ -85,6 +85,30 @@ void main() {
     });
   });
 
+  group('placa mode + part match (CL-R1 v1.2, backend a52883d)', () {
+    test('placaPartPattern: auto-detected, gated at cruce + start of placa',
+        () {
+      expect(R1DirectoryRepository.placaPartPattern('3A 08'), '# 3A-08');
+      expect(R1DirectoryRepository.placaPartPattern('3A 0'), '# 3A-0');
+      expect(R1DirectoryRepository.placaPartPattern('3'), isNull,
+          reason: 'the gate, placa-mode flavour');
+      expect(R1DirectoryRepository.placaPartPattern('C 13 3A'), isNull,
+          reason: 'a via first token belongs to address mode');
+      expect(R1DirectoryRepository.placaPartPattern(''), isNull);
+    });
+
+    test('typedMatchesLinked: full match and cruce-placa part match', () {
+      const linked = 'CALLE 13 # 3A-08';
+      expect(typedMatchesLinked('C 13 3A 08', linked), isTrue);
+      expect(typedMatchesLinked('3A 08', linked), isTrue,
+          reason: 'the door plate usually shows only that part');
+      expect(typedMatchesLinked('3A-08', linked), isTrue);
+      expect(typedMatchesLinked('3A 09', linked), isFalse);
+      expect(typedMatchesLinked('c', linked), isFalse);
+      expect(typedMatchesLinked('', linked), isFalse);
+    });
+  });
+
   group('edit distance (OCR soft-check, CL-R2)', () {
     test('zero for equal, symmetric-ish sanity', () {
       expect(editDistance('CALLE 5 2 06', 'CALLE 5 2 06'), 0);

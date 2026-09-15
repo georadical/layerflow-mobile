@@ -115,8 +115,12 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
     final tenantId = ref.read(activeTenantIdProvider);
     if (tenantId == null) return;
     final seq = ++_searchSeq;
-    final hits =
-        await ref.read(r1DirectoryRepositoryProvider).search(tenantId, text);
+    final mz = widget.row.manzanaCatastral?.trim();
+    final hits = await ref.read(r1DirectoryRepositoryProvider).search(
+          tenantId,
+          text,
+          manzana: (mz == null || mz.isEmpty) ? null : mz,
+        );
     if (!mounted || seq != _searchSeq) return;
     setState(() => _suggestions = hits);
   }
