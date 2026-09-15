@@ -95,9 +95,9 @@ void main() {
     await repo.refresh(3);
     await repo.refresh(3);
 
-    final hits = await repo.search(3, 'C 5');
+    final hits = await repo.search(3, 'C 5 2');
     expect(hits, isEmpty, reason: 'the removed row must not linger');
-    expect((await repo.search(3, 'K 2')).single.npn, 'npn-9');
+    expect((await repo.search(3, 'K 2 4')).single.npn, 'npn-9');
   });
 
   test('tenant slices never mix (Spec 6 isolation applies here too)', () async {
@@ -119,10 +119,10 @@ void main() {
     await repo.refresh(2);
     await repo.refresh(3);
 
-    expect((await repo.search(2, 'C 5')).single.tenantId, 2);
-    expect(await repo.search(3, 'C 5'), isEmpty);
+    expect((await repo.search(2, 'C 5 2')).single.tenantId, 2);
+    expect(await repo.search(3, 'C 5 2'), isEmpty);
     // Same NPN can exist in both tenants without colliding (composite PK).
-    expect((await repo.search(3, 'C 9')).single.npn, 'npn-1');
+    expect((await repo.search(3, 'C 9 1')).single.npn, 'npn-1');
   });
 
   test('search matches progressively from raw typing', () async {
@@ -143,10 +143,12 @@ void main() {
     final repo = R1DirectoryRepository(db, api, store);
     await repo.refresh(3);
 
-    expect((await repo.search(3, 'C 5')).length, 2);
+    expect((await repo.search(3, 'C 5 2')).length, 2);
     expect((await repo.search(3, 'C 5 2 0')).single.npn, 'npn-1');
-    expect((await repo.search(3, 'K 2')).single.npn, 'npn-3');
+    expect((await repo.search(3, 'K 2 4')).single.npn, 'npn-3');
     expect(await repo.search(3, 'SAMARIA'), isEmpty,
         reason: 'rural text yields no suggestions, by doctrine');
+    expect(await repo.search(3, 'C 5'), isEmpty,
+        reason: 'below the specificity gate nothing is suggested (v1.1)');
   });
 }

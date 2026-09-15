@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/address/address_normalizer.dart';
 import '../../core/config/app_config.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
+import '../widgets/confirm_exact_plate.dart';
 
 const _tipoAccesoLabels = <String, String>{
   'puerta_calle': 'Puerta a la calle',
@@ -119,11 +121,22 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
     setState(() => _suggestions = hits);
   }
 
-  void _link(R1DirectoryData hit) => setState(() {
-        _npn = hit.npn;
-        _linkedLabel = hit.direccionNorm;
-        _suggestions = [];
-      });
+  /// CL-R1 v1.1: linking with an incomplete typed placa asks for the
+  /// explicit confirmation; "Sí" copies the R1 text (affirmed
+  /// observation), "No" keeps the typed text, dismissing links nothing.
+  Future<void> _link(R1DirectoryData hit) async {
+    final typedComplete = normalizeAddress(_placa.text).direccionNorm != null;
+    if (!typedComplete) {
+      final saysExactly = await confirmExactPlate(context, hit.direccionNorm);
+      if (saysExactly == null || !mounted) return;
+      if (saysExactly) _placa.text = hit.direccionNorm;
+    }
+    setState(() {
+      _npn = hit.npn;
+      _linkedLabel = hit.direccionNorm;
+      _suggestions = [];
+    });
+  }
 
   void _unlink() => setState(() {
         _npn = null;

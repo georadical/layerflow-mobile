@@ -67,10 +67,14 @@ void main() {
     });
   });
 
-  group('typeahead prefix (progressive, from RAW typing)', () {
-    test('grows with what the worker has typed', () {
-      expect(R1DirectoryRepository.typeaheadPrefix('C'), 'CALLE');
-      expect(R1DirectoryRepository.typeaheadPrefix('C 5'), 'CALLE 5');
+  group('typeahead prefix (progressive, gated — CL-R1 v1.1)', () {
+    test('the specificity gate: nothing before via + número + cruce', () {
+      // One letter, one tap, placa "c": the laziness the gate kills.
+      expect(R1DirectoryRepository.typeaheadPrefix('C'), isNull);
+      expect(R1DirectoryRepository.typeaheadPrefix('C 5'), isNull);
+    });
+
+    test('grows from the gate onward', () {
       expect(R1DirectoryRepository.typeaheadPrefix('C 5 2'), 'CALLE 5 # 2');
       expect(R1DirectoryRepository.typeaheadPrefix('C 5 2 0'), 'CALLE 5 # 2-0');
     });

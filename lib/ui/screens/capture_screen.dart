@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/address/address_normalizer.dart';
 import '../../core/camera/plate_camera.dart';
 import '../../core/ocr/plate_ocr.dart';
 import '../../data/repositories/evidence_repository.dart';
+import '../widgets/confirm_exact_plate.dart';
 
 import '../../data/db/database.dart';
 import '../providers.dart';
@@ -151,10 +153,23 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       !_notInList &&
       _placaCtrl.text.trim().isNotEmpty;
 
-  /// Links the unit to the tapped R1 address. The NPN rides hidden; the
-  /// typed placa stays untouched. A second use of the same NPN in the route
-  /// warns and marks divergence — never blocks (CL-R3 trigger 5, PH share).
+  /// Links the unit to the tapped R1 address. The NPN rides hidden. A
+  /// second use of the same NPN in the route warns and marks divergence —
+  /// never blocks (CL-R3 trigger 5, PH share).
+  ///
+  /// CL-R1 v1.1: with an INCOMPLETE typed placa the app asks whether the
+  /// physical plate reads exactly the R1 text. "Sí" copies it (affirmed
+  /// observation, rutina); "No" keeps the typed text (legitimate
+  /// divergence); dismissing links nothing. Silent overwrite stays
+  /// forbidden.
   Future<void> _select(R1DirectoryData hit) async {
+    final typedComplete =
+        normalizeAddress(_placaCtrl.text).direccionNorm != null;
+    if (!typedComplete) {
+      final saysExactly = await confirmExactPlate(context, hit.direccionNorm);
+      if (saysExactly == null || !mounted) return; // dismissed: no link
+      if (saysExactly) _placaCtrl.text = hit.direccionNorm;
+    }
     final dup = await ref
         .read(captureRepositoryProvider)
         .npnPosicionInRoute(widget.routeId, hit.npn);
