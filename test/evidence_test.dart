@@ -126,6 +126,69 @@ void main() {
     });
   });
 
+  group('needsDeliberateShot (CL-R3 v1.1)', () {
+    test('divergence always demands the aimed shot (camera alive)', () {
+      for (var roll = 0; roll < 10; roll++) {
+        expect(
+          EvidenceRepository.needsDeliberateShot(
+            soporte: AppConfig.soporteDivergencia,
+            cameraReady: true,
+            alreadyDeliberate: false,
+            lotteryRoll: roll,
+          ),
+          isTrue,
+          reason: 'the photo IS the product there — no lottery escape',
+        );
+      }
+    });
+
+    test('routine only when the lottery hits (roll 0)', () {
+      expect(
+        EvidenceRepository.needsDeliberateShot(
+          soporte: AppConfig.soporteRutina,
+          cameraReady: true,
+          alreadyDeliberate: false,
+          lotteryRoll: 0,
+        ),
+        isTrue,
+      );
+      expect(
+        EvidenceRepository.needsDeliberateShot(
+          soporte: AppConfig.soporteRutina,
+          cameraReady: true,
+          alreadyDeliberate: false,
+          lotteryRoll: 7,
+        ),
+        isFalse,
+      );
+    });
+
+    test('a CTA shot already taken satisfies everything', () {
+      expect(
+        EvidenceRepository.needsDeliberateShot(
+          soporte: AppConfig.soporteDivergencia,
+          cameraReady: true,
+          alreadyDeliberate: true,
+          lotteryRoll: 0,
+        ),
+        isFalse,
+      );
+    });
+
+    test('hardware valve: a dead camera never blocks the capture', () {
+      expect(
+        EvidenceRepository.needsDeliberateShot(
+          soporte: AppConfig.soporteDivergencia,
+          cameraReady: false,
+          alreadyDeliberate: false,
+          lotteryRoll: 0,
+        ),
+        isFalse,
+        reason: 'the ABSENT expected photo is itself the QA signal',
+      );
+    });
+  });
+
   group('evidence queue + CL-R5 chain', () {
     Future<AppDatabase?> memoryDb() async {
       useSystemSqlite3();

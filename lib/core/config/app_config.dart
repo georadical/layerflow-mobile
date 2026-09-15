@@ -40,6 +40,13 @@ class AppConfig {
   static const String soporteDivergencia = 'divergencia';
   static const String soporteRutina = 'rutina';
 
+  /// CL-R3 v1.1: routine captures draw a photo audit 1 in N, decided AT
+  /// SAVE (unpredictable — honesty becomes the dominant strategy). Rate
+  /// fixed in-app for v1 by agreement (a backend config would be a
+  /// contract change); promote to config with its own pin if retuning
+  /// becomes frequent.
+  static const int evidenceLotteryOneIn = 10;
+
   /// Local sync states.
   static const String syncPending = 'pending';
   static const String syncSynced = 'synced';

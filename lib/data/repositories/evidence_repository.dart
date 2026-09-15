@@ -40,6 +40,24 @@ class EvidenceRepository {
     return AppConfig.soporteRutina;
   }
 
+  /// CL-R3 v1.1 — whether THIS save must open the deliberate, aimed shot
+  /// (full-screen camera, pinch-to-zoom):
+  /// - divergence: always — the photo IS the product there;
+  /// - routine: when the lottery hits ([lotteryRoll] == 0, drawn at save);
+  /// - never when the worker already took one deliberately (CTA), and
+  /// - never when the camera is dead (hardware valve: capture must not
+  ///   block; the ABSENCE of the expected photo is itself the QA signal).
+  static bool needsDeliberateShot({
+    required String soporte,
+    required bool cameraReady,
+    required bool alreadyDeliberate,
+    required int lotteryRoll,
+  }) {
+    if (!cameraReady || alreadyDeliberate) return false;
+    if (soporte == AppConfig.soporteDivergencia) return true;
+    return lotteryRoll == 0;
+  }
+
   /// Queues (or replaces) the unit's photo. Re-capturing replaces file and
   /// row — the upload is idempotent per unit anyway. The OLD file is
   /// removed best-effort so re-shots do not accumulate on disk.

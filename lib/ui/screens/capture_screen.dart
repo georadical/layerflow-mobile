@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -6,10 +7,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/address/address_normalizer.dart';
+import '../../core/config/app_config.dart';
 import '../../core/camera/plate_camera.dart';
 import '../../core/ocr/plate_ocr.dart';
 import '../../data/repositories/evidence_repository.dart';
 import '../widgets/confirm_exact_plate.dart';
+import 'plate_shot_screen.dart';
 
 import '../../data/db/database.dart';
 import '../providers.dart';
@@ -54,6 +57,30 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   final _camera = PlateCamera();
   final _ocr = PlateOcr();
   bool _cameraReady = false;
+
+  /// Deliberate shot taken via the strip's CTA (CL-R3 v1.1): used at save,
+  /// satisfies the lottery, and divergence never re-asks for it.
+  XFile? _deliberateShot;
+
+  /// While the aimed screen is up, the strip must NOT render: two live
+  /// previews on one controller make the capture session reconfigure and
+  /// the shot can lose that race.
+  bool _shotScreenOpen = false;
+
+  /// CL-R3 v1.1: opens the aimed full-screen shot. Optional from the CTA;
+  /// required (by trigger or lottery) from the save flow.
+  Future<XFile?> _takeDeliberateShot({required bool required}) async {
+    setState(() => _shotScreenOpen = true);
+    try {
+      return await Navigator.of(context).push<XFile?>(
+        MaterialPageRoute(
+          builder: (_) => PlateShotScreen(camera: _camera, required: required),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _shotScreenOpen = false);
+    }
+  }
 
   @override
   void initState() {
@@ -228,9 +255,33 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         typedPlaca: _placaCtrl.text,
         linkedDireccionNorm: _linked?.direccionNorm,
       );
-      // One frame per save, no gesture (CL-R3); the SAME shot feeds the
-      // OCR check now and the evidence photo after.
-      final shot = _cameraReady ? await _camera.takeShot() : null;
+      // CL-R3 v1.1 — graduated photo obligation, decided AT save:
+      // divergence demands the aimed shot; routine draws the 1/N lottery;
+      // a CTA shot already taken satisfies both; a dead camera skips all
+      // (the ABSENT expected photo is itself the QA signal).
+      XFile? shot = _deliberateShot;
+      final lotteryRoll = Random().nextInt(AppConfig.evidenceLotteryOneIn);
+      final needsAimed = EvidenceRepository.needsDeliberateShot(
+        soporte: soporte,
+        cameraReady: _cameraReady,
+        alreadyDeliberate: shot != null,
+        lotteryRoll: lotteryRoll,
+      );
+      if (needsAimed) {
+        final taken = await _takeDeliberateShot(required: true);
+        if (taken == null) {
+          // Backed out of a required shot: the save aborts, form intact.
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Esta captura requiere la foto de la placa.')));
+          }
+          return;
+        }
+        shot = taken;
+      } else if (shot == null && _cameraReady) {
+        // Passive fallback frame, as before (no gesture).
+        shot = await _camera.takeShot();
+      }
       if (shot != null && !await _ocrSoftCheck(shot)) {
         // The worker chose "Corregir": abort, keep the form as-is.
         return;
@@ -260,6 +311,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         _notInList = false;
         _duplicateOfPosicion = null;
         _suggestions = [];
+        _deliberateShot = null;
       });
       _placaFocus.requestFocus();
     } finally {
@@ -310,9 +362,37 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     ),
                   ],
                 ),
-                if (_cameraReady) ...[
+                if (_cameraReady && !_shotScreenOpen) ...[
                   const SizedBox(height: 16),
-                  _CameraStrip(camera: _camera),
+                  InkWell(
+                    onTap: () async {
+                      final taken = await _takeDeliberateShot(required: false);
+                      if (taken != null && mounted) {
+                        setState(() => _deliberateShot = taken);
+                      }
+                    },
+                    child: Column(
+                      children: [
+                        _CameraStrip(camera: _camera),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _deliberateShot != null
+                                  ? Icons.check_circle
+                                  : Icons.photo_camera,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(_deliberateShot != null
+                                ? 'Foto de placa lista'
+                                : 'Tomar foto de placa'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 16),
                 TextField(
