@@ -44,6 +44,7 @@ class CaptureRepository {
     String? observacion,
     String? owner,
     String? npn,
+    bool sinR1 = false,
   }) async {
     final now = DateTime.now();
     final clientId = _uuid.v4();
@@ -60,6 +61,7 @@ class CaptureRepository {
         observacion: Value(_nullIfBlank(observacion)),
         ownerEmail: Value(owner),
         npn: Value(npn),
+        sinR1: Value(sinR1),
         syncStatus: const Value(AppConfig.syncPending),
         createdAt: now,
         updatedAt: now,
@@ -72,6 +74,27 @@ class CaptureRepository {
   /// decision (provenance rule: the server only re-stamps the method when
   /// the value changes) and re-queues the row. editCapture deliberately
   /// leaves npn alone, exactly like the relocation mark (A3 analog).
+  /// CL-R7: declaring the door absent from the R1 is an AFFIRMATION and
+  /// clears any link; UNLINKING is not — "this link was wrong" (case c)
+  /// must never masquerade as "not in the catastro".
+  Future<void> setSinR1({
+    required String clientId,
+    required bool sinR1,
+    String? owner,
+  }) async {
+    await _db.updateCaptureRow(
+      clientId,
+      CapturesCompanion(
+        sinR1: Value(sinR1),
+        npn: sinR1 ? const Value(null) : const Value.absent(),
+        ownerEmail: Value(owner),
+        syncStatus: const Value(AppConfig.syncPending),
+        syncError: const Value(null),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
   Future<void> setNpn({
     required String clientId,
     required String? npn,
@@ -81,6 +104,9 @@ class CaptureRepository {
       clientId,
       CapturesCompanion(
         npn: Value(npn),
+        // Linking supersedes a previous "not in the list" assertion; the
+        // two are mutually exclusive by contract.
+        sinR1: npn != null ? const Value(false) : const Value.absent(),
         ownerEmail: Value(owner),
         syncStatus: const Value(AppConfig.syncPending),
         syncError: const Value(null),
@@ -251,6 +277,7 @@ class CaptureRepository {
             insAfter: Value(item.insAfter),
             npn: Value(item.npn),
             npnMatchMethod: Value(item.npnMatchMethod),
+            sinR1: Value(item.npnMatchMethod == AppConfig.methodSinMatch),
             syncStatus: const Value(AppConfig.syncSynced),
             createdAt: now,
             updatedAt: now,
@@ -272,6 +299,10 @@ class CaptureRepository {
             insAfter: Value(item.insAfter),
             npn: Value(item.npn),
             npnMatchMethod: Value(item.npnMatchMethod),
+            // Reconstructed, not inferred: without this a later placa edit
+            // re-pushes without sin_r1 and the finding evaporates (the
+            // full-replacement trap, third occurrence).
+            sinR1: Value(item.npnMatchMethod == AppConfig.methodSinMatch),
             updatedAt: Value(now),
           ),
         );

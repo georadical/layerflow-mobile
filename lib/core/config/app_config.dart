@@ -47,6 +47,10 @@ class AppConfig {
   /// becomes frequent.
   static const int evidenceLotteryOneIn = 10;
 
+  /// Server-side provenance value that carries a sin_r1 finding back in
+  /// the frame (CL-R7) — the app reconstructs the flag from it on resume.
+  static const String methodSinMatch = 'field_sin_match';
+
   /// Local sync states.
   static const String syncPending = 'pending';
   static const String syncSynced = 'synced';

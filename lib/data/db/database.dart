@@ -78,8 +78,15 @@ class Captures extends Table {
   TextColumn get npn => text().nullable()();
 
   /// Server-side provenance of the link (field_confirmed | manual | ...),
-  /// read from the frame. Informational; never sent on push.
+  /// read from the frame. Informational; never sent on push — EXCEPT that
+  /// 'field_sin_match' is how a sin_r1 finding comes back (see below).
   TextColumn get npnMatchMethod => text().nullable()();
+
+  /// CL-R7: the worker EXPLICITLY declared this door is not in the R1.
+  /// Rides on every push (full-replacement trap, third time) and is
+  /// reconstructed on resume from npn_match_method='field_sin_match', so
+  /// editing a placa can never evaporate a finding.
+  BoolColumn get sinR1 => boolean().withDefault(const Constant(false))();
 
   /// Person who owns this row's UNSENT content (normalized login email,
   /// CL4). Null = unowned: legacy rows and the CL1 paste flow, visible to
@@ -119,6 +126,11 @@ class R1Directory extends Table {
   TextColumn get direccionNorm => text()();
 
   TextColumn get manzana => text().nullable()();
+
+  /// CL-R6: where this R1 row is already linked ("ruta 10 · loc 15"), or
+  /// null when free. Server-computed: local counts cannot see links made
+  /// by another device, worker or campaign. Marked, never hidden.
+  TextColumn get enlazadoLoc => text().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {tenantId, npn};
@@ -162,7 +174,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -188,6 +200,10 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 7) {
             await m.createTable(evidence);
+          }
+          if (from < 8) {
+            await m.addColumn(captures, captures.sinR1);
+            await m.addColumn(r1Directory, r1Directory.enlazadoLoc);
           }
         },
       );
@@ -383,6 +399,23 @@ class AppDatabase extends _$AppDatabase {
           ..orderBy([(r) => OrderingTerm.asc(r.direccionNorm)])
           ..limit(limit))
         .get();
+  }
+
+  /// CL-R6 discovery mode: how many R1 rows of this manzana are still
+  /// FREE (not linked anywhere). Zero with a non-empty block means the
+  /// manzana is exhausted — everything found there is new.
+  Future<({int total, int free})> r1ManzanaStats(
+    int tenantId,
+    String manzana,
+  ) async {
+    final rows = await (select(r1Directory)
+          ..where(
+              (r) => r.tenantId.equals(tenantId) & r.manzana.like('%$manzana')))
+        .get();
+    return (
+      total: rows.length,
+      free: rows.where((r) => r.enlazadoLoc == null).length,
+    );
   }
 
   /// The directory row behind an npn, to NAME an existing link in the

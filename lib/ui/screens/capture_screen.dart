@@ -52,6 +52,28 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   bool _directoryAvailable = false;
   int _searchSeq = 0;
 
+  /// CL-R6: the manzana's R1 rows are all linked already. Named in the
+  /// POSITIVE — an empty panel reads as "broken / wrong manzana" and the
+  /// worker either forces another block (poisons the data) or skips the
+  /// doors (loses exactly what the census is for).
+  bool _manzanaExhausted = false;
+
+  Future<void> _refreshManzanaState() async {
+    final tenantId = ref.read(activeTenantIdProvider);
+    final mz = _manzanaCtrl.text.trim();
+    if (tenantId == null || mz.isEmpty) {
+      if (mounted && _manzanaExhausted) {
+        setState(() => _manzanaExhausted = false);
+      }
+      return;
+    }
+    final stats = await ref
+        .read(r1DirectoryRepositoryProvider)
+        .manzanaStats(tenantId, mz);
+    if (!mounted) return;
+    setState(() => _manzanaExhausted = stats.total > 0 && stats.free == 0);
+  }
+
   // Camera per capture (CL-R3): opens with the form, one frame per save,
   // no gesture. Degrades to "sin foto" — capture NEVER blocks on it.
   final _camera = PlateCamera();
@@ -91,6 +113,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       final count =
           await ref.read(r1DirectoryRepositoryProvider).countFor(tenantId);
       if (mounted) setState(() => _directoryAvailable = count > 0);
+      await _refreshManzanaState();
     });
     Future.microtask(() async {
       final ok = await _camera.start();
@@ -296,6 +319,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         owner: owner,
         // Spec 7: the pair is the record — raw placa above, npn here.
         npn: _linked?.npn,
+        // CL-R7: only the EXPLICIT tap asserts it. Typing and saving
+        // without opening suggestions stays "unknown" — turning passivity
+        // into a "finding" would poison the very indicator.
+        sinR1: _notInList,
       );
       // The worker walks on while the photo compresses and queues.
       if (shot != null) {
@@ -394,6 +421,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     ),
                   ),
                 ],
+                if (_manzanaExhausted) ...[
+                  const SizedBox(height: 16),
+                  const _DiscoveryBanner(),
+                ],
                 const SizedBox(height: 16),
                 TextField(
                   controller: _placaCtrl,
@@ -480,6 +511,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     inputFormatters: [
                       FilteringTextInputFormatter.deny(RegExp(r'\n')),
                     ],
+                    onChanged: (_) => _refreshManzanaState(),
                   ),
                 const SizedBox(height: 24),
                 FilledButton.icon(
@@ -739,6 +771,41 @@ class _CameraStrip extends StatelessWidget {
             height: controller.value.previewSize?.width ?? 240,
             child: CameraPreview(controller),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// CL-R6 discovery mode: every R1 address of this manzana is already
+/// linked. Three different realities share that symptom (faces without
+/// plates, doors the R1 never knew, bad earlier links) and the app must
+/// not presume which — but the second one is the most valuable thing the
+/// census produces, so the state is named in the positive and capture is
+/// never discouraged.
+class _DiscoveryBanner extends StatelessWidget {
+  const _DiscoveryBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(Icons.explore, color: theme.colorScheme.onTertiaryContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Todas las direcciones del R1 de esta manzana ya están '
+                'enlazadas. Lo que encuentres aquí es nuevo — captúralo.',
+                style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
+              ),
+            ),
+          ],
         ),
       ),
     );

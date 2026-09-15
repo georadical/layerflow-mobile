@@ -68,6 +68,11 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
   // it for the worker (address, never the npn value).
   String? _npn;
   String? _linkedLabel;
+
+  /// CL-R7: the finding can also be asserted here — a worker who realises
+  /// it later must not be mute. Distinct from UNLINKING, which only means
+  /// "this link was wrong".
+  bool _sinR1 = false;
   List<R1DirectoryData> _suggestions = [];
   bool _directoryAvailable = false;
   int _searchSeq = 0;
@@ -81,6 +86,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
     _tipo = widget.row.tipoAcceso;
     _insAfter = widget.row.insAfter;
     _npn = widget.row.npn;
+    _sinR1 = widget.row.sinR1;
     Future.microtask(() async {
       final tenantId = ref.read(activeTenantIdProvider);
       if (tenantId == null) return;
@@ -138,6 +144,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
     setState(() {
       _npn = hit.npn;
       _linkedLabel = hit.direccionNorm;
+      _sinR1 = false; // linking supersedes the assertion
       _suggestions = [];
     });
   }
@@ -199,6 +206,10 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
         await repo.setNpn(
             clientId: widget.row.clientId, npn: _npn, owner: owner);
       }
+      if (_sinR1 != widget.row.sinR1) {
+        await repo.setSinR1(
+            clientId: widget.row.clientId, sinR1: _sinR1, owner: owner);
+      }
       if (_insAfterChanged) {
         if (_insAfter == null) {
           await repo.clearInsAfter(widget.row.clientId, owner: owner);
@@ -258,7 +269,46 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
                 ),
               ),
             ),
-          ] else if (_suggestions.isNotEmpty) ...[
+          ] else if (_sinR1) ...[
+            const SizedBox(height: 8),
+            Card(
+              margin: EdgeInsets.zero,
+              color: theme.colorScheme.errorContainer,
+              child: ListTile(
+                leading:
+                    Icon(Icons.flag, color: theme.colorScheme.onErrorContainer),
+                title: Text('No está en la lista',
+                    style:
+                        TextStyle(color: theme.colorScheme.onErrorContainer)),
+                subtitle: Text(
+                  'Declarada como hallazgo del censo: no existe en el R1.',
+                  style: TextStyle(color: theme.colorScheme.onErrorContainer),
+                ),
+                trailing: IconButton(
+                  icon: Icon(Icons.close,
+                      color: theme.colorScheme.onErrorContainer),
+                  tooltip: 'Deshacer',
+                  onPressed: () => setState(() => _sinR1 = false),
+                ),
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            // The assertion is available even with no suggestions on
+            // screen: realising it later must never leave the worker mute.
+            OutlinedButton.icon(
+              onPressed: () => setState(() {
+                _sinR1 = true;
+                _suggestions = [];
+              }),
+              icon: Icon(Icons.block, color: theme.colorScheme.error),
+              label: Text(
+                'No está en la lista',
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
+            ),
+          ],
+          if (_npn == null && !_sinR1 && _suggestions.isNotEmpty) ...[
             const SizedBox(height: 8),
             Card(
               margin: EdgeInsets.zero,

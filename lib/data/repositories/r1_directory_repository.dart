@@ -45,6 +45,7 @@ class R1DirectoryRepository {
           direccion: item.direccion,
           direccionNorm: item.direccionNorm,
           manzana: Value(item.manzana),
+          enlazadoLoc: Value(item.enlazadoLoc),
         ),
     ]);
     await _settings.setR1Version(tenantId, res.version);
@@ -91,6 +92,11 @@ class R1DirectoryRepository {
   /// Rows held locally for the tenant (0 = no directory yet: the capture
   /// screen shows no panel at all — classic capture).
   Future<int> countFor(int tenantId) => _db.r1CountForTenant(tenantId);
+
+  /// CL-R6: free vs total R1 rows in the manzana. free == 0 && total > 0
+  /// means exhausted — the discovery state.
+  Future<({int total, int free})> manzanaStats(int tenantId, String manzana) =>
+      _db.r1ManzanaStats(tenantId, manzana);
 
   /// Names an existing link: the address behind [npn], or null when the
   /// local slice does not carry it (linked elsewhere / directory reloaded).

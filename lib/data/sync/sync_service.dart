@@ -139,6 +139,9 @@ class SyncService {
             // rides under the same rule (Spec 7).
             insAfter: c.insAfter,
             npn: c.npn,
+            // Third field under the same rule: omit it on a re-push and
+            // the server clears the finding (CL-R7).
+            sinR1: c.sinR1,
           ),
       ],
     );

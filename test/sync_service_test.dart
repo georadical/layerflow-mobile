@@ -297,6 +297,32 @@ void main() {
     expect(items.last.toJson()['ins_after'], 5);
   });
 
+  test('the sin_r1 finding travels on every push, never beside npn (CL-R7)',
+      () async {
+    final db = await memoryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final (repo, ids) = await seed(db, 2);
+    await repo.setSinR1(clientId: ids.last, sinR1: true);
+
+    final api = _FakeApi(
+      respond: (b) => _response([
+        for (final i in b.items) _ok(i.clientId, i.posicion * 5),
+      ]),
+    );
+    await SyncService(api, repo).pushPending(routeId);
+
+    final items = api.lastBatch!.items;
+    expect(items.first.toJson().containsKey('sin_r1'), isFalse,
+        reason: 'no assertion = unknown, never "not found"');
+    expect(items.last.toJson()['sin_r1'], true);
+    expect(items.last.toJson().containsKey('npn'), isFalse,
+        reason: 'mutually exclusive by contract');
+  });
+
   test('the npn link travels on every push of the row (Spec 7)', () async {
     final db = await memoryDb();
     if (db == null) {

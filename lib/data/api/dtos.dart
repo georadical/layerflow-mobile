@@ -18,6 +18,7 @@ class PlacaItemRequest {
     this.observacion,
     this.insAfter,
     this.npn,
+    this.sinR1 = false,
   });
 
   final String clientId;
@@ -37,6 +38,14 @@ class PlacaItemRequest {
   /// the row's current value.
   final String? npn;
 
+  /// CL-R7: the worker EXPLICITLY declared this door is not in the R1
+  /// (tapped "No está en la lista"). The strongest assertion the census
+  /// produces — a person at the door who compared against their own
+  /// manzana's list. Mutually exclusive with [npn]; omitted means
+  /// "unknown" (the matcher will evaluate later), never "not found".
+  /// Same full-replacement trap: it rides on EVERY push of the row.
+  final bool sinR1;
+
   Map<String, dynamic> toJson() => {
         'client_id': clientId,
         'posicion': posicion,
@@ -49,6 +58,9 @@ class PlacaItemRequest {
         // only a real mark is serialised.
         if (insAfter != null) 'ins_after': insAfter,
         if (npn != null) 'npn': npn,
+        // Only the affirmative travels: false and absent both mean
+        // "not declared", and sending it with npn is a per-item error.
+        if (sinR1 && npn == null) 'sin_r1': true,
       };
 }
 
@@ -372,6 +384,7 @@ class R1DirectoryItem {
     required this.direccion,
     required this.direccionNorm,
     this.manzana,
+    this.enlazadoLoc,
   });
 
   final String npn;
@@ -379,12 +392,28 @@ class R1DirectoryItem {
   final String direccionNorm;
   final String? manzana;
 
+  /// CL-R6: `{loc, ruta}` when this R1 row is ALREADY linked to a captured
+  /// unit — computed server-side on purpose, because a local count cannot
+  /// see links made by another device, worker or campaign. Consumed rows
+  /// are MARKED, never hidden: if the worker recognises that address at
+  /// THIS door they must still be able to pick it (the server accepts the
+  /// duplicate NPN and flags divergence), which is how a bad previous link
+  /// surfaces instead of staying buried.
+  final String? enlazadoLoc;
+
   factory R1DirectoryItem.fromJson(Map<String, dynamic> json) {
+    final enlazado = json['enlazado'];
     return R1DirectoryItem(
       npn: json['npn'] as String,
       direccion: json['direccion']?.toString() ?? '',
       direccionNorm: json['direccion_norm']?.toString() ?? '',
       manzana: json['manzana']?.toString(),
+      enlazadoLoc: enlazado is Map
+          ? [
+              if (enlazado['ruta'] != null) 'ruta ${enlazado['ruta']}',
+              if (enlazado['loc'] != null) 'loc ${enlazado['loc']}',
+            ].join(' · ')
+          : null,
     );
   }
 }
