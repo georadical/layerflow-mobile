@@ -14,7 +14,7 @@ with a verifiable gate, a commit and explicit approval.
 | 4 | Offline-first queue and retry | [offline-queue-and-retry.md](offline-queue-and-retry.md) | Done — T4.1 verified on device |
 | 5 | Field worker login | [field-login.md](field-login.md) (shared) | Done — T5.1–T5.5 verified live against the backend |
 | 6 | ESP switching (multi-ESP, app side) | [esp-switching.md](esp-switching.md) | Done — switch verified live both ways |
-| 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done + amendments: CL-R1 v1.2 built; CL-R3 v1.1 photos pending |
+| 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done — full version E2E-verified both sides (2026-09-15) |
 | 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | Frozen — app tickets below; backend TJ.0–TJ.3 in parallel |
 
 ## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
@@ -78,9 +78,14 @@ and instancia semantics (point 4). CL-E1..E7 pinned as proposed.
   the same gesture (CL-E5); resumable survey state in drift (CL-E6).
 - **T8.6 — Coordinated E2E** on a sacrifice route, both sides.
 
-Also pending from Spec 7's amendments: **CL-R3 v1.1 photos** (deliberate
-shot required on divergence, 1/10 lottery on rutina — rate fixed in-app
-v1, full-screen camera with pinch-to-zoom, hardware valve intact).
+Spec 7 closed 2026-09-15: typeahead v1.2 (placa-only mode scoped by
+manzana, part-match), graduated photos v1.1 (deliberate shot on
+divergence, 1/10 lottery on rutina, pinch-to-zoom, hardware valve),
+`enlazado` markers + discovery mode (CL-R6) and tri-state `sin_r1`
+findings (CL-R7). Four-case E2E on a sacrifice route, confirmed on both
+sides. Open item for a future E2E: the matcher's skip of
+`field_sin_match` is covered by the backend's test but was never seen
+live (the retraction case had already cleared the finding).
 
 ## Field deployment (backlog — noted 2026-09-12, not scheduled)
 
