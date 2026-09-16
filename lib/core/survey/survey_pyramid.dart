@@ -15,12 +15,16 @@
 ///   are DERIVED from position, removing a unit closes the gap in its floor
 ///   and removing a floor renumbers the floors above — there is no stored
 ///   code to fix, so the "compact renumber" the spec demands is automatic.
-/// - **Unifamiliar carries NO unidad instance.** A predio with one unit is
-///   today's promotion, unchanged (a set with no unidad instances). The
-///   first structural gesture materialises that implicit unit as 01/01,
-///   preserving its answers, and adds the second (CL-E2). Symmetrically,
-///   deleting back down to a single unit collapses to unifamiliar again,
-///   keeping the survivor's answers.
+/// - **The app ALWAYS emits a unidad instance (Q1=(B), backend d2bb861).**
+///   Every predio has at least one unit, so a unifamiliar predio emits ONE
+///   `unidad` instancia=1 with ph/pv 01/01 and its four answers; the
+///   00/00-vs-expand decision belongs to the backend at promotion (it keeps
+///   the anchor at 00/00 when there is a single real unit, ignoring the
+///   declared 01/01, and promotes the answers onto premise/hogar). The
+///   census's atomic object is the unit, so the four answers, ph/pv and the
+///   sub-entities always have ONE uniform home — no branch in the generator.
+///   Adding structure appends 01/02, 02/01, …; deleting back to a single
+///   unit returns to that lone 01/01, keeping the survivor's answers.
 /// - **The convention is checked HERE, before anything travels** — a 409
 ///   must be impossible from a healthy app (CL-E7), the same philosophy as
 ///   the ins_after guard.
@@ -207,10 +211,10 @@ class ConventionViolation {
 /// totalizador. Every gesture returns a NEW structure; ph/pv/instancia are
 /// never stored, only generated, so there is nothing to keep in sync.
 ///
-/// Invariant: there is always at least one floor with at least one unit.
-/// `unifamiliar` is that minimum (one implicit unit); it is
-/// indistinguishable from a declared single unit on purpose — both are
-/// "one unit", and both promote as today.
+/// Invariant: there is always at least one floor with at least one unit,
+/// so [generate] never returns empty — the app always emits a unidad
+/// (Q1=(B)). `isUnifamiliar` (one unit) is informational for the UI, not a
+/// gate on generation: a lone unit still emits its 01/01.
 class SurveyStructure {
   const SurveyStructure._(this._floors, this.totalizador, this.totalizadorPhoto);
 
@@ -240,8 +244,9 @@ class SurveyStructure {
 
   int get totalUnits => _floors.fold(0, (n, f) => n + f.length);
 
-  /// No declared structure beyond the single implicit unit → no unidad
-  /// instance is emitted; the backend promotes it exactly as today.
+  /// One unit only. Informational — the UI shows the simplified single-unit
+  /// form — but it does NOT suppress the unidad instance: under Q1=(B) even
+  /// a lone unit emits its 01/01, and the backend decides 00/00-vs-expand.
   bool get isUnifamiliar => totalUnits <= 1;
 
   SurveyAnswers answersAt(int floor, int unit) => _floors[floor][unit];
@@ -317,25 +322,23 @@ class SurveyStructure {
   SurveyStructure clearTotalizador() =>
       SurveyStructure._(_floors, false, null);
 
-  /// The pinned generator (§"PH/PV generation"). Unifamiliar emits nothing
-  /// (today's promotion); otherwise one instancia per unit in walk order,
-  /// then the 99/99 totalizador if declared.
+  /// The pinned generator (§"PH/PV generation"). Always emits one instancia
+  /// per unit in walk order (Q1=(B): a lone unit is still 01/01), then the
+  /// 99/99 totalizador if declared.
   List<GeneratedUnit> generate() {
     final out = <GeneratedUnit>[];
-    if (!isUnifamiliar) {
-      var instancia = 0;
-      for (var f = 0; f < _floors.length; f++) {
-        final ph = _pad2(f + 1);
-        for (var u = 0; u < _floors[f].length; u++) {
-          instancia += 1;
-          out.add(GeneratedUnit(
-            instancia: instancia,
-            ph: ph,
-            pv: _pad2(u + 1),
-            answers: _floors[f][u],
-            isTotalizador: false,
-          ));
-        }
+    var instancia = 0;
+    for (var f = 0; f < _floors.length; f++) {
+      final ph = _pad2(f + 1);
+      for (var u = 0; u < _floors[f].length; u++) {
+        instancia += 1;
+        out.add(GeneratedUnit(
+          instancia: instancia,
+          ph: ph,
+          pv: _pad2(u + 1),
+          answers: _floors[f][u],
+          isTotalizador: false,
+        ));
       }
     }
     if (totalizador) {
@@ -364,8 +367,10 @@ class SurveyStructure {
       ));
     }
 
-    final declaredUnits = !isUnifamiliar;
-    if (anchorIsLote && (declaredUnits || totalizador)) {
+    // A lote has no building: it cannot hold PH/PV units at all, and under
+    // Q1=(B) the app always emits at least one, so surveying a lote is always
+    // a convention breach the office would reject.
+    if (anchorIsLote) {
       out.add(const ConventionViolation(
         SurveyViolation.ancoraEsLote,
         'Este predio está marcado como lote y no puede tener unidades PH/PV.',
@@ -375,18 +380,16 @@ class SurveyStructure {
     // Real units must stay within 01..98 (ph, pv and instancia alike). Only
     // reachable with an absurd structure, but the guard makes a range 409
     // impossible from the app.
-    if (declaredUnits) {
-      final real = generate().where((u) => !u.isTotalizador);
-      final spills = real.any((u) =>
-          u.instancia > maxRealCode ||
-          int.parse(u.ph) > maxRealCode ||
-          int.parse(u.pv) > maxRealCode);
-      if (spills) {
-        out.add(const ConventionViolation(
-          SurveyViolation.fueraDeRango,
-          'Hay demasiadas unidades o pisos: los códigos pasan de 98.',
-        ));
-      }
+    final real = generate().where((u) => !u.isTotalizador);
+    final spills = real.any((u) =>
+        u.instancia > maxRealCode ||
+        int.parse(u.ph) > maxRealCode ||
+        int.parse(u.pv) > maxRealCode);
+    if (spills) {
+      out.add(const ConventionViolation(
+        SurveyViolation.fueraDeRango,
+        'Hay demasiadas unidades o pisos: los códigos pasan de 98.',
+      ));
     }
 
     return out;

@@ -12,11 +12,13 @@ const _answered = SurveyAnswers(
 );
 
 void main() {
-  group('unifamiliar — the common predio emits no unidad instance', () {
-    test('a lone unit generates nothing (today\'s promotion, unchanged)', () {
+  group('unifamiliar — the common predio still emits one 01/01 (Q1=B)', () {
+    test('a lone unit emits one 01/01 with its answers', () {
       final s = SurveyStructure.unifamiliar(_answered);
       expect(s.isUnifamiliar, isTrue);
-      expect(s.generate(), isEmpty);
+      final g = s.generate();
+      expect(g.map(_code).toList(), [(1, '01/01')]);
+      expect(g.single.answers, _answered);
     });
 
     test('its answers are held, not lost', () {
@@ -96,12 +98,12 @@ void main() {
           [(1, '01/01'), (2, '02/01')]);
     });
 
-    test('deleting back to one unit collapses to unifamiliar, answers kept',
+    test('deleting back to one unit returns to a lone 01/01, answers kept',
         () {
       final s = SurveyStructure.unifamiliar(_answered).addUnit(0);
       final after = s.removeUnit(0, 1); // remove the added second unit
       expect(after.isUnifamiliar, isTrue);
-      expect(after.generate(), isEmpty);
+      expect(after.generate().map(_code).toList(), [(1, '01/01')]);
       expect(after.single, _answered, reason: 'the survivor keeps its answers');
     });
   });
@@ -164,9 +166,10 @@ void main() {
       expect(v.map((e) => e.kind), contains(SurveyViolation.ancoraEsLote));
     });
 
-    test('a lote unifamiliar with no structure is fine', () {
+    test('a lote is refused even when unifamiliar (it still emits a unit)', () {
       final s = SurveyStructure.unifamiliar(_answered);
-      expect(s.validate(anchorIsLote: true), isEmpty);
+      expect(s.validate(anchorIsLote: true).map((e) => e.kind),
+          contains(SurveyViolation.ancoraEsLote));
     });
 
     test('codes never spill into the 99 reservation for real structures', () {
