@@ -440,6 +440,10 @@ class _UnitTile extends ConsumerWidget {
     final surveys = ref.watch(routeSurveysProvider(row.routeId)).valueOrNull;
     final estado =
         ref.read(surveyRepositoryProvider).estadoOf(surveys?[row.clientId]);
+    // CL-E8 gate (Spec 9): the entry is locked unless the worker is cleared
+    // AND the route is open. Fail-closed.
+    final surveyUnlocked = ref.watch(surveyUnlockedProvider(row.routeId));
+    final canSurvey = ref.watch(canSurveyProvider);
 
     final meta = <String>[
       'posición ${row.posicion}',
@@ -525,7 +529,10 @@ class _UnitTile extends ConsumerWidget {
                     padding: const EdgeInsets.only(top: 8),
                     child: _SurveyLine(
                       estado: estado,
-                      onTap: () => _survey(context),
+                      locked: !surveyUnlocked,
+                      onTap: surveyUnlocked
+                          ? () => _survey(context)
+                          : () => _explainLock(context, canSurvey),
                     ),
                   ),
                 ],
@@ -568,39 +575,62 @@ class _UnitTile extends ConsumerWidget {
       ),
     );
   }
+
+  /// CL-E8: a locked survey chip says WHY, and distinguishes the two causes —
+  /// the worker is not cleared, or the route is not open — so the surveyor
+  /// knows whether to ask about themselves or about the route.
+  void _explainLock(BuildContext context, bool canSurvey) {
+    final msg = canSurvey
+        ? 'La oficina no ha habilitado la encuesta en esta ruta.'
+        : 'La oficina no ha habilitado la encuesta para este encuestador.';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
 }
 
 /// The per-unit survey chip in the resume list (CL-E1). Tappable, and it
-/// stops the tap from reaching the row's placa editor underneath.
+/// stops the tap from reaching the row's placa editor underneath. When
+/// [locked] (CL-E8, Spec 9) it shows the lock and its tap only explains why.
 class _SurveyLine extends StatelessWidget {
-  const _SurveyLine({required this.estado, required this.onTap});
+  const _SurveyLine({
+    required this.estado,
+    required this.onTap,
+    this.locked = false,
+  });
 
   final SurveyEstado estado;
   final VoidCallback onTap;
+  final bool locked;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final (label, bg, fg, icon) = switch (estado) {
-      SurveyEstado.completa => (
-          'Encuesta completa',
-          theme.colorScheme.secondaryContainer,
-          theme.colorScheme.onSecondaryContainer,
-          Icons.check_circle_outline,
-        ),
-      SurveyEstado.aMedias => (
-          'Encuesta a medias',
-          theme.colorScheme.tertiaryContainer,
-          theme.colorScheme.onTertiaryContainer,
-          Icons.timelapse,
-        ),
-      SurveyEstado.sinEncuesta => (
-          'Levantar encuesta',
-          theme.colorScheme.surfaceContainerHighest,
-          theme.colorScheme.onSurfaceVariant,
-          Icons.assignment_outlined,
-        ),
-    };
+    final (label, bg, fg, icon) = locked
+        ? (
+            'Encuesta bloqueada',
+            theme.colorScheme.surfaceContainerHighest,
+            theme.colorScheme.onSurfaceVariant,
+            Icons.lock_outline,
+          )
+        : switch (estado) {
+            SurveyEstado.completa => (
+                'Encuesta completa',
+                theme.colorScheme.secondaryContainer,
+                theme.colorScheme.onSecondaryContainer,
+                Icons.check_circle_outline,
+              ),
+            SurveyEstado.aMedias => (
+                'Encuesta a medias',
+                theme.colorScheme.tertiaryContainer,
+                theme.colorScheme.onTertiaryContainer,
+                Icons.timelapse,
+              ),
+            SurveyEstado.sinEncuesta => (
+                'Levantar encuesta',
+                theme.colorScheme.surfaceContainerHighest,
+                theme.colorScheme.onSurfaceVariant,
+                Icons.assignment_outlined,
+              ),
+          };
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
