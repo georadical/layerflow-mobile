@@ -1,10 +1,11 @@
 # Spec — Extended survey with PH/PV expansion (the census pass)
 
 > **Shared spec, mirrored copy** — source of truth in the backend repo
-> (`specs/extended-survey-phpv.md`) @ `a968d72` (frozen with the app's
-> points 0–4 and CL-E1..E7). Do not edit here — changes go through the
-> backend session and get re-copied. App tickets:
-> [README.md](README.md), Spec 8.
+> (`specs/extended-survey-phpv.md`) @ `a1168bc` (adds CL-E8: the
+> backend-owned extended-survey lock — `field_workers.can_survey` +
+> `routes.survey_estado`, both riding down fail-closed; tickets TJ.5/TJ.6).
+> Do not edit here — changes go through the backend session and get
+> re-copied. App tickets: [README.md](README.md), Spec 8.
 
 Status: frozen (mobile observations 0–4 + CL-E1..E7 incorporated 2026-09-13; their index: Spec 8)
 Type: Backend (promotion expansion) + app contract → pipeline: Spec → Tickets → Implementation
@@ -196,6 +197,57 @@ totalizador (gesture apart)→ the 99/99 instance; requires its photo; never
   409 must be impossible from a healthy app — same philosophy as the
   ins_after guard.
 
+## CL-E8 — Extended-survey lock (backend-owned authorization) — DECIDED 2026-09-15
+The survey pass is the error-prone one and may be run by a different, less
+experienced surveyor. Gate WHO and WHEN it may run. An app-only lock is theatre
+(bypassable, and two devices can't agree from a local flag — the `sin_r1`
+multi-device argument). `/sync/push` is the survey write path, so the authority
+lives there. Answers to the app's five questions:
+
+1. **`can_survey` is a boolean on `field_worker`, NOT a token scope.** A scope
+   would freeze the permission into the 30-day JWT (unrevocable until re-login);
+   we built DB-checked field revocation precisely to avoid stale-token
+   permissions. The flag is the AUTHORITY when checked at `/sync/push` (live,
+   revocable) and merely ECHOED in the login response for offline UX gating.
+   `field_workers.can_survey` bool, **default false (fail-closed)**.
+2. **Route eligibility is a NEW explicit field, NOT derived from `estado`.**
+   `routes.estado` (borrador|verificada) means "the route line is field-verified"
+   — a different axis; overloading it couples two concerns (name by function).
+   `routes.survey_estado` string (`bloqueada` | `abierta`, **default
+   bloqueada**), leaving room for a future `condicionada`. **Survey MAY run
+   concurrently with placas**: the backend enforces NO placa milestone — opening
+   is a manual operator toggle, so "concurrent vs after-milestone" is operator
+   policy, not code.
+3. **Capability is per-worker-per-ESP; eligibility is per-route; the
+   worker↔route binding already exists via the assignment.** `can_survey` is a
+   property of the person-in-ESP (experienced → for all their routes there).
+   The route↔worker link is the ASSIGNMENT (a route only appears in
+   `/field/routes` if assigned) — no new assignment dimension now. **Effective
+   unlock = assigned (pre-existing, invisible to the app) ∧ `can_survey` ∧
+   `survey_estado='abierta'`.** From the app's view it is the two flags ANDed;
+   the assignment is the silent third factor. A survey-SPECIFIC assignment (pass
+   1 swept by worker A, pass 2 surveyed by worker B as routine) is a real future
+   extension of the assignment table — recorded, not built (the faro is
+   one worker).
+4. **Operator provisioning, like `verificada` routes and credentials.**
+   `can_survey` on the field-worker maintain endpoint + the unified worker form
+   (TG.5's chassis). `survey_estado` a per-route toggle on the route maintain
+   endpoint. Both audited via `write_unit`. The operator opens survey per route
+   per policy; the backend never auto-derives it.
+5. **`/sync/push` error shape:** per-op `resultado="error"` + a NEW stable
+   `codigo="survey_no_autorizado"` (machine-mappable) + human `motivo`. Per-op
+   (not a request-level 409) to keep partial-batch semantics. Enforced at the
+   **visit-create** op (the survey's root — resolve the route via the visit's
+   `census_code_id`; a blocked visit fails its children by the parent-before-
+   child ordering). Defense in depth even though the app gates the UI offline.
+
+**Hard requirement — the flags ride down (fail-closed):**
+- `POST /field/login`: each active-ESP entry gains `can_survey` next to its token.
+- `GET /field/routes` and the frame `GET /field/capture/route/{id}`: each route
+  gains `survey_estado`.
+- If a flag is absent, the app keeps survey LOCKED. So the app gates the survey
+  entry before any offline work — never discovering rejection at Enviar.
+
 ## Out of scope
 - Changes to /sync/* transport or to the placa-pass contract.
 - PH/PV re-numbering after promotion (post-census lifecycle rules apply).
@@ -267,6 +319,17 @@ Feature: PH/PV expansion at promotion
 - **TJ.3 — Evidence proposito param**: `/field/capture/evidence` accepts
   `proposito` ∈ {placa, totalizador} (default placa; totalizador forces
   soporte=divergencia). Gate: pytest.
+- **TJ.5 — Survey-lock flags + ride-down (CL-E8)**: migration
+  `field_workers.can_survey` (bool, default false) + `routes.survey_estado`
+  (string, default `bloqueada`); expose `can_survey` in `/field/login` per ESP
+  and `survey_estado` in `/field/routes` + the capture frame; operator toggles
+  on the field-worker and route maintain endpoints (+ worker form + route form),
+  audited. Gate: alembic + pytest.
+- **TJ.6 — `/sync/push` survey guard (CL-E8)**: reject visit-create when NOT
+  (`can_survey` ∧ route `survey_estado='abierta'`) with `resultado="error"`,
+  `codigo="survey_no_autorizado"`; add `codigo` to the sync op result contract.
+  Gate: pytest (authorized passes, unauthorized worker rejected, closed route
+  rejected, placa pass unaffected).
 - **TJ.4 — App-side (separate repo, their Spec 8)**: survey rail + structure
   buttons + evidence questions + totalizador photo + sync client
   (CL-E1..E7).
