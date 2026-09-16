@@ -1,11 +1,11 @@
 # Spec — Extended survey with PH/PV expansion (the census pass)
 
 > **Shared spec, mirrored copy** — source of truth in the backend repo
-> (`specs/extended-survey-phpv.md`) @ `a1168bc` (adds CL-E8: the
-> backend-owned extended-survey lock — `field_workers.can_survey` +
-> `routes.survey_estado`, both riding down fail-closed; tickets TJ.5/TJ.6).
-> Do not edit here — changes go through the backend session and get
-> re-copied. App tickets: [README.md](README.md), Spec 8.
+> (`specs/extended-survey-phpv.md`) @ `d2bb861` (pins the app's T8.1 Q1/Q2/Q3:
+> Q1=(B) the app always emits a `unidad`; the per-entity `data` shapes; the
+> `operaciones`/`resumen` response envelope — on top of CL-E8). Do not edit
+> here — changes go through the backend session and get re-copied. App
+> tickets: [README.md](README.md), Spec 8.
 
 Status: frozen (mobile observations 0–4 + CL-E1..E7 incorporated 2026-09-13; their index: Spec 8)
 Type: Backend (promotion expansion) + app contract → pipeline: Spec → Tickets → Implementation
@@ -69,6 +69,45 @@ rigor. Verified against the implementation:
 - Ordering within a batch: parents BEFORE children (visit → observation_set →
   field_responses/media) — same chain discipline as CR3.
 
+### Per-entity `data` shapes (PINNED — mobile T8.1 Q2, from the real models)
+`data` is whitelisted to the model's columns (id/tenant_id/created_at/updated_at
+are server-owned and ignored). Client sends UUIDs/dates as ISO strings.
+- **`visit.data`**: `assignment_id`, `census_code_id`, `field_worker_id`
+  (must equal the token's worker — else per-op error), `fecha?`, `estado?`
+  (default `pendiente`), `observacion?`.
+- **`observation_set.data`**: `visit_id` (the FK back to the visit), `estado?`
+  (default `borrador`), `observacion?`. The bridge FKs (premise_id, hogar_id,
+  …) are populated by promotion, NOT by the app — omit them.
+- **`field_response.data`**: `observation_set_id` (FK back to the set),
+  `entidad_objetivo` ∈ {premise, hogar, connection, service_point, meter,
+  meter_inspection, **unidad**}, `instancia` (int ≥ 1), `campo`, `valor?`.
+- **`visit_attempt.data`** (if used): `visit_id`, `fecha_hora`, `resultado`,
+  `proxima_visita_fecha?`, `proxima_visita_hora?`, `notificacion_dejada?`,
+  `observacion?`.
+- **`media_asset` in the survey batch — NOT needed for T8.** The totalizador
+  photo travels via `POST /field/capture/evidence` with `proposito=
+  'totalizador'` (CL-E4 / TJ.3, already deployed), linked to the ANCHOR unit's
+  `client_id` — predio-level evidence "a totalizador exists here". So the T8
+  builder can DROP `media_asset`. It stays in the envelope for future
+  observation media (e.g. meter-serial photo), which the PH/PV survey does not
+  emit. (Promotion's 99/99-requires-photo check reads that anchor-linked
+  `proposito='totalizador'` media.)
+
+### Response envelope (PINNED — mobile T8.1 Q3, from `_summary`)
+```json
+{ "batch_id": "…", "estado": "procesado", "replay": false,
+  "resumen": { "total": N, "aplicadas": N, "duplicadas": N,
+               "conflictos": N, "errores": N },
+  "operaciones": [ { "entidad": "…", "id": "…", "op": "create|update",
+                     "resultado": "aplicada|duplicada|conflicto|error",
+                     "motivo": "…|null" } ] }
+```
+- Op-array key is **`operaciones`**. Named counters exist under **`resumen`**
+  (no need to derive). `resultado` ∈ exactly {`aplicada`, `duplicada`,
+  `conflicto`, `error`}.
+- **`codigo`** (the CL-E8 machine code, e.g. `survey_no_autorizado`) is added to
+  each op result by **TJ.6** — not present until that lands; absent today.
+
 ### `GET /sync/pull?since=<ISO>` (field token)
 Returns the worker's frame: assignments + routes (+geometry as WKT — ignore),
 census_codes and expected_meters; `since` filters changed rows but route
@@ -93,16 +132,33 @@ entidad=unidad, instancia=99, campos: ph="99", pv="99"   ← totalizador (only
 - Per-unit sub-entities ride the SAME instancia number:
   `entidad=hogar, instancia=2` belongs to unidad 2; same for
   connection/service_point/meter. Predio-level fields (premise) ride
-  instancia 1, as today (the DB CHECK is `instancia >= 1`; there is no
-  instancia 0) — backward compatible with every existing single-unit set.
-- A set with NO unidad instances = unifamiliar → today's promotion, unchanged.
+  instancia 1 (the DB CHECK is `instancia >= 1`; there is no instancia 0).
+- **Q1 pivot — DECIDED 2026-09-15: option (B), the app ALWAYS emits a `unidad`.**
+  A unifamiliar predio emits **one** `unidad` instancia=1 (ph/pv `01/01`) with
+  the four CL-E3 answers; a multi-unit predio emits `unidad` 1..N. Rationale:
+  the census's atomic object is the unit — every predio has ≥1, so the four
+  answers, ph/pv and per-unit sub-entities get ONE uniform home regardless of
+  count, and the app's generator has no branch. The **00/00-vs-expand decision
+  is the BACKEND's, at promotion** (doctrine: codification lives in the office),
+  by counting real `unidad` instances (excluding 99):
+  - 1 real unidad → unifamiliar: the anchor **stays `00/00`**; the declared
+    `01/01` is NOT applied to the code; the unidad's answers promote onto
+    premise/hogar.
+  - ≥2 real unidad → expand (§ below): anchor becomes `01/01`, siblings for the
+    rest.
+- **Backward compatible:** a legacy set with NO `unidad` instances is still read
+  as unifamiliar (today's promotion, unchanged) — (B) adds a carrier, it does
+  not remove the zero-unidad path.
 
 ### Expansion at promotion (backend — the core of this spec)
 When an approved set carries unidad instances, promotion additionally:
 1. Validates the declared codes (convention above) → violations become
    quality_issues and the set is NOT promoted (`409`, reviewer fixes with the
    field).
-2. **The anchor row (00/00) BECOMES the first declared unit** — its ph/pv are
+2. **Count real `unidad` instances (exclude 99).** With ≤1 → unifamiliar: the
+   anchor **stays `00/00`** (the declared `01/01`, if any, is ignored for the
+   code); its answers promote onto premise/hogar; no siblings. With ≥2 → the
+   anchor row (00/00) **BECOMES the first declared unit** (`01/01`) — its ph/pv
    updated in place. Identity (UUID/client_id), placa, npn, visit and media
    links all survive; the census code Ruta+Loc+PH+PV changes exactly once,
    inside the promotion gate (still pre-publication — same window doctrine as
@@ -316,9 +372,9 @@ Feature: PH/PV expansion at promotion
   per-instancia sub-entity landing + idempotency + shrink flag + audit
   mapping + frame-invariance regression test. Gate: pytest (the BDD set
   above; regression suite green).
-- **TJ.3 — Evidence proposito param**: `/field/capture/evidence` accepts
-  `proposito` ∈ {placa, totalizador} (default placa; totalizador forces
-  soporte=divergencia). Gate: pytest.
+- **TJ.3 — Evidence proposito param** ✅ IMPLEMENTED: `/field/capture/evidence`
+  accepts `proposito` ∈ {placa, totalizador} (default placa; totalizador forces
+  soporte=divergencia; coexists per unit). Gate: pytest.
 - **TJ.5 — Survey-lock flags + ride-down (CL-E8)**: migration
   `field_workers.can_survey` (bool, default false) + `routes.survey_estado`
   (string, default `bloqueada`); expose `can_survey` in `/field/login` per ESP

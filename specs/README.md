@@ -15,7 +15,7 @@ with a verifiable gate, a commit and explicit approval.
 | 5 | Field worker login | [field-login.md](field-login.md) (shared) | Done — T5.1–T5.5 verified live against the backend |
 | 6 | ESP switching (multi-ESP, app side) | [esp-switching.md](esp-switching.md) | Done — switch verified live both ways |
 | 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done — full version E2E-verified both sides (2026-09-15) |
-| 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | In progress @ a1168bc (adds CL-E8 lock) — T8.2 wireframe + T8.3 pyramid done; backend TJ.0–TJ.6 in parallel |
+| 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | In progress @ d2bb861 (Q1/Q2/Q3 + CL-E8) — T8.1 client, T8.2 wireframe, T8.3 pyramid done; backend TJ.0 deployed, TJ.1–TJ.6 in parallel |
 
 ## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
 
@@ -59,19 +59,23 @@ algorithm including pre-send deletion with compact renumber (point 2),
 and instancia semantics (point 4). CL-E1..E7 pinned as proposed.
 
 **App tickets (against the shared contract):**
-- **T8.1 — Sync client**: /sync/push DTOs + operation builder (parents
-  before children), two-layer idempotency (batch replay, per-op
-  duplicada), partial-result mapping; local observation tables
-  (schema v8), person-bound (CL4).
+- **T8.1 — Sync client** ✅ pure parts DONE (2a68eb4/36a2721): /sync/push
+  envelope DTOs + `orderOperations` (parents before children), two-layer
+  idempotency, `operaciones`/`resumen` result mapping (Q3), and the
+  `SurveyStructure → visit → observation_set → field_response` builder with
+  the Q2 `data` shapes (all `create`; totalizador photo out of band via
+  evidence; deterministic v5 field ids). Pending: the HTTP call + local
+  observation tables (drift) + person binding (CL4), wired at T8.5.
 - **T8.2 — Survey rail wireframe** ✅ DONE (58b2f2c): per-unit survey-state
   chips in the resume list (one list, not a parallel survey list), pre-loaded
   full-screen form (the editor refactor is the chassis), structure buttons,
   CL-E3 questions verbatim, totalizador gesture. Wireframe approved + on-theme.
-- **T8.3 — Local pyramid + pinned PH/PV generator** ✅ DONE: positional
-  model in `lib/core/survey/survey_pyramid.dart` — codes derived from
-  position so pre-send deletion compacts for free, unifamiliar emits no
-  unidad instance, CL-E7 device-side convention validator. 19 unit tests
-  against the spec's pseudocode + acceptance codes.
+- **T8.3 — Local pyramid + pinned PH/PV generator** ✅ DONE (Q1=(B),
+  2a68eb4): positional model in `lib/core/survey/survey_pyramid.dart` —
+  codes derived from position so pre-send deletion compacts for free, the
+  app always emits a `unidad` (a lone unit is still 01/01; the backend
+  decides 00/00-vs-expand), CL-E7 device-side convention validator. Unit
+  tests against the spec's pseudocode + acceptance codes.
 - **T8.4 — Totalizador photo**: evidence flow with
   proposito='totalizador' (needs backend TJ.3), soporte=divergencia
   fixed, required at declaration.
