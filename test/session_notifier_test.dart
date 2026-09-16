@@ -57,6 +57,7 @@ class _FakeLoginApi implements ApiClient {
     required String clientId,
     required String soporte,
     required String filePath,
+    String proposito = 'placa',
   }) =>
       throw UnimplementedError();
 

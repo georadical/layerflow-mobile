@@ -1,8 +1,12 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/camera/plate_camera.dart';
+import '../../core/config/app_config.dart';
 import '../../core/survey/survey_pyramid.dart';
 import '../providers.dart';
+import 'plate_shot_screen.dart';
 
 /// The real extended-survey form (Spec 8, T8.5), wired to the survey
 /// controller. It is the SECOND pass over a captured unit: the surveyor
@@ -72,9 +76,15 @@ class _SurveyBody extends ConsumerWidget {
     final ctrl = ref.read(surveyControllerProvider(args).notifier);
     final unifamiliar = structure.isUnifamiliar;
 
+    final violations = structure.validate();
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (violations.isNotEmpty) ...[
+          _ValidationBanner(message: violations.first.message),
+          const SizedBox(height: 16),
+        ],
         if (unifamiliar) ...[
           Text('La vivienda', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
@@ -108,6 +118,31 @@ class _SurveyBody extends ConsumerWidget {
           label: const Text('Agregar piso'),
         ),
 
+        const Divider(height: 40),
+        // CL-E4: a gesture apart, never part of a level, and it demands its
+        // photo. Declared ONLY if a physical totalizador exists.
+        if (structure.totalizador)
+          Card(
+            margin: EdgeInsets.zero,
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: ListTile(
+              leading: const Icon(Icons.speed),
+              title: const Text('Totalizador declarado'),
+              subtitle: const Text('Foto tomada · viaja como evidencia'),
+              trailing: IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: 'Quitar',
+                onPressed: ctrl.clearTotalizador,
+              ),
+            ),
+          )
+        else
+          OutlinedButton.icon(
+            onPressed: () => _takeTotalizadorShot(context, ref),
+            icon: const Icon(Icons.speed),
+            label: const Text('Hay totalizador (pide foto)'),
+          ),
+
         const SizedBox(height: 24),
         FilledButton.icon(
           onPressed: () {
@@ -133,6 +168,58 @@ class _SurveyBody extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  /// CL-E4: the totalizador is declared only WITH its photo. A fresh camera
+  /// is started on demand for the single aimed shot and disposed right after
+  /// — no viewfinder lingers over the survey. It degrades honestly: a dead
+  /// camera or a cancelled shot leaves the totalizador undeclared and says
+  /// so, rather than creating a 99/99 with no evidence.
+  Future<void> _takeTotalizadorShot(BuildContext context, WidgetRef ref) async {
+    final ctrl = ref.read(surveyControllerProvider(args).notifier);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    final camera = PlateCamera();
+    final ready = await camera.start();
+    if (!ready) {
+      await camera.dispose();
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Cámara no disponible; el totalizador necesita su foto.'),
+      ));
+      return;
+    }
+    try {
+      final shot = await navigator.push<XFile?>(
+        MaterialPageRoute(
+          builder: (_) => PlateShotScreen(
+            camera: camera,
+            required: true,
+            subject: 'el totalizador',
+          ),
+        ),
+      );
+      if (shot == null) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Sin foto: el totalizador no quedó declarado.'),
+        ));
+        return;
+      }
+      final path = await camera.storeShotFor(
+        args.anchorClientId,
+        shot,
+        variant: AppConfig.propositoTotalizador,
+      );
+      if (path == null) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text('No se pudo guardar la foto. Intenta de nuevo.'),
+        ));
+        return;
+      }
+      await ctrl.declareTotalizador(path);
+    } finally {
+      await camera.dispose();
+    }
   }
 }
 
@@ -276,6 +363,39 @@ class _QuestionSet extends StatelessWidget {
           onSelected: (v) => onChanged(answers.copyWith(uso: v)),
         ),
       ],
+    );
+  }
+}
+
+/// CL-E7: the convention is checked on device before anything travels, so a
+/// 409 is impossible from a healthy app. Reachable only in the edge where a
+/// totalizador ended up declared without its photo.
+class _ValidationBanner extends StatelessWidget {
+  const _ValidationBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, color: theme.colorScheme.onErrorContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(color: theme.colorScheme.onErrorContainer),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

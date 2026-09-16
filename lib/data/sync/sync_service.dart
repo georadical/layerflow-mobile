@@ -87,13 +87,14 @@ class SyncService {
           clientId: row.clientId,
           soporte: row.soporte,
           filePath: row.filePath,
+          proposito: row.proposito,
         );
         await evidenceRepo.confirmUploaded(row);
         uploaded++;
       } on ApiException catch (e) {
         if (e.statusCode != null) {
           // A verdict on the photo's merits: record it; a re-shot replaces.
-          await evidenceRepo.markError(row.clientId, e.message);
+          await evidenceRepo.markError(row, e.message);
           failed++;
         } else {
           // Transport died mid-chain: everything else stays pending.

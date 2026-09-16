@@ -40,6 +40,12 @@ class AppConfig {
   static const String soporteDivergencia = 'divergencia';
   static const String soporteRutina = 'rutina';
 
+  /// Purpose of a photo (backend TJ.3). The placa evidence (Spec 7) and the
+  /// totalizador evidence (Spec 8, CL-E4) coexist for one unit, keyed by
+  /// (client_id, proposito); the totalizador forces soporte=divergencia.
+  static const String propositoPlaca = 'placa';
+  static const String propositoTotalizador = 'totalizador';
+
   /// CL-R3 v1.1: routine captures draw a photo audit 1 in N, decided AT
   /// SAVE (unpredictable — honesty becomes the dominant strategy). Rate
   /// fixed in-app for v1 by agreement (a backend config would be a

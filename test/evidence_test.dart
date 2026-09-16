@@ -17,16 +17,19 @@ class _FakeEvidenceApi implements ApiClient {
   /// simulates transport death.
   final Map<String, ApiException> verdicts = {};
   final List<String> uploadedIds = [];
+  final List<({String clientId, String proposito})> uploaded = [];
 
   @override
   Future<void> uploadEvidence({
     required String clientId,
     required String soporte,
     required String filePath,
+    String proposito = AppConfig.propositoPlaca,
   }) async {
     final verdict = verdicts[clientId];
     if (verdict != null) throw verdict;
     uploadedIds.add(clientId);
+    uploaded.add((clientId: clientId, proposito: proposito));
   }
 
   @override
@@ -287,6 +290,74 @@ void main() {
       expect(await evidence.pendingForRoute(routeId), isEmpty);
       final files = tmp.listSync().whereType<File>();
       expect(files, isEmpty, reason: 'confirmed photos purge their files');
+    });
+
+    test('placa and totalizador photos of one unit coexist and both travel '
+        '(CL-E4)', () async {
+      final db = await memoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final captures = CaptureRepository(db);
+      final evidence = EvidenceRepository(db);
+      final api = _FakeEvidenceApi();
+      final sync = SyncService(api, captures, evidence: evidence);
+
+      await captures.mergeFrame(const RouteFrame(routeId: routeId, items: [
+        RouteFrameItem(clientId: 'u1', posicion: 1, loc: 5),
+      ]));
+      // Same unit, two purposes → two distinct rows.
+      await evidence.enqueue(
+          clientId: 'u1',
+          routeId: routeId,
+          filePath: await photo('u1-placa'),
+          soporte: AppConfig.soporteRutina);
+      await evidence.enqueue(
+          clientId: 'u1',
+          routeId: routeId,
+          filePath: await photo('u1-tot'),
+          soporte: AppConfig.soporteDivergencia,
+          proposito: AppConfig.propositoTotalizador);
+      expect((await evidence.pendingForRoute(routeId)).length, 2);
+
+      // Both travel (WiFi so the routine placa also goes), each with its own
+      // proposito on the wire.
+      final res = await sync.pushEvidence(routeId, wifiAvailable: true);
+      expect(res.uploaded, 2);
+      expect(
+        api.uploaded.map((u) => u.proposito).toSet(),
+        {AppConfig.propositoPlaca, AppConfig.propositoTotalizador},
+      );
+      expect(await evidence.pendingForRoute(routeId), isEmpty);
+    });
+
+    test('remove drops only the given proposito', () async {
+      final db = await memoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final evidence = EvidenceRepository(db);
+
+      await evidence.enqueue(
+          clientId: 'u1',
+          routeId: routeId,
+          filePath: await photo('u1-placa'),
+          soporte: AppConfig.soporteRutina);
+      await evidence.enqueue(
+          clientId: 'u1',
+          routeId: routeId,
+          filePath: await photo('u1-tot'),
+          soporte: AppConfig.soporteDivergencia,
+          proposito: AppConfig.propositoTotalizador);
+
+      await evidence.remove('u1', proposito: AppConfig.propositoTotalizador);
+      final left = await evidence.pendingForRoute(routeId);
+      expect(left.length, 1);
+      expect(left.single.proposito, AppConfig.propositoPlaca);
     });
 
     test('REGRESSION: a held photo outlives its queue row and stays visible',

@@ -149,10 +149,16 @@ class R1Directory extends Table {
 /// file is purged too. CL4 ownership applies: unsent photos belong to the
 /// person who captured them.
 class Evidence extends Table {
-  /// The unit's capture key — also the upload's idempotency key.
+  /// The unit's capture key — sent as the upload's idempotency key together
+  /// with [proposito].
   TextColumn get clientId => text()();
 
   TextColumn get routeId => text()();
+
+  /// Purpose (backend TJ.3): 'placa' (Spec 7) or 'totalizador' (Spec 8,
+  /// CL-E4). Both coexist for one unit, which is why it is part of the key.
+  TextColumn get proposito =>
+      text().withDefault(const Constant(AppConfig.propositoPlaca))();
 
   /// Local JPEG path (already compressed to fit the 500KB cap).
   TextColumn get filePath => text()();
@@ -171,8 +177,10 @@ class Evidence extends Table {
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
+  /// Keyed by (unit, purpose): the placa photo and the totalizador photo of
+  /// the same unit are distinct rows (backend idempotency is per this pair).
   @override
-  Set<Column<Object>> get primaryKey => {clientId};
+  Set<Column<Object>> get primaryKey => {clientId, proposito};
 }
 
 /// A predio's extended survey (Spec 8, T8.5). One row per anchor unit (the
@@ -216,7 +224,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -267,6 +275,21 @@ class AppDatabase extends _$AppDatabase {
             // Extended survey (Spec 8): resumable local survey state, one
             // row per anchor. Starts empty until the first survey is saved.
             await m.createTable(surveys);
+          }
+          if (from < 11) {
+            // Evidence gains `proposito` and its PK becomes
+            // (client_id, proposito) so a unit can hold both a placa photo
+            // and a totalizador photo (Spec 8, CL-E4). Existing rows are all
+            // placa. TableMigration recreates the table with the new key.
+            // ignore: experimental_member_use
+            await m.alterTable(TableMigration(
+              evidence,
+              columnTransformer: {
+                evidence.proposito:
+                    const Constant<String>(AppConfig.propositoPlaca),
+              },
+              newColumns: [evidence.proposito],
+            ));
           }
         },
       );
@@ -398,8 +421,13 @@ class AppDatabase extends _$AppDatabase {
   Future<void> upsertEvidence(EvidenceCompanion row) =>
       into(evidence).insertOnConflictUpdate(row);
 
-  Future<EvidenceData?> getEvidence(String clientId) =>
-      (select(evidence)..where((e) => e.clientId.equals(clientId)))
+  Future<EvidenceData?> getEvidence(
+    String clientId, {
+    String proposito = AppConfig.propositoPlaca,
+  }) =>
+      (select(evidence)
+            ..where((e) =>
+                e.clientId.equals(clientId) & e.proposito.equals(proposito)))
           .getSingleOrNull();
 
   /// Unsent photos of a route, CL4-scoped like the capture queue.
@@ -434,11 +462,23 @@ class AppDatabase extends _$AppDatabase {
     return query.watchSingle().map((row) => row.read(countExpr) ?? 0);
   }
 
-  Future<void> deleteEvidence(String clientId) =>
-      (delete(evidence)..where((e) => e.clientId.equals(clientId))).go();
+  Future<void> deleteEvidence(
+    String clientId, {
+    String proposito = AppConfig.propositoPlaca,
+  }) =>
+      (delete(evidence)
+            ..where((e) =>
+                e.clientId.equals(clientId) & e.proposito.equals(proposito)))
+          .go();
 
-  Future<void> markEvidenceError(String clientId, String error) {
-    return (update(evidence)..where((e) => e.clientId.equals(clientId)))
+  Future<void> markEvidenceError(
+    String clientId,
+    String error, {
+    String proposito = AppConfig.propositoPlaca,
+  }) {
+    return (update(evidence)
+          ..where((e) =>
+              e.clientId.equals(clientId) & e.proposito.equals(proposito)))
         .write(EvidenceCompanion(
       syncStatus: const Value(AppConfig.syncError),
       syncError: Value(error),

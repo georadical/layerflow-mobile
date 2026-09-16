@@ -156,12 +156,14 @@ class ApiClient {
     required String clientId,
     required String soporte,
     required String filePath,
+    String proposito = AppConfig.propositoPlaca,
   }) async {
     final base = await _baseUrl();
     try {
       final form = FormData.fromMap({
         'client_id': clientId,
         'soporte': soporte,
+        'proposito': proposito,
         'foto': await MultipartFile.fromFile(
           filePath,
           contentType: DioMediaType('image', 'jpeg'),

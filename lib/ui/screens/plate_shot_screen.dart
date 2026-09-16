@@ -13,6 +13,7 @@ class PlateShotScreen extends StatefulWidget {
     super.key,
     required this.camera,
     this.required = false,
+    this.subject = 'la placa',
   });
 
   /// The already-started camera of the capture form (shared instance —
@@ -21,6 +22,10 @@ class PlateShotScreen extends StatefulWidget {
 
   /// Required shots explain themselves in the header.
   final bool required;
+
+  /// What is being photographed, e.g. 'la placa' or 'el totalizador'. Only
+  /// the copy changes; the aim-and-shoot behaviour is identical.
+  final String subject;
 
   @override
   State<PlateShotScreen> createState() => _PlateShotScreenState();
@@ -87,8 +92,8 @@ class _PlateShotScreenState extends State<PlateShotScreen> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         title: Text(widget.required
-            ? 'Foto de la placa (requerida)'
-            : 'Foto de la placa'),
+            ? 'Foto de ${widget.subject} (requerida)'
+            : 'Foto de ${widget.subject}'),
       ),
       body: controller == null || !controller.value.isInitialized
           ? const Center(
@@ -112,9 +117,9 @@ class _PlateShotScreenState extends State<PlateShotScreen> {
                       children: [
                         Text(
                           _maxZoom > 1
-                              ? 'Encuadra la placa · pellizca para acercar '
-                                  '(${_zoom.toStringAsFixed(1)}x)'
-                              : 'Encuadra la placa',
+                              ? 'Encuadra ${widget.subject} · pellizca para '
+                                  'acercar (${_zoom.toStringAsFixed(1)}x)'
+                              : 'Encuadra ${widget.subject}',
                           style: const TextStyle(color: Colors.white70),
                         ),
                         const SizedBox(height: 12),

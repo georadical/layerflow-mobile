@@ -58,17 +58,19 @@ class EvidenceRepository {
     return lotteryRoll == 0;
   }
 
-  /// Queues (or replaces) the unit's photo. Re-capturing replaces file and
-  /// row — the upload is idempotent per unit anyway. The OLD file is
-  /// removed best-effort so re-shots do not accumulate on disk.
+  /// Queues (or replaces) a unit's photo for a [proposito]. Re-capturing
+  /// replaces file and row — the upload is idempotent per (unit, proposito)
+  /// anyway. The OLD file is removed best-effort so re-shots do not
+  /// accumulate on disk.
   Future<void> enqueue({
     required String clientId,
     required String routeId,
     required String filePath,
     required String soporte,
+    String proposito = AppConfig.propositoPlaca,
     String? owner,
   }) async {
-    final existing = await _db.getEvidence(clientId);
+    final existing = await _db.getEvidence(clientId, proposito: proposito);
     if (existing != null && existing.filePath != filePath) {
       await _deleteFile(existing.filePath);
     }
@@ -76,6 +78,7 @@ class EvidenceRepository {
     await _db.upsertEvidence(EvidenceCompanion(
       clientId: Value(clientId),
       routeId: Value(routeId),
+      proposito: Value(proposito),
       filePath: Value(filePath),
       soporte: Value(soporte),
       ownerEmail: Value(owner),
@@ -84,6 +87,18 @@ class EvidenceRepository {
       createdAt: Value(existing?.createdAt ?? now),
       updatedAt: Value(now),
     ));
+  }
+
+  /// Removes a unit's queued photo for a [proposito] (row + local file) —
+  /// e.g. when the surveyor clears a declared totalizador before sending.
+  Future<void> remove(
+    String clientId, {
+    String proposito = AppConfig.propositoPlaca,
+  }) async {
+    final existing = await _db.getEvidence(clientId, proposito: proposito);
+    if (existing == null) return;
+    await _db.deleteEvidence(clientId, proposito: proposito);
+    await _deleteFile(existing.filePath);
   }
 
   Future<List<EvidenceData>> pendingForRoute(String routeId, {String? owner}) =>
@@ -96,14 +111,14 @@ class EvidenceRepository {
   /// Server confirmed reception (2xx): purge row AND local file — the
   /// device holds no photo the server already has.
   Future<void> confirmUploaded(EvidenceData row) async {
-    await _db.deleteEvidence(row.clientId);
+    await _db.deleteEvidence(row.clientId, proposito: row.proposito);
     await _deleteFile(row.filePath);
   }
 
   /// A server VERDICT on the photo's merits (413/415/400/404): recorded on
   /// the row; a re-shot replaces it. Transport failures never call this.
-  Future<void> markError(String clientId, String error) =>
-      _db.markEvidenceError(clientId, error);
+  Future<void> markError(EvidenceData row, String error) =>
+      _db.markEvidenceError(row.clientId, error, proposito: row.proposito);
 
   Future<void> _deleteFile(String path) async {
     try {

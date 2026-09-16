@@ -551,4 +551,30 @@ class SurveyController
       _apply(_cur.removeUnit(floor, unit));
 
   Future<void> removeFloor(int floor) => _apply(_cur.removeFloor(floor));
+
+  /// Declares the totalizador with its just-taken photo (CL-E4): the photo
+  /// is queued as evidence (proposito=totalizador, always divergencia, bound
+  /// to the anchor's client_id) and the 99/99 is added to the structure. It
+  /// travels on the SAME Enviar as the placas, via /field/capture/evidence.
+  Future<void> declareTotalizador(String photoPath) async {
+    await ref.read(evidenceRepositoryProvider).enqueue(
+          clientId: arg.anchorClientId,
+          routeId: arg.routeId,
+          filePath: photoPath,
+          soporte: AppConfig.soporteDivergencia,
+          proposito: AppConfig.propositoTotalizador,
+          owner: ref.read(queueOwnerProvider),
+        );
+    await _apply(_cur.declareTotalizador(photo: photoPath));
+  }
+
+  /// Undeclares the totalizador before sending: drops the 99/99 and its
+  /// queued photo (row + local file).
+  Future<void> clearTotalizador() async {
+    await ref.read(evidenceRepositoryProvider).remove(
+          arg.anchorClientId,
+          proposito: AppConfig.propositoTotalizador,
+        );
+    await _apply(_cur.clearTotalizador());
+  }
 }
