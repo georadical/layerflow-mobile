@@ -175,13 +175,48 @@ class Evidence extends Table {
   Set<Column<Object>> get primaryKey => {clientId};
 }
 
-@DriftDatabase(tables: [Routes, Captures, R1Directory, Evidence])
+/// A predio's extended survey (Spec 8, T8.5). One row per anchor unit (the
+/// captured placa's client_id); it holds the declared structure as a
+/// document plus the STABLE /sync/push identities, so a half-done survey
+/// survives closing the app (CL-E6) and re-sends are idempotent. CL4
+/// ownership applies: an unsent survey belongs to the person who ran it.
+class Surveys extends Table {
+  /// The anchor unit's capture key — the predio this survey belongs to.
+  TextColumn get anchorClientId => text()();
+
+  TextColumn get routeId => text()();
+
+  TextColumn get ownerEmail => text().nullable()();
+
+  /// Stable /sync/push identities, assigned once and reused across retries
+  /// (idempotency layer b): the visit and its observation_set.
+  TextColumn get visitId => text()();
+  TextColumn get observationSetId => text()();
+
+  /// The declared SurveyStructure serialised (floors → units → answers +
+  /// totalizador). ph/pv/instancia are DERIVED at send time, never stored.
+  TextColumn get structureJson => text()();
+
+  /// pending | synced | error — the survey leg of the Enviar chain.
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant(AppConfig.syncPending))();
+
+  TextColumn get syncError => text().nullable()();
+
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {anchorClientId};
+}
+
+@DriftDatabase(tables: [Routes, Captures, R1Directory, Evidence, Surveys])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -227,6 +262,11 @@ class AppDatabase extends _$AppDatabase {
                     'CASE WHEN sin_r1 THEN 1 ELSE NULL END'),
               },
             ));
+          }
+          if (from < 10) {
+            // Extended survey (Spec 8): resumable local survey state, one
+            // row per anchor. Starts empty until the first survey is saved.
+            await m.createTable(surveys);
           }
         },
       );
@@ -471,4 +511,67 @@ class AppDatabase extends _$AppDatabase {
       ..addColumns([countExpr]);
     return (await query.getSingle()).read(countExpr) ?? 0;
   }
+
+  // ---- Surveys (Spec 8, T8.5) ----
+
+  /// CL4 visibility, same rule as captures: a synced survey is the route's
+  /// shared truth (always shown); an unsent one is shown only to its owner
+  /// (or to everyone when unowned).
+  Expression<bool> _surveyVisibleTo(Surveys s, String? owner) {
+    final base =
+        s.syncStatus.equals(AppConfig.syncSynced) | s.ownerEmail.isNull();
+    return owner == null ? base : base | s.ownerEmail.equals(owner);
+  }
+
+  Future<void> upsertSurvey(SurveysCompanion survey) =>
+      into(surveys).insertOnConflictUpdate(survey);
+
+  Future<Survey?> getSurvey(String anchorClientId) =>
+      (select(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
+          .getSingleOrNull();
+
+  Stream<Survey?> watchSurvey(String anchorClientId) =>
+      (select(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
+          .watchSingleOrNull();
+
+  /// Every survey of a route the caller may see — the resume list joins this
+  /// to hang a per-unit survey-state chip (CL-E1).
+  Stream<List<Survey>> watchSurveysForRoute(String routeId, {String? owner}) {
+    return (select(surveys)
+          ..where((s) => s.routeId.equals(routeId) & _surveyVisibleTo(s, owner)))
+        .watch();
+  }
+
+  /// Unsent surveys of a route, CL4-scoped — the survey leg of the Enviar
+  /// chain pushes these.
+  Future<List<Survey>> pendingSurveys(String routeId, {String? owner}) {
+    return (select(surveys)
+          ..where((s) =>
+              s.routeId.equals(routeId) &
+              s.syncStatus.equals(AppConfig.syncSynced).not() &
+              _surveyVisibleTo(s, owner))
+          ..orderBy([(s) => OrderingTerm.asc(s.createdAt)]))
+        .get();
+  }
+
+  /// Live count of a route's unsent surveys, CL4-scoped (for the send bar).
+  Stream<int> watchPendingSurveyCount(String routeId, {String? owner}) {
+    final countExpr = surveys.anchorClientId.count();
+    final query = selectOnly(surveys)
+      ..where(surveys.routeId.equals(routeId) &
+          surveys.syncStatus.equals(AppConfig.syncSynced).not() &
+          _surveyVisibleTo(surveys, owner))
+      ..addColumns([countExpr]);
+    return query.watchSingle().map((row) => row.read(countExpr) ?? 0);
+  }
+
+  Future<bool> updateSurveyRow(String anchorClientId, SurveysCompanion patch) {
+    return (update(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
+        .write(patch)
+        .then((rows) => rows > 0);
+  }
+
+  Future<void> deleteSurvey(String anchorClientId) =>
+      (delete(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
+          .go();
 }

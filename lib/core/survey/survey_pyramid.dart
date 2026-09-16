@@ -118,6 +118,28 @@ class SurveyAnswers {
         uso: uso ?? this.uso,
       );
 
+  /// Local persistence only (drift, T8.5) — enum `.name`, NOT the contract
+  /// wire values (those are used by the sync builder). Absent keys = null.
+  Map<String, dynamic> toJson() => {
+        if (acceso != null) 'acceso': acceso!.name,
+        if (tipoAcceso != null) 'tipo_acceso': tipoAcceso!.name,
+        if (medicion != null) 'medicion': medicion!.name,
+        if (uso != null) 'uso': uso!.name,
+      };
+
+  factory SurveyAnswers.fromJson(Map<String, dynamic> json) => SurveyAnswers(
+        acceso: json['acceso'] != null
+            ? AccesoIndependiente.values.byName(json['acceso'] as String)
+            : null,
+        tipoAcceso: json['tipo_acceso'] != null
+            ? TipoAcceso.values.byName(json['tipo_acceso'] as String)
+            : null,
+        medicion: json['medicion'] != null
+            ? Medicion.values.byName(json['medicion'] as String)
+            : null,
+        uso: json['uso'] != null ? Uso.values.byName(json['uso'] as String) : null,
+      );
+
   @override
   bool operator ==(Object other) =>
       other is SurveyAnswers &&
@@ -398,4 +420,41 @@ class SurveyStructure {
   /// True when nothing blocks the send (CL-E7).
   bool canSend({bool anchorIsLote = false}) =>
       validate(anchorIsLote: anchorIsLote).isEmpty;
+
+  /// All real units fully answered — the "completa" chip in the resume list.
+  /// The totalizador has no answers and does not count.
+  bool get isComplete => generate()
+      .where((u) => !u.isTotalizador)
+      .every((u) => u.answers.isComplete);
+
+  /// Local persistence only (drift, T8.5). ph/pv/instancia are DERIVED, so
+  /// only the declared structure and the totalizador are stored.
+  Map<String, dynamic> toJson() => {
+        'floors': [
+          for (final f in _floors) [for (final u in f) u.toJson()],
+        ],
+        'totalizador': totalizador,
+        if (totalizadorPhoto != null) 'totalizador_photo': totalizadorPhoto,
+      };
+
+  factory SurveyStructure.fromJson(Map<String, dynamic> json) {
+    final floors = <List<SurveyAnswers>>[
+      for (final f in (json['floors'] as List? ?? const []))
+        <SurveyAnswers>[
+          for (final u in (f as List))
+            SurveyAnswers.fromJson(u as Map<String, dynamic>),
+        ],
+    ];
+    // Restore the invariant (≥1 floor, ≥1 unit) if a malformed doc is read.
+    final safe = (floors.isEmpty || floors.any((f) => f.isEmpty))
+        ? <List<SurveyAnswers>>[
+            [const SurveyAnswers()],
+          ]
+        : floors;
+    return SurveyStructure._(
+      safe,
+      json['totalizador'] as bool? ?? false,
+      json['totalizador_photo'] as String?,
+    );
+  }
 }

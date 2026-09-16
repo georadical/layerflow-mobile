@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:layerflow_capture/core/survey/survey_pyramid.dart';
 
@@ -195,6 +197,45 @@ void main() {
       expect(TipoAcceso.zonaComun.wire, 'zona_comun');
       expect(Medicion.general.wire, 'general');
       expect(Uso.oficina.wire, 'oficina');
+    });
+  });
+
+  group('isComplete — the completa chip', () {
+    test('true only when every real unit is fully answered', () {
+      expect(SurveyStructure.unifamiliar().isComplete, isFalse);
+      expect(SurveyStructure.unifamiliar(_answered).isComplete, isTrue);
+      // a blank second unit drops it back to incomplete
+      expect(SurveyStructure.unifamiliar(_answered).addUnit(0).isComplete,
+          isFalse);
+    });
+
+    test('the totalizador (no answers) does not block completeness', () {
+      final s = SurveyStructure.unifamiliar(_answered)
+          .declareTotalizador(photo: '/t.jpg');
+      expect(s.isComplete, isTrue);
+    });
+  });
+
+  group('JSON round-trip (drift persistence)', () {
+    test('a multi-floor structure with answers survives a round-trip', () {
+      final s = SurveyStructure.unifamiliar(_answered)
+          .addUnit(0)
+          .setAnswers(0, 1, const SurveyAnswers(uso: Uso.local))
+          .addFloor()
+          .declareTotalizador(photo: '/tmp/t.jpg');
+      final back = SurveyStructure.fromJson(
+          jsonDecode(jsonEncode(s.toJson())) as Map<String, dynamic>);
+      expect(back.generate(), s.generate());
+      expect(back.totalizador, isTrue);
+      expect(back.totalizadorPhoto, '/tmp/t.jpg');
+    });
+
+    test('a blank unifamiliar round-trips to a blank unifamiliar', () {
+      final s = SurveyStructure.unifamiliar();
+      final back = SurveyStructure.fromJson(
+          jsonDecode(jsonEncode(s.toJson())) as Map<String, dynamic>);
+      expect(back.isUnifamiliar, isTrue);
+      expect(back.generate(), s.generate());
     });
   });
 }
