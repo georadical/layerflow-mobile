@@ -10,9 +10,11 @@ import '../data/api/api_client.dart';
 import '../data/api/dtos.dart';
 import '../data/cache/assigned_routes_cache.dart';
 import '../data/db/database.dart';
+import '../core/survey/survey_pyramid.dart';
 import '../data/repositories/capture_repository.dart';
 import '../data/repositories/evidence_repository.dart';
 import '../data/repositories/r1_directory_repository.dart';
+import '../data/repositories/survey_repository.dart';
 import '../data/settings/settings_store.dart';
 import '../data/sync/sync_service.dart';
 
@@ -471,3 +473,82 @@ final capturesProvider =
       .watch(captureRepositoryProvider)
       .watchCaptures(routeId, owner: owner);
 });
+
+// ---- Extended survey (Spec 8, T8.5) ----
+
+final surveyRepositoryProvider = Provider<SurveyRepository>(
+  (ref) => SurveyRepository(ref.watch(databaseProvider)),
+);
+
+/// Live map of a route's surveys, keyed by the anchor's clientId — the resume
+/// list hangs a per-unit survey-state chip from it (CL-E1), CL4-scoped.
+final routeSurveysProvider =
+    StreamProvider.autoDispose.family<Map<String, Survey>, String>(
+  (ref, routeId) {
+    final owner = ref.watch(queueOwnerProvider);
+    return ref
+        .watch(surveyRepositoryProvider)
+        .watchSurveysForRoute(routeId, owner: owner)
+        .map((list) => {for (final s in list) s.anchorClientId: s});
+  },
+);
+
+/// Identity of the survey being edited: the anchor unit and its route.
+class SurveyArgs {
+  const SurveyArgs({required this.anchorClientId, required this.routeId});
+
+  final String anchorClientId;
+  final String routeId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is SurveyArgs &&
+      other.anchorClientId == anchorClientId &&
+      other.routeId == routeId;
+
+  @override
+  int get hashCode => Object.hash(anchorClientId, routeId);
+}
+
+/// Drives one predio's survey form (Spec 8, T8.5). Loads the persisted
+/// structure (or a fresh unifamiliar), and every gesture auto-saves to drift
+/// so a half-done survey is never memory-only (CL-E6). autoDispose so
+/// re-entering reloads from the source of truth.
+final surveyControllerProvider = AsyncNotifierProvider.autoDispose
+    .family<SurveyController, SurveyStructure, SurveyArgs>(
+  SurveyController.new,
+);
+
+class SurveyController
+    extends AutoDisposeFamilyAsyncNotifier<SurveyStructure, SurveyArgs> {
+  @override
+  Future<SurveyStructure> build(SurveyArgs arg) async {
+    final loaded =
+        await ref.read(surveyRepositoryProvider).loadStructure(arg.anchorClientId);
+    return loaded ?? SurveyStructure.unifamiliar();
+  }
+
+  Future<void> _apply(SurveyStructure next) async {
+    state = AsyncData(next);
+    await ref.read(surveyRepositoryProvider).saveSurvey(
+          anchorClientId: arg.anchorClientId,
+          routeId: arg.routeId,
+          structure: next,
+          owner: ref.read(queueOwnerProvider),
+        );
+  }
+
+  SurveyStructure get _cur => state.requireValue;
+
+  Future<void> setAnswers(int floor, int unit, SurveyAnswers answers) =>
+      _apply(_cur.setAnswers(floor, unit, answers));
+
+  Future<void> addUnit(int floor) => _apply(_cur.addUnit(floor));
+
+  Future<void> addFloor() => _apply(_cur.addFloor());
+
+  Future<void> removeUnit(int floor, int unit) =>
+      _apply(_cur.removeUnit(floor, unit));
+
+  Future<void> removeFloor(int floor) => _apply(_cur.removeFloor(floor));
+}

@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/config/app_config.dart';
 import '../../data/api/api_client.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/survey_repository.dart';
 import '../providers.dart';
 import 'capture_screen.dart';
 import 'edit_unit_screen.dart';
 import 'settings_screen.dart';
+import 'survey_screen.dart';
 
 /// Resume view — Spec 1, T1.6/T1.7. Read-only list of what the route already
 /// has, with the address leading (BR5).
@@ -433,6 +435,12 @@ class _UnitTile extends ConsumerWidget {
     final refused = row.syncStatus == AppConfig.syncError;
     final queued = row.syncStatus == AppConfig.syncPending;
 
+    // CL-E1: the survey is the second pass over this same unit — the row
+    // gains a per-unit survey chip, it does not spawn a separate list.
+    final surveys = ref.watch(routeSurveysProvider(row.routeId)).valueOrNull;
+    final estado =
+        ref.read(surveyRepositoryProvider).estadoOf(surveys?[row.clientId]);
+
     final meta = <String>[
       'posición ${row.posicion}',
       if (row.loc != null) 'loc ${row.loc}',
@@ -513,6 +521,13 @@ class _UnitTile extends ConsumerWidget {
                         ),
                       ),
                     ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: _SurveyLine(
+                      estado: estado,
+                      onTap: () => _survey(context),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -531,6 +546,79 @@ class _UnitTile extends ConsumerWidget {
     return Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => EditUnitScreen(row: row, allRows: allRows),
+      ),
+    );
+  }
+
+  /// Opens the survey pass for this unit (Spec 8). Tapping the chip enters
+  /// the survey; tapping the rest of the row still edits the placa — the two
+  /// passes share the row without a mode toggle.
+  ///
+  /// (The CL-E8 lock gate rides here once the backend's TJ.5 flags land; for
+  /// now the entry is always open — enforcement is server-side at push.)
+  Future<void> _survey(BuildContext context) {
+    return Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SurveyScreen(
+          anchorClientId: row.clientId,
+          routeId: row.routeId,
+          posicion: row.posicion,
+          placa: row.placa,
+        ),
+      ),
+    );
+  }
+}
+
+/// The per-unit survey chip in the resume list (CL-E1). Tappable, and it
+/// stops the tap from reaching the row's placa editor underneath.
+class _SurveyLine extends StatelessWidget {
+  const _SurveyLine({required this.estado, required this.onTap});
+
+  final SurveyEstado estado;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (label, bg, fg, icon) = switch (estado) {
+      SurveyEstado.completa => (
+          'Encuesta completa',
+          theme.colorScheme.secondaryContainer,
+          theme.colorScheme.onSecondaryContainer,
+          Icons.check_circle_outline,
+        ),
+      SurveyEstado.aMedias => (
+          'Encuesta a medias',
+          theme.colorScheme.tertiaryContainer,
+          theme.colorScheme.onTertiaryContainer,
+          Icons.timelapse,
+        ),
+      SurveyEstado.sinEncuesta => (
+          'Levantar encuesta',
+          theme.colorScheme.surfaceContainerHighest,
+          theme.colorScheme.onSurfaceVariant,
+          Icons.assignment_outlined,
+        ),
+    };
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: fg),
+            const SizedBox(width: 6),
+            Text(label,
+                style: theme.textTheme.labelMedium?.copyWith(color: fg)),
+          ],
+        ),
       ),
     );
   }
