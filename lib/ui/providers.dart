@@ -474,6 +474,30 @@ final capturesProvider =
       .watchCaptures(routeId, owner: owner);
 });
 
+// ---- Route-state locks (Spec 9) ----
+
+/// CL-E8: whether the active worker-in-ESP may run the survey at all.
+/// Fail-closed: no session / no active ESP / flag false → false.
+final canSurveyProvider = Provider<bool>(
+  (ref) =>
+      ref.watch(sessionProvider).valueOrNull?.activeEsp?.canSurvey ?? false,
+);
+
+/// The placa pass is CLOSED for this route (Spec 9). Fail-open: only an
+/// explicit 'cerrada' disables capture; a not-yet-loaded route reads open.
+final placasClosedProvider = Provider.family<bool, String>((ref, routeId) {
+  final route = ref.watch(routeRowProvider(routeId)).valueOrNull;
+  return route?.placasEstado == AppConfig.placasCerrada;
+});
+
+/// The survey is UNLOCKED for this route (CL-E8): the worker is cleared AND
+/// the route is open. Fail-closed: anything missing → locked.
+final surveyUnlockedProvider = Provider.family<bool, String>((ref, routeId) {
+  if (!ref.watch(canSurveyProvider)) return false;
+  final route = ref.watch(routeRowProvider(routeId)).valueOrNull;
+  return route?.surveyEstado == AppConfig.surveyAbierta;
+});
+
 // ---- Extended survey (Spec 8, T8.5) ----
 
 final surveyRepositoryProvider = Provider<SurveyRepository>(

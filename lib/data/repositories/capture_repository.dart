@@ -262,6 +262,9 @@ class CaptureRepository {
         routeId: Value(frame.routeId),
         codigo: Value(frame.codigo),
         lastFrameSyncAt: Value(now),
+        // Spec 9: the frame is the freshest source of the route-state locks.
+        placasEstado: Value(frame.placasEstado),
+        surveyEstado: Value(frame.surveyEstado),
       ),
     );
 

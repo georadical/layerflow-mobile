@@ -75,6 +75,19 @@ class AppConfig {
   /// should be unreachable, but the client maps it defensively.
   static const String codeSurveyNoAutorizado = 'survey_no_autorizado';
 
+  /// Route-state locks (Spec 9). The app REFLECTS these; the backend is the
+  /// authority and enforces at the write.
+  /// Placa pass: only an explicit 'cerrada' disables capture (fail-OPEN —
+  /// absent means abierta, so routes predating the flag keep capturing).
+  static const String placasAbierta = 'abierta';
+  static const String placasCerrada = 'cerrada';
+  /// Survey pass: fail-CLOSED — absent means bloqueada.
+  static const String surveyBloqueada = 'bloqueada';
+  static const String surveyAbierta = 'abierta';
+
+  /// 409 code when a placa push races a route close (backend da98366).
+  static const String codeRutaPlacasCerrada = 'ruta_placas_cerrada';
+
   /// Local sync states.
   static const String syncPending = 'pending';
   static const String syncSynced = 'synced';

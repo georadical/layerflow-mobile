@@ -24,6 +24,14 @@ class Routes extends Table {
   DateTimeColumn get lastPushAt => dateTime().nullable()();
   TextColumn get lastPushOutcome => text().nullable()();
 
+  /// Route-state locks (Spec 9), persisted so the gates work offline with the
+  /// last-known value. Defaults are the fail-open (placa) / fail-closed
+  /// (survey) safe states for a route created before any frame carried them.
+  TextColumn get placasEstado =>
+      text().withDefault(const Constant(AppConfig.placasAbierta))();
+  TextColumn get surveyEstado =>
+      text().withDefault(const Constant(AppConfig.surveyBloqueada))();
+
   @override
   Set<Column<Object>> get primaryKey => {routeId};
 }
@@ -224,7 +232,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -290,6 +298,13 @@ class AppDatabase extends _$AppDatabase {
               },
               newColumns: [evidence.proposito],
             ));
+          }
+          if (from < 12) {
+            // Route-state locks (Spec 9). Existing routes take the safe
+            // defaults (placa open, survey blocked) until a frame refreshes
+            // them.
+            await m.addColumn(routes, routes.placasEstado);
+            await m.addColumn(routes, routes.surveyEstado);
           }
         },
       );

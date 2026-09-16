@@ -283,4 +283,66 @@ void main() {
       expect(clean.insAfter, isNull);
     });
   });
+
+  group('route-state locks — DTO parsing + fail directions (Spec 9)', () {
+    test('RouteSummary defaults: placa fail-OPEN, survey fail-CLOSED', () {
+      final r = RouteSummary.fromJson({
+        'route_id': 'r1',
+        'codigo': '10',
+        'estado': 'verificada',
+      });
+      expect(r.placasEstado, 'abierta');
+      expect(r.surveyEstado, 'bloqueada');
+    });
+
+    test('RouteSummary reads explicit estados and round-trips them', () {
+      final r = RouteSummary.fromJson({
+        'route_id': 'r1',
+        'codigo': '10',
+        'estado': 'verificada',
+        'placas_estado': 'cerrada',
+        'survey_estado': 'abierta',
+      });
+      expect(r.placasEstado, 'cerrada');
+      expect(r.surveyEstado, 'abierta');
+      final back = RouteSummary.fromJson(r.toJson());
+      expect(back.placasEstado, 'cerrada');
+      expect(back.surveyEstado, 'abierta');
+    });
+
+    test('RouteFrame carries the estados with the same defaults', () {
+      final def = RouteFrame.fromJson({'route_id': 'r1', 'items': []});
+      expect(def.placasEstado, 'abierta');
+      expect(def.surveyEstado, 'bloqueada');
+
+      final explicit = RouteFrame.fromJson({
+        'route_id': 'r1',
+        'items': [],
+        'placas_estado': 'cerrada',
+        'survey_estado': 'abierta',
+      });
+      expect(explicit.placasEstado, 'cerrada');
+      expect(explicit.surveyEstado, 'abierta');
+    });
+
+    test('LoginEsp.can_survey is fail-CLOSED and round-trips', () {
+      final off = LoginEsp.fromJson({
+        'tenant_id': 1,
+        'esp_nombre': 'ESP',
+        'field_worker_id': 'fw',
+        'field_token': 't',
+      });
+      expect(off.canSurvey, isFalse);
+
+      final on = LoginEsp.fromJson({
+        'tenant_id': 1,
+        'esp_nombre': 'ESP',
+        'field_worker_id': 'fw',
+        'field_token': 't',
+        'can_survey': true,
+      });
+      expect(on.canSurvey, isTrue);
+      expect(LoginEsp.fromJson(on.toJson()).canSurvey, isTrue);
+    });
+  });
 }
