@@ -51,6 +51,24 @@ class AppConfig {
   /// the frame (CL-R7) — the app reconstructs the flag from it on resume.
   static const String methodSinMatch = 'field_sin_match';
 
+  /// Census sync (Spec 8) — the survey pass ships as ordered operations
+  /// over visits/observation_sets/field_responses/media_assets. Distinct
+  /// transport from the placa push; same manual-only Enviar doctrine.
+  static const String syncPushPath = '/sync/push';
+  static const String syncPullPath = '/sync/pull';
+
+  /// Per-op verdicts of POST /sync/push (pinned). `aplicada` and `duplicada`
+  /// both mean "the row is as intended on the server" (idempotent re-send).
+  static const String syncApplied = 'aplicada';
+  static const String syncDuplicate = 'duplicada';
+  static const String syncConflict = 'conflicto';
+  static const String syncOpError = 'error';
+
+  /// CL-E8: the stable per-op code when the worker/route is not authorised
+  /// to run the extended survey. The app gates the survey entry so this
+  /// should be unreachable, but the client maps it defensively.
+  static const String codeSurveyNoAutorizado = 'survey_no_autorizado';
+
   /// Local sync states.
   static const String syncPending = 'pending';
   static const String syncSynced = 'synced';
