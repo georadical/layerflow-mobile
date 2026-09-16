@@ -15,7 +15,8 @@ with a verifiable gate, a commit and explicit approval.
 | 5 | Field worker login | [field-login.md](field-login.md) (shared) | Done — T5.1–T5.5 verified live against the backend |
 | 6 | ESP switching (multi-ESP, app side) | [esp-switching.md](esp-switching.md) | Done — switch verified live both ways |
 | 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done — full version E2E-verified both sides (2026-09-15) |
-| 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | In progress @ d2bb861 (Q1/Q2/Q3 + CL-E8) — T8.1 client, T8.2 wireframe, T8.3 pyramid done; backend TJ.0 deployed, TJ.1–TJ.6 in parallel |
+| 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | In progress @ d2bb861 (Q1/Q2/Q3 + CL-E8) — T8.1 client, T8.2 wireframe, T8.3 pyramid, T8.4 totalizador photo, T8.5a/b done; backend TJ.0–TJ.6 deployed |
+| 9 | Route-state locks (capture + survey gating) | [route-state-locks.md](route-state-locks.md) | Draft — backend locks deployed (survey cd283e7, placas da98366); app tickets L.1–L.3 |
 
 ## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
 
