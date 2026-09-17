@@ -15,8 +15,8 @@ with a verifiable gate, a commit and explicit approval.
 | 5 | Field worker login | [field-login.md](field-login.md) (shared) | Done — T5.1–T5.5 verified live against the backend |
 | 6 | ESP switching (multi-ESP, app side) | [esp-switching.md](esp-switching.md) | Done — switch verified live both ways |
 | 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done — full version E2E-verified both sides (2026-09-15) |
-| 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | In progress @ d2bb861 (Q1/Q2/Q3 + CL-E8) — T8.1 client, T8.2 wireframe, T8.3 pyramid, T8.4 totalizador photo, T8.5a/b done; backend TJ.0–TJ.6 deployed |
-| 9 | Route-state locks (capture + survey gating) | [route-state-locks.md](route-state-locks.md) | Draft — backend locks deployed (survey cd283e7, placas da98366); app tickets L.1–L.3 |
+| 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | Done @ d2bb861 — T8.1–T8.6 complete; E2E 9/9 aplicada both sides (Isnos/Ruta 10, 2026-09-17) |
+| 9 | Route-state locks (capture + survey gating) | [route-state-locks.md](route-state-locks.md) | Done — L.1 foundation, L.2 survey gate, L.3 placa gate; survey gate verified live (unlock on open route) |
 
 ## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
 
@@ -60,13 +60,12 @@ algorithm including pre-send deletion with compact renumber (point 2),
 and instancia semantics (point 4). CL-E1..E7 pinned as proposed.
 
 **App tickets (against the shared contract):**
-- **T8.1 — Sync client** ✅ pure parts DONE (2a68eb4/36a2721): /sync/push
+- **T8.1 — Sync client** ✅ DONE (36a2721, wired at 3f397bf): /sync/push
   envelope DTOs + `orderOperations` (parents before children), two-layer
   idempotency, `operaciones`/`resumen` result mapping (Q3), and the
   `SurveyStructure → visit → observation_set → field_response` builder with
   the Q2 `data` shapes (all `create`; totalizador photo out of band via
-  evidence; deterministic v5 field ids). Pending: the HTTP call + local
-  observation tables (drift) + person binding (CL4), wired at T8.5.
+  evidence; deterministic v5 field ids).
 - **T8.2 — Survey rail wireframe** ✅ DONE (58b2f2c): per-unit survey-state
   chips in the resume list (one list, not a parallel survey list), pre-loaded
   full-screen form (the editor refactor is the chassis), structure buttons,
@@ -77,15 +76,17 @@ and instancia semantics (point 4). CL-E1..E7 pinned as proposed.
   app always emits a `unidad` (a lone unit is still 01/01; the backend
   decides 00/00-vs-expand), CL-E7 device-side convention validator. Unit
   tests against the spec's pseudocode + acceptance codes.
-- **T8.4 — Totalizador photo**: evidence flow with
-  proposito='totalizador' (needs backend TJ.3), soporte=divergencia
-  fixed, required at declaration.
-- **T8.5 — The Enviar chain grows**: placas → evidence → /sync/push in
-  the same gesture (CL-E5); resumable survey state in drift (CL-E6). Also
-  the **CL-E8 lock gate**: read `can_survey` (login) + `survey_estado`
-  (routes/frame), fail-closed, and gate the survey entry in the resume list
-  before any work — never discover `survey_no_autorizado` at Enviar.
-- **T8.6 — Coordinated E2E** on a sacrifice route, both sides.
+- **T8.4 — Totalizador photo** ✅ DONE (b4a4cb0): evidence flow with
+  proposito='totalizador' (backend TJ.3), soporte=divergencia fixed,
+  declared only WITH its photo; coexists with the placa photo (Evidence
+  keyed by (client_id, proposito), schema v11).
+- **T8.5 — The Enviar chain grows** ✅ DONE: resumable survey state in drift
+  (T8.5a, cd07d3c, schema v10), the real survey screen + resume-list entry
+  (T8.5b, 5d3e4f7), and the survey push chained into Enviar (T8.5c, 3f397bf,
+  placas → evidence → /sync/push, CL-E5). The CL-E8 lock gate is Spec 9.
+- **T8.6 — Coordinated E2E** ✅ DONE: Isnos / Ruta 10 / CALLE 7 3-21,
+  9/9 aplicada both sides — lock passed, assignment_id derived by the
+  backend, unidad 01/01 + totalizador photo landed; test rows cleaned up.
 
 Spec 7 closed 2026-09-15: typeahead v1.2 (placa-only mode scoped by
 manzana, part-match), graduated photos v1.1 (deliberate shot on

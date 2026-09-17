@@ -1,6 +1,7 @@
 # Spec — Route-state locks (capture pass + survey pass gating)
 
-Status: draft (awaiting approval to implement)
+Status: done (L.1–L.3 implemented; survey gate verified live on Ruta 10 —
+locked when fail-closed, unlocked when the operator opens the route)
 Type: App-side gating against backend-owned route/worker flags → pipeline:
 Spec → Tickets → Implementation
 Consumed by: the capture app (resume list, capture entry, survey entry)
