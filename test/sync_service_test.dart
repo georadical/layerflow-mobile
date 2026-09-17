@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:layerflow_capture/core/config/app_config.dart';
 import 'package:layerflow_capture/data/api/api_client.dart';
 import 'package:layerflow_capture/data/api/dtos.dart';
+import 'package:layerflow_capture/data/api/sync_dtos.dart';
 import 'package:layerflow_capture/data/db/database.dart';
 import 'package:layerflow_capture/data/repositories/capture_repository.dart';
 import 'package:layerflow_capture/data/sync/sync_service.dart';
@@ -47,6 +48,10 @@ class _FakeApi implements ApiClient {
     required String filePath,
     String proposito = 'placa',
   }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<SyncPushResponse> pushSync(SyncPushRequest req) =>
       throw UnimplementedError();
 
   @override

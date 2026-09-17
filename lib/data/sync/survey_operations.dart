@@ -55,15 +55,15 @@ String surveyFieldResponseId(
     uuid.v5(_surveyNamespace, '$observationSetId/$instancia/$campo');
 
 /// The per-predio context a survey push needs, from the captured anchor and
-/// the session (Q2 `visit.data`).
+/// the session (Q2 `visit.data`). `assignment_id` is NOT sent: the backend
+/// derives it at visit-create from (worker + census_code_id → route), since a
+/// route only appears to an assigned worker (backend f1a0721).
 class SurveyContext {
   const SurveyContext({
-    required this.assignmentId,
     required this.censusCodeId,
     required this.fieldWorkerId,
   });
 
-  final String assignmentId;
   final String censusCodeId;
 
   /// Must equal the worker behind the token; the backend rejects a visit that
@@ -92,7 +92,6 @@ List<SyncOperation> buildSurveyOperations({
       op: SyncOp.create,
       id: visitId,
       data: {
-        'assignment_id': context.assignmentId,
         'census_code_id': context.censusCodeId,
         'field_worker_id': context.fieldWorkerId,
       },

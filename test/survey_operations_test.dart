@@ -4,7 +4,6 @@ import 'package:layerflow_capture/data/api/sync_dtos.dart';
 import 'package:layerflow_capture/data/sync/survey_operations.dart';
 
 const _ctx = SurveyContext(
-  assignmentId: 'asg-1',
   censusCodeId: 'cc-1',
   fieldWorkerId: 'fw-1',
 );
@@ -95,13 +94,13 @@ void main() {
       expect(uso.data['valor'], 'vivienda');
     });
 
-    test('visit.data and observation_set.data match Q2', () {
+    test('visit.data and observation_set.data match Q2 (no assignment_id)', () {
       final ops = _build(SurveyStructure.unifamiliar(_answered));
       expect(ops[0].data, {
-        'assignment_id': 'asg-1',
         'census_code_id': 'cc-1',
         'field_worker_id': 'fw-1',
       });
+      expect(ops[0].data.containsKey('assignment_id'), isFalse);
       expect(ops[1].data, {'visit_id': 'visit-1'});
     });
   });

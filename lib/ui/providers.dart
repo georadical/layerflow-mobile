@@ -58,6 +58,7 @@ final syncServiceProvider = Provider<SyncService>(
     ref.watch(apiClientProvider),
     ref.watch(captureRepositoryProvider),
     evidence: ref.watch(evidenceRepositoryProvider),
+    survey: ref.watch(surveyRepositoryProvider),
   ),
 );
 
@@ -407,18 +408,40 @@ class PushNotifier extends FamilyNotifier<bool, String> {
             owner: owner,
             wifiAvailable: ref.read(isOnWifiProvider),
           );
-      if (evidence.uploaded > 0 || evidence.failed > 0) {
-        final extra = 'fotos: ${evidence.uploaded} subidas'
-            '${evidence.failed > 0 ? ', ${evidence.failed} rechazadas' : ''}'
-            '${evidence.held > 0 ? ', ${evidence.held} en espera' : ''}';
-        return SyncResult(
-          attempted: result.attempted,
-          synced: result.synced,
-          failed: result.failed,
-          message: result.isNoop ? extra : '${result.message} · $extra',
-        );
+
+      // CL-E5: the survey leg, last in the chain. Only when the route is
+      // unlocked for this worker (else the visit-create would be refused and
+      // the surveys would needlessly show as errored) — locked, they stay
+      // pending, held until the office opens the route.
+      SurveyResult? survey;
+      final workerId =
+          ref.read(sessionProvider).valueOrNull?.activeEsp?.fieldWorkerId;
+      if (ref.read(surveyUnlockedProvider(arg)) && workerId != null) {
+        survey = await ref.read(syncServiceProvider).pushSurveys(
+              arg,
+              owner: owner,
+              fieldWorkerId: workerId,
+            );
       }
-      return result;
+
+      final extras = <String>[
+        if (evidence.uploaded > 0 || evidence.failed > 0)
+          'fotos: ${evidence.uploaded} subidas'
+              '${evidence.failed > 0 ? ', ${evidence.failed} rechazadas' : ''}'
+              '${evidence.held > 0 ? ', ${evidence.held} en espera' : ''}',
+        if (survey != null && (survey.synced > 0 || survey.failed > 0))
+          'encuestas: ${survey.synced} enviadas'
+              '${survey.failed > 0 ? ', ${survey.failed} rechazadas' : ''}'
+              '${survey.held > 0 ? ', ${survey.held} en espera' : ''}',
+      ];
+      if (extras.isEmpty) return result;
+      final extra = extras.join(' · ');
+      return SyncResult(
+        attempted: result.attempted,
+        synced: result.synced,
+        failed: result.failed,
+        message: result.isNoop ? extra : '${result.message} · $extra',
+      );
     } on ApiException catch (e) {
       // No verdict reached the items (BR3); the attempt itself still counts.
       await repo.recordPushAttempt(
@@ -503,6 +526,17 @@ final surveyUnlockedProvider = Provider.family<bool, String>((ref, routeId) {
 final surveyRepositoryProvider = Provider<SurveyRepository>(
   (ref) => SurveyRepository(ref.watch(databaseProvider)),
 );
+
+/// Unsent SURVEYS of a route (CL4-scoped). The send bar counts these too, so
+/// it stays alive when only surveys are pending — the same reason evidence is
+/// counted apart (an E2E lesson).
+final pendingSurveyCountProvider =
+    StreamProvider.autoDispose.family<int, String>((ref, routeId) {
+  final owner = ref.watch(queueOwnerProvider);
+  return ref
+      .watch(surveyRepositoryProvider)
+      .watchPendingCount(routeId, owner: owner);
+});
 
 /// Live map of a route's surveys, keyed by the anchor's clientId — the resume
 /// list hangs a per-unit survey-state chip from it (CL-E1), CL4-scoped.

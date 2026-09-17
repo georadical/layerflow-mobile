@@ -3,8 +3,11 @@ import 'package:uuid/uuid.dart';
 import '../../core/config/app_config.dart';
 import '../api/api_client.dart';
 import '../api/dtos.dart';
+import '../api/sync_dtos.dart';
 import '../repositories/capture_repository.dart';
 import '../repositories/evidence_repository.dart';
+import '../repositories/survey_repository.dart';
+import 'survey_operations.dart';
 
 /// Result of a sync push (for the UI).
 class SyncResult {
@@ -43,15 +46,41 @@ class EvidenceResult {
   final int failed;
 }
 
+/// Result of the survey leg of a send (Spec 8, T8.5c, CL-E5).
+class SurveyResult {
+  const SurveyResult({
+    required this.synced,
+    required this.held,
+    required this.failed,
+  });
+
+  final int synced;
+
+  /// Surveys whose anchor has not synced yet (its census_code does not exist,
+  /// so the visit would be rejected): kept, untouched, for a later send.
+  final int held;
+
+  /// Surveys the server refused on their merits (lock, no assignment, a bad
+  /// op): recorded per survey; editing re-queues.
+  final int failed;
+}
+
 /// Orchestrates pull (frame to resume) and push (pending queue → backend).
 class SyncService {
-  SyncService(this._api, this._repo, {Uuid? uuid, EvidenceRepository? evidence})
-      : _evidence = evidence,
+  SyncService(
+    this._api,
+    this._repo, {
+    Uuid? uuid,
+    EvidenceRepository? evidence,
+    SurveyRepository? survey,
+  })  : _evidence = evidence,
+        _survey = survey,
         _uuid = uuid ?? const Uuid();
 
   final ApiClient _api;
   final CaptureRepository _repo;
   final EvidenceRepository? _evidence;
+  final SurveyRepository? _survey;
   final Uuid _uuid;
 
   /// CL-R5 — the evidence leg of the SAME Enviar gesture, chained after
@@ -104,6 +133,68 @@ class SyncService {
       }
     }
     return EvidenceResult(uploaded: uploaded, held: held, failed: failed);
+  }
+
+  /// CL-E5 — the survey leg of the SAME Enviar gesture, chained after the
+  /// placa push so each anchor's census_code exists (the visit resolves the
+  /// route via `census_code_id`). One /sync/push per survey, its ops ordered
+  /// parents-before-children. A survey whose anchor is not synced yet is
+  /// HELD; the backend deriving the route means `census_code_id` is all the
+  /// visit needs ([fieldWorkerId] must equal the token's worker). A transport
+  /// failure stops the chain, everything left pending — no verdict, no
+  /// change, like the capture queue.
+  Future<SurveyResult> pushSurveys(
+    String routeId, {
+    String? owner,
+    required String fieldWorkerId,
+  }) async {
+    final surveyRepo = _survey;
+    if (surveyRepo == null) {
+      return const SurveyResult(synced: 0, held: 0, failed: 0);
+    }
+    final rows = await surveyRepo.pending(routeId, owner: owner);
+    var synced = 0, held = 0, failed = 0;
+
+    for (final row in rows) {
+      final anchor = await _repo.captureOf(row.anchorClientId);
+      if (anchor == null ||
+          anchor.syncStatus != AppConfig.syncSynced ||
+          anchor.remoteId == null) {
+        held++; // the census_code does not exist yet; the visit would fail
+        continue;
+      }
+      final ops = surveyRepo.operationsFor(
+        row,
+        SurveyContext(
+          censusCodeId: anchor.remoteId!,
+          fieldWorkerId: fieldWorkerId,
+        ),
+      );
+      final req = SyncPushRequest(batchId: _uuid.v4(), operations: ops);
+      try {
+        final res = await _api.pushSync(req);
+        if (res.isOk) {
+          await surveyRepo.markSynced(row.anchorClientId);
+          synced++;
+        } else {
+          final errored = res.operations.where((o) => !o.isOk).toList();
+          final motivo = res.hasSurveyLock
+              ? 'La oficina no habilitó la encuesta para esta ruta o '
+                  'encuestador.'
+              : (errored.isNotEmpty
+                  ? (errored.first.motivo ?? 'El servidor rechazó la encuesta.')
+                  : 'El servidor rechazó la encuesta.');
+          await surveyRepo.markError(row.anchorClientId, motivo);
+          failed++;
+        }
+      } on ApiException {
+        // Transport died mid-chain: no verdict reached this survey, so it
+        // stays pending and the rest wait too.
+        held++;
+        break;
+      }
+    }
+    return SurveyResult(synced: synced, held: held, failed: failed);
   }
 
   /// Fetches the route frame and merges it locally (resume).

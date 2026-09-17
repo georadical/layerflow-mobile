@@ -358,7 +358,11 @@ class _QueueBar extends ConsumerWidget {
     final waiting = ref.watch(pendingCountProvider(routeId));
     final photos =
         ref.watch(pendingEvidenceCountProvider(routeId)).valueOrNull ?? 0;
-    if (waiting == 0 && photos == 0) return const SizedBox.shrink();
+    final surveys =
+        ref.watch(pendingSurveyCountProvider(routeId)).valueOrNull ?? 0;
+    if (waiting == 0 && photos == 0 && surveys == 0) {
+      return const SizedBox.shrink();
+    }
     final sending = ref.watch(pushProvider(routeId));
     final online = ref.watch(isOnlineProvider);
     final onWifi = ref.watch(isOnWifiProvider);
@@ -384,9 +388,12 @@ class _QueueBar extends ConsumerWidget {
                 Text(
                   [
                     if (waiting > 0) '$waiting sin enviar',
-                    // Photos are named apart: with the capture queue empty
-                    // this line is the only reason the bar is here.
+                    // Photos and surveys are named apart: with the capture
+                    // queue empty, one of these may be the only reason the
+                    // bar is here.
                     if (photos > 0) '$photos ${photos == 1 ? 'foto' : 'fotos'}',
+                    if (surveys > 0)
+                      '$surveys ${surveys == 1 ? 'encuesta' : 'encuestas'}',
                     if (!online) 'sin conexión',
                   ].join(' · '),
                   style: theme.textTheme.titleSmall?.copyWith(

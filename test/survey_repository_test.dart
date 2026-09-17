@@ -162,8 +162,7 @@ void main() {
     final row = await repo.getSurvey(anchor);
     final ops = repo.operationsFor(
       row!,
-      const SurveyContext(
-          assignmentId: 'asg', censusCodeId: 'cc', fieldWorkerId: 'fw'),
+      const SurveyContext(censusCodeId: 'cc', fieldWorkerId: 'fw'),
     );
 
     expect(ops[0].entidad, SyncEntidad.visit);

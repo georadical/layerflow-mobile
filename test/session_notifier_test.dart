@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:layerflow_capture/data/api/api_client.dart';
 import 'package:layerflow_capture/data/api/dtos.dart';
+import 'package:layerflow_capture/data/api/sync_dtos.dart';
 import 'package:layerflow_capture/data/settings/settings_store.dart';
 import 'package:layerflow_capture/ui/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -59,6 +60,10 @@ class _FakeLoginApi implements ApiClient {
     required String filePath,
     String proposito = 'placa',
   }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<SyncPushResponse> pushSync(SyncPushRequest req) =>
       throw UnimplementedError();
 
   @override

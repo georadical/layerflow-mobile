@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../../core/config/app_config.dart';
 import '../settings/settings_store.dart';
 import 'dtos.dart';
+import 'sync_dtos.dart';
 
 /// Network/server error that the UI can display.
 class ApiException implements Exception {
@@ -61,6 +62,23 @@ class ApiClient {
         data: batch.toJson(),
       );
       return PlacaBatchResponse.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// POST /sync/push — the survey pass batch (Spec 8, T8.5c). Serialises the
+  /// operations parents-before-children (`ordered()`), and parses the
+  /// per-op verdicts + resumen. A closed/unauthorized op comes back inside
+  /// the 200 envelope with its `codigo`, not as an HTTP error.
+  Future<SyncPushResponse> pushSync(SyncPushRequest req) async {
+    final base = await _baseUrl();
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '$base${AppConfig.syncPushPath}',
+        data: req.ordered().toJson(),
+      );
+      return SyncPushResponse.fromJson(res.data ?? const {});
     } on DioException catch (e) {
       throw _mapError(e);
     }
