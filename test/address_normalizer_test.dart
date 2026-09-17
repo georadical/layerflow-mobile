@@ -67,10 +67,14 @@ void main() {
     });
   });
 
-  group('typeahead prefix (progressive, from RAW typing)', () {
-    test('grows with what the worker has typed', () {
-      expect(R1DirectoryRepository.typeaheadPrefix('C'), 'CALLE');
-      expect(R1DirectoryRepository.typeaheadPrefix('C 5'), 'CALLE 5');
+  group('typeahead prefix (progressive, gated — CL-R1 v1.1)', () {
+    test('the specificity gate: nothing before via + número + cruce', () {
+      // One letter, one tap, placa "c": the laziness the gate kills.
+      expect(R1DirectoryRepository.typeaheadPrefix('C'), isNull);
+      expect(R1DirectoryRepository.typeaheadPrefix('C 5'), isNull);
+    });
+
+    test('grows from the gate onward', () {
       expect(R1DirectoryRepository.typeaheadPrefix('C 5 2'), 'CALLE 5 # 2');
       expect(R1DirectoryRepository.typeaheadPrefix('C 5 2 0'), 'CALLE 5 # 2-0');
     });
@@ -78,6 +82,30 @@ void main() {
     test('rural text yields no prefix — no fake coverage', () {
       expect(R1DirectoryRepository.typeaheadPrefix('CASA MEJORA'), isNull);
       expect(R1DirectoryRepository.typeaheadPrefix(''), isNull);
+    });
+  });
+
+  group('placa mode + part match (CL-R1 v1.2, backend a52883d)', () {
+    test('placaPartPattern: auto-detected, gated at cruce + start of placa',
+        () {
+      expect(R1DirectoryRepository.placaPartPattern('3A 08'), '# 3A-08');
+      expect(R1DirectoryRepository.placaPartPattern('3A 0'), '# 3A-0');
+      expect(R1DirectoryRepository.placaPartPattern('3'), isNull,
+          reason: 'the gate, placa-mode flavour');
+      expect(R1DirectoryRepository.placaPartPattern('C 13 3A'), isNull,
+          reason: 'a via first token belongs to address mode');
+      expect(R1DirectoryRepository.placaPartPattern(''), isNull);
+    });
+
+    test('typedMatchesLinked: full match and cruce-placa part match', () {
+      const linked = 'CALLE 13 # 3A-08';
+      expect(typedMatchesLinked('C 13 3A 08', linked), isTrue);
+      expect(typedMatchesLinked('3A 08', linked), isTrue,
+          reason: 'the door plate usually shows only that part');
+      expect(typedMatchesLinked('3A-08', linked), isTrue);
+      expect(typedMatchesLinked('3A 09', linked), isFalse);
+      expect(typedMatchesLinked('c', linked), isFalse);
+      expect(typedMatchesLinked('', linked), isFalse);
     });
   });
 

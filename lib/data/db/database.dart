@@ -24,6 +24,14 @@ class Routes extends Table {
   DateTimeColumn get lastPushAt => dateTime().nullable()();
   TextColumn get lastPushOutcome => text().nullable()();
 
+  /// Route-state locks (Spec 9), persisted so the gates work offline with the
+  /// last-known value. Defaults are the fail-open (placa) / fail-closed
+  /// (survey) safe states for a route created before any frame carried them.
+  TextColumn get placasEstado =>
+      text().withDefault(const Constant(AppConfig.placasAbierta))();
+  TextColumn get surveyEstado =>
+      text().withDefault(const Constant(AppConfig.surveyBloqueada))();
+
   @override
   Set<Column<Object>> get primaryKey => {routeId};
 }
@@ -78,8 +86,22 @@ class Captures extends Table {
   TextColumn get npn => text().nullable()();
 
   /// Server-side provenance of the link (field_confirmed | manual | ...),
-  /// read from the frame. Informational; never sent on push.
+  /// read from the frame. Informational; never sent on push — EXCEPT that
+  /// 'field_sin_match' is how a sin_r1 finding comes back (see below).
   TextColumn get npnMatchMethod => text().nullable()();
+
+  /// CL-R7, TRI-STATE — the app mirrors the contract exactly (backend
+  /// 287cf2a): true asserts the finding, false RETRACTS it, and null says
+  /// nothing (the server preserves whatever it holds). It is the only
+  /// field exempt from full-replacement, because an evaporated
+  /// field_sin_match degrades a human finding in silence, while an
+  /// evaporated npn comes back as pending and the office sees it.
+  ///
+  /// null after a merge = "in sync, nothing to declare"; only a deliberate
+  /// local act writes true or false. Modelling it as a plain bool would
+  /// force a choice between breaking retraction (omit-always) and wiping
+  /// another device's finding (send-always).
+  BoolColumn get sinR1 => boolean().nullable()();
 
   /// Person who owns this row's UNSENT content (normalized login email,
   /// CL4). Null = unowned: legacy rows and the CL1 paste flow, visible to
@@ -120,6 +142,11 @@ class R1Directory extends Table {
 
   TextColumn get manzana => text().nullable()();
 
+  /// CL-R6: where this R1 row is already linked ("ruta 10 · loc 15"), or
+  /// null when free. Server-computed: local counts cannot see links made
+  /// by another device, worker or campaign. Marked, never hidden.
+  TextColumn get enlazadoLoc => text().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {tenantId, npn};
 }
@@ -130,10 +157,16 @@ class R1Directory extends Table {
 /// file is purged too. CL4 ownership applies: unsent photos belong to the
 /// person who captured them.
 class Evidence extends Table {
-  /// The unit's capture key — also the upload's idempotency key.
+  /// The unit's capture key — sent as the upload's idempotency key together
+  /// with [proposito].
   TextColumn get clientId => text()();
 
   TextColumn get routeId => text()();
+
+  /// Purpose (backend TJ.3): 'placa' (Spec 7) or 'totalizador' (Spec 8,
+  /// CL-E4). Both coexist for one unit, which is why it is part of the key.
+  TextColumn get proposito =>
+      text().withDefault(const Constant(AppConfig.propositoPlaca))();
 
   /// Local JPEG path (already compressed to fit the 500KB cap).
   TextColumn get filePath => text()();
@@ -152,17 +185,54 @@ class Evidence extends Table {
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
+  /// Keyed by (unit, purpose): the placa photo and the totalizador photo of
+  /// the same unit are distinct rows (backend idempotency is per this pair).
   @override
-  Set<Column<Object>> get primaryKey => {clientId};
+  Set<Column<Object>> get primaryKey => {clientId, proposito};
 }
 
-@DriftDatabase(tables: [Routes, Captures, R1Directory, Evidence])
+/// A predio's extended survey (Spec 8, T8.5). One row per anchor unit (the
+/// captured placa's client_id); it holds the declared structure as a
+/// document plus the STABLE /sync/push identities, so a half-done survey
+/// survives closing the app (CL-E6) and re-sends are idempotent. CL4
+/// ownership applies: an unsent survey belongs to the person who ran it.
+class Surveys extends Table {
+  /// The anchor unit's capture key — the predio this survey belongs to.
+  TextColumn get anchorClientId => text()();
+
+  TextColumn get routeId => text()();
+
+  TextColumn get ownerEmail => text().nullable()();
+
+  /// Stable /sync/push identities, assigned once and reused across retries
+  /// (idempotency layer b): the visit and its observation_set.
+  TextColumn get visitId => text()();
+  TextColumn get observationSetId => text()();
+
+  /// The declared SurveyStructure serialised (floors → units → answers +
+  /// totalizador). ph/pv/instancia are DERIVED at send time, never stored.
+  TextColumn get structureJson => text()();
+
+  /// pending | synced | error — the survey leg of the Enviar chain.
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant(AppConfig.syncPending))();
+
+  TextColumn get syncError => text().nullable()();
+
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {anchorClientId};
+}
+
+@DriftDatabase(tables: [Routes, Captures, R1Directory, Evidence, Surveys])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 12;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -188,6 +258,53 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 7) {
             await m.createTable(evidence);
+          }
+          if (from < 8) {
+            await m.addColumn(captures, captures.sinR1);
+            await m.addColumn(r1Directory, r1Directory.enlazadoLoc);
+          }
+          if (from < 9) {
+            // bool NOT NULL → nullable tri-state. Existing `false` means
+            // "never asserted", which under the tri-state is null.
+            // TableMigration is drift's only way to change nullability
+            // (SQLite cannot ALTER a column); its experimental flag is
+            // accepted deliberately — the alternative is losing the
+            // distinction the contract is built on.
+            // ignore: experimental_member_use
+            await m.alterTable(TableMigration(
+              captures,
+              columnTransformer: {
+                captures.sinR1: const CustomExpression<bool>(
+                    'CASE WHEN sin_r1 THEN 1 ELSE NULL END'),
+              },
+            ));
+          }
+          if (from < 10) {
+            // Extended survey (Spec 8): resumable local survey state, one
+            // row per anchor. Starts empty until the first survey is saved.
+            await m.createTable(surveys);
+          }
+          if (from < 11) {
+            // Evidence gains `proposito` and its PK becomes
+            // (client_id, proposito) so a unit can hold both a placa photo
+            // and a totalizador photo (Spec 8, CL-E4). Existing rows are all
+            // placa. TableMigration recreates the table with the new key.
+            // ignore: experimental_member_use
+            await m.alterTable(TableMigration(
+              evidence,
+              columnTransformer: {
+                evidence.proposito:
+                    const Constant<String>(AppConfig.propositoPlaca),
+              },
+              newColumns: [evidence.proposito],
+            ));
+          }
+          if (from < 12) {
+            // Route-state locks (Spec 9). Existing routes take the safe
+            // defaults (placa open, survey blocked) until a frame refreshes
+            // them.
+            await m.addColumn(routes, routes.placasEstado);
+            await m.addColumn(routes, routes.surveyEstado);
           }
         },
       );
@@ -319,8 +436,13 @@ class AppDatabase extends _$AppDatabase {
   Future<void> upsertEvidence(EvidenceCompanion row) =>
       into(evidence).insertOnConflictUpdate(row);
 
-  Future<EvidenceData?> getEvidence(String clientId) =>
-      (select(evidence)..where((e) => e.clientId.equals(clientId)))
+  Future<EvidenceData?> getEvidence(
+    String clientId, {
+    String proposito = AppConfig.propositoPlaca,
+  }) =>
+      (select(evidence)
+            ..where((e) =>
+                e.clientId.equals(clientId) & e.proposito.equals(proposito)))
           .getSingleOrNull();
 
   /// Unsent photos of a route, CL4-scoped like the capture queue.
@@ -339,11 +461,39 @@ class AppDatabase extends _$AppDatabase {
         .get();
   }
 
-  Future<void> deleteEvidence(String clientId) =>
-      (delete(evidence)..where((e) => e.clientId.equals(clientId))).go();
+  /// Live count of a route's unsent photos, CL4-scoped. The send bar
+  /// watches it: photos held for WiFi outlive the capture queue, and
+  /// without this they would have no way to travel (found in the E2E —
+  /// the bar vanished with the queue empty while a routine photo waited).
+  Stream<int> watchPendingEvidenceCount(String routeId, {String? owner}) {
+    final countExpr = evidence.clientId.count();
+    final query = selectOnly(evidence)
+      ..where(evidence.routeId.equals(routeId) &
+          (owner == null
+              ? evidence.ownerEmail.isNull()
+              : evidence.ownerEmail.isNull() |
+                  evidence.ownerEmail.equals(owner)))
+      ..addColumns([countExpr]);
+    return query.watchSingle().map((row) => row.read(countExpr) ?? 0);
+  }
 
-  Future<void> markEvidenceError(String clientId, String error) {
-    return (update(evidence)..where((e) => e.clientId.equals(clientId)))
+  Future<void> deleteEvidence(
+    String clientId, {
+    String proposito = AppConfig.propositoPlaca,
+  }) =>
+      (delete(evidence)
+            ..where((e) =>
+                e.clientId.equals(clientId) & e.proposito.equals(proposito)))
+          .go();
+
+  Future<void> markEvidenceError(
+    String clientId,
+    String error, {
+    String proposito = AppConfig.propositoPlaca,
+  }) {
+    return (update(evidence)
+          ..where((e) =>
+              e.clientId.equals(clientId) & e.proposito.equals(proposito)))
         .write(EvidenceCompanion(
       syncStatus: const Value(AppConfig.syncError),
       syncError: Value(error),
@@ -361,6 +511,54 @@ class AppDatabase extends _$AppDatabase {
     return row?.posicion;
   }
 
+  /// PLACA-mode lookup (CL-R1 v1.2): contains-match on the cruce-placa
+  /// fragment, optionally scoped to the current manzana (suffix match:
+  /// short block codes against the R1's full 17-digit ones).
+  Future<List<R1DirectoryData>> searchR1Part(
+    int tenantId,
+    String partPattern, {
+    String? manzana,
+    int limit = 8,
+  }) {
+    return (select(r1Directory)
+          ..where((r) {
+            var cond = r.tenantId.equals(tenantId) &
+                r.direccionNorm.contains(partPattern);
+            final mz = manzana?.trim();
+            if (mz != null && mz.isNotEmpty) {
+              cond = cond & r.manzana.like('%$mz');
+            }
+            return cond;
+          })
+          ..orderBy([(r) => OrderingTerm.asc(r.direccionNorm)])
+          ..limit(limit))
+        .get();
+  }
+
+  /// CL-R6 discovery mode: how many R1 rows of this manzana are still
+  /// FREE (not linked anywhere). Zero with a non-empty block means the
+  /// manzana is exhausted — everything found there is new.
+  Future<({int total, int free})> r1ManzanaStats(
+    int tenantId,
+    String manzana,
+  ) async {
+    final rows = await (select(r1Directory)
+          ..where(
+              (r) => r.tenantId.equals(tenantId) & r.manzana.like('%$manzana')))
+        .get();
+    return (
+      total: rows.length,
+      free: rows.where((r) => r.enlazadoLoc == null).length,
+    );
+  }
+
+  /// The directory row behind an npn, to NAME an existing link in the
+  /// editor (the worker sees the address, never the npn).
+  Future<R1DirectoryData?> r1ByNpn(int tenantId, String npn) =>
+      (select(r1Directory)
+            ..where((r) => r.tenantId.equals(tenantId) & r.npn.equals(npn)))
+          .getSingleOrNull();
+
   Future<int> r1CountForTenant(int tenantId) async {
     final countExpr = r1Directory.npn.count();
     final query = selectOnly(r1Directory)
@@ -368,4 +566,67 @@ class AppDatabase extends _$AppDatabase {
       ..addColumns([countExpr]);
     return (await query.getSingle()).read(countExpr) ?? 0;
   }
+
+  // ---- Surveys (Spec 8, T8.5) ----
+
+  /// CL4 visibility, same rule as captures: a synced survey is the route's
+  /// shared truth (always shown); an unsent one is shown only to its owner
+  /// (or to everyone when unowned).
+  Expression<bool> _surveyVisibleTo(Surveys s, String? owner) {
+    final base =
+        s.syncStatus.equals(AppConfig.syncSynced) | s.ownerEmail.isNull();
+    return owner == null ? base : base | s.ownerEmail.equals(owner);
+  }
+
+  Future<void> upsertSurvey(SurveysCompanion survey) =>
+      into(surveys).insertOnConflictUpdate(survey);
+
+  Future<Survey?> getSurvey(String anchorClientId) =>
+      (select(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
+          .getSingleOrNull();
+
+  Stream<Survey?> watchSurvey(String anchorClientId) =>
+      (select(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
+          .watchSingleOrNull();
+
+  /// Every survey of a route the caller may see — the resume list joins this
+  /// to hang a per-unit survey-state chip (CL-E1).
+  Stream<List<Survey>> watchSurveysForRoute(String routeId, {String? owner}) {
+    return (select(surveys)
+          ..where((s) => s.routeId.equals(routeId) & _surveyVisibleTo(s, owner)))
+        .watch();
+  }
+
+  /// Unsent surveys of a route, CL4-scoped — the survey leg of the Enviar
+  /// chain pushes these.
+  Future<List<Survey>> pendingSurveys(String routeId, {String? owner}) {
+    return (select(surveys)
+          ..where((s) =>
+              s.routeId.equals(routeId) &
+              s.syncStatus.equals(AppConfig.syncSynced).not() &
+              _surveyVisibleTo(s, owner))
+          ..orderBy([(s) => OrderingTerm.asc(s.createdAt)]))
+        .get();
+  }
+
+  /// Live count of a route's unsent surveys, CL4-scoped (for the send bar).
+  Stream<int> watchPendingSurveyCount(String routeId, {String? owner}) {
+    final countExpr = surveys.anchorClientId.count();
+    final query = selectOnly(surveys)
+      ..where(surveys.routeId.equals(routeId) &
+          surveys.syncStatus.equals(AppConfig.syncSynced).not() &
+          _surveyVisibleTo(surveys, owner))
+      ..addColumns([countExpr]);
+    return query.watchSingle().map((row) => row.read(countExpr) ?? 0);
+  }
+
+  Future<bool> updateSurveyRow(String anchorClientId, SurveysCompanion patch) {
+    return (update(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
+        .write(patch)
+        .then((rows) => rows > 0);
+  }
+
+  Future<void> deleteSurvey(String anchorClientId) =>
+      (delete(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
+          .go();
 }

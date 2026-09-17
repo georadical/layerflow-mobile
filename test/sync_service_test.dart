@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:layerflow_capture/core/config/app_config.dart';
 import 'package:layerflow_capture/data/api/api_client.dart';
 import 'package:layerflow_capture/data/api/dtos.dart';
+import 'package:layerflow_capture/data/api/sync_dtos.dart';
 import 'package:layerflow_capture/data/db/database.dart';
 import 'package:layerflow_capture/data/repositories/capture_repository.dart';
 import 'package:layerflow_capture/data/sync/sync_service.dart';
@@ -45,7 +46,12 @@ class _FakeApi implements ApiClient {
     required String clientId,
     required String soporte,
     required String filePath,
+    String proposito = 'placa',
   }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<SyncPushResponse> pushSync(SyncPushRequest req) =>
       throw UnimplementedError();
 
   @override
@@ -217,6 +223,33 @@ void main() {
     expect(rows.map((r) => r.syncError), everyElement(isNull));
   });
 
+  test('a closed-route 409 leaves the queue untouched and carries its codigo '
+      '(Spec 9)', () async {
+    final db = await memoryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final (repo, _) = await seed(db, 2);
+    final api = _FakeApi(
+      throwing: ApiException('captura cerrada',
+          statusCode: 409, codigo: AppConfig.codeRutaPlacasCerrada),
+    );
+
+    // The codigo rides through the service so the UI can map the cause.
+    await expectLater(
+      SyncService(api, repo).pushPending(routeId),
+      throwsA(isA<ApiException>()
+          .having((e) => e.codigo, 'codigo', 'ruta_placas_cerrada')),
+    );
+
+    // Nothing was written server-side, and no row is marked on its merits.
+    final rows = await repo.capturesForRoute(routeId);
+    expect(rows.map((r) => r.syncStatus), everyElement(AppConfig.syncPending));
+    expect(rows.map((r) => r.syncError), everyElement(isNull));
+  });
+
   test('retrying includes rows the server rejected, with the same client_id',
       () async {
     final db = await memoryDb();
@@ -295,6 +328,37 @@ void main() {
     // Marked row: the mark rides along — full-replacement contract (BR3).
     expect(items.last.insAfter, 5);
     expect(items.last.toJson()['ins_after'], 5);
+  });
+
+  test('the sin_r1 finding travels on every push, never beside npn (CL-R7)',
+      () async {
+    final db = await memoryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final (repo, ids) = await seed(db, 2);
+    await repo.setSinR1(clientId: ids.last, sinR1: true);
+
+    final api = _FakeApi(
+      respond: (b) => _response([
+        for (final i in b.items) _ok(i.clientId, i.posicion * 5),
+      ]),
+    );
+    await SyncService(api, repo).pushPending(routeId);
+
+    final items = api.lastBatch!.items;
+    expect(items.first.toJson().containsKey('sin_r1'), isFalse,
+        reason: 'nothing to declare: the server preserves what it holds');
+    expect(items.last.toJson()['sin_r1'], true);
+    expect(items.last.toJson().containsKey('npn'), isFalse,
+        reason: 'mutually exclusive by contract');
+
+    // And a RETRACTION must travel as an explicit false.
+    await repo.setSinR1(clientId: ids.last, sinR1: false);
+    await SyncService(api, repo).pushPending(routeId);
+    expect(api.lastBatch!.items.last.toJson()['sin_r1'], false);
   });
 
   test('the npn link travels on every push of the row (Spec 7)', () async {

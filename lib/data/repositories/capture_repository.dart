@@ -44,6 +44,7 @@ class CaptureRepository {
     String? observacion,
     String? owner,
     String? npn,
+    bool? sinR1,
   }) async {
     final now = DateTime.now();
     final clientId = _uuid.v4();
@@ -60,6 +61,7 @@ class CaptureRepository {
         observacion: Value(_nullIfBlank(observacion)),
         ownerEmail: Value(owner),
         npn: Value(npn),
+        sinR1: Value(sinR1),
         syncStatus: const Value(AppConfig.syncPending),
         createdAt: now,
         updatedAt: now,
@@ -72,6 +74,27 @@ class CaptureRepository {
   /// decision (provenance rule: the server only re-stamps the method when
   /// the value changes) and re-queues the row. editCapture deliberately
   /// leaves npn alone, exactly like the relocation mark (A3 analog).
+  /// CL-R7: declaring the door absent from the R1 is an AFFIRMATION and
+  /// clears any link; UNLINKING is not — "this link was wrong" (case c)
+  /// must never masquerade as "not in the catastro".
+  Future<void> setSinR1({
+    required String clientId,
+    required bool? sinR1,
+    String? owner,
+  }) async {
+    await _db.updateCaptureRow(
+      clientId,
+      CapturesCompanion(
+        sinR1: Value(sinR1),
+        npn: sinR1 == true ? const Value(null) : const Value.absent(),
+        ownerEmail: Value(owner),
+        syncStatus: const Value(AppConfig.syncPending),
+        syncError: const Value(null),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
   Future<void> setNpn({
     required String clientId,
     required String? npn,
@@ -81,6 +104,11 @@ class CaptureRepository {
       clientId,
       CapturesCompanion(
         npn: Value(npn),
+        // Linking supersedes a previous assertion: an explicit RETRACT
+        // (false), not an omission — otherwise the server would preserve
+        // the stale finding. Unlinking says nothing about the R1 and so
+        // touches this field not at all.
+        sinR1: npn != null ? const Value(false) : const Value.absent(),
         ownerEmail: Value(owner),
         syncStatus: const Value(AppConfig.syncPending),
         syncError: const Value(null),
@@ -234,6 +262,9 @@ class CaptureRepository {
         routeId: Value(frame.routeId),
         codigo: Value(frame.codigo),
         lastFrameSyncAt: Value(now),
+        // Spec 9: the frame is the freshest source of the route-state locks.
+        placasEstado: Value(frame.placasEstado),
+        surveyEstado: Value(frame.surveyEstado),
       ),
     );
 
@@ -251,6 +282,8 @@ class CaptureRepository {
             insAfter: Value(item.insAfter),
             npn: Value(item.npn),
             npnMatchMethod: Value(item.npnMatchMethod),
+            sinR1: Value(
+                item.npnMatchMethod == AppConfig.methodSinMatch ? true : null),
             syncStatus: const Value(AppConfig.syncSynced),
             createdAt: now,
             updatedAt: now,
@@ -272,6 +305,11 @@ class CaptureRepository {
             insAfter: Value(item.insAfter),
             npn: Value(item.npn),
             npnMatchMethod: Value(item.npnMatchMethod),
+            // Re-carried from the frame's provenance (the general rule for
+            // fields with procedencia). null = in sync, nothing to declare;
+            // the server preserves its own state on the next push.
+            sinR1: Value(
+                item.npnMatchMethod == AppConfig.methodSinMatch ? true : null),
             updatedAt: Value(now),
           ),
         );

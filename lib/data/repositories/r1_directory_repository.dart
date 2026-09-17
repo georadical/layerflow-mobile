@@ -45,6 +45,7 @@ class R1DirectoryRepository {
           direccion: item.direccion,
           direccionNorm: item.direccionNorm,
           manzana: Value(item.manzana),
+          enlazadoLoc: Value(item.enlazadoLoc),
         ),
     ]);
     await _settings.setR1Version(tenantId, res.version);
@@ -52,22 +53,64 @@ class R1DirectoryRepository {
   }
 
   /// Typeahead: turns the RAW typed text into the pinned normal form and
-  /// prefix-matches the directory. Progressive: with only "C 5" typed the
-  /// prefix is "CALLE 5"; with "C 5 2 0" it is "CALLE 5 # 2-0". Text that
-  /// does not start with a street type (rural) yields no suggestions —
-  /// the typeahead never pretends to cover that population.
-  Future<List<R1DirectoryData>> search(int tenantId, String rawTyped) async {
+  /// prefix-matches the directory. Progressive from "C 5 2" (CALLE 5 # 2)
+  /// onward; "C 5 2 0" narrows to "CALLE 5 # 2-0". Text that does not
+  /// start with a street type (rural) yields no suggestions — the
+  /// typeahead never pretends to cover that population.
+  /// [manzana] scopes the PLACA mode to the current block when known —
+  /// today the form's manzana catastral field feeds it; when the backend
+  /// ships "paradas" they will feed the same argument with zero change
+  /// here (CL-R1 v1.2). Matching is by suffix: the worker types the short
+  /// block code, the R1 carries the full 17-digit one.
+  Future<List<R1DirectoryData>> search(
+    int tenantId,
+    String rawTyped, {
+    String? manzana,
+  }) async {
     final prefix = typeaheadPrefix(rawTyped);
-    if (prefix == null) return const [];
-    return _db.searchR1(tenantId, prefix);
+    if (prefix != null) return _db.searchR1(tenantId, prefix);
+    final part = placaPartPattern(rawTyped);
+    if (part != null) {
+      return _db.searchR1Part(tenantId, part, manzana: manzana);
+    }
+    return const [];
+  }
+
+  /// PLACA mode (CL-R1 v1.2): the worker types only the cruce-placa part
+  /// ("3A 08" for CALLE 13 # 3A-08). Auto-detected: first token is NOT a
+  /// street type. Gate: cruce + start of placa ("3A 0", never "3").
+  /// Returns the normalized fragment to contain-match ("# 3A-08").
+  static String? placaPartPattern(String rawTyped) {
+    final s = cleanAddress(rawTyped);
+    if (s.isEmpty) return null;
+    final tokens = dropNumberMarkers(s.split(' '));
+    if (tokens.isEmpty || viaFor(tokens.first) != null) return null;
+    if (tokens.length < 2) return null; // the gate, placa-mode flavour
+    return '# ${tokens[0]}-${tokens.sublist(1).join()}';
   }
 
   /// Rows held locally for the tenant (0 = no directory yet: the capture
   /// screen shows no panel at all — classic capture).
   Future<int> countFor(int tenantId) => _db.r1CountForTenant(tenantId);
 
+  /// CL-R6: free vs total R1 rows in the manzana. free == 0 && total > 0
+  /// means exhausted — the discovery state.
+  Future<({int total, int free})> manzanaStats(int tenantId, String manzana) =>
+      _db.r1ManzanaStats(tenantId, manzana);
+
+  /// Names an existing link: the address behind [npn], or null when the
+  /// local slice does not carry it (linked elsewhere / directory reloaded).
+  Future<R1DirectoryData?> byNpn(int tenantId, String npn) =>
+      _db.r1ByNpn(tenantId, npn);
+
   /// Builds the progressive normalized prefix, or null when the text does
   /// not (yet) look like a street address. Exposed for tests.
+  ///
+  /// SPECIFICITY GATE (CL-R1 amendment): suggestions require at least
+  /// via + street number + the start of the cruce ("C 1 3", never "C").
+  /// Without it the typeahead rewards laziness — one letter, one tap, and
+  /// the stored "observed placa" is the letter "c": garbage placas AND a
+  /// divergence flood, because every lazy capture classifies as trigger 2.
   static String? typeaheadPrefix(String rawTyped) {
     final s = cleanAddress(rawTyped);
     if (s.isEmpty) return null;
@@ -75,11 +118,9 @@ class R1DirectoryRepository {
     final via = viaFor(tokens.first);
     if (via == null) return null;
     final core = dropNumberMarkers(tokens.sublist(1));
-    return switch (core.length) {
-      0 => via,
-      1 => '$via ${core[0]}',
-      2 => '$via ${core[0]} # ${core[1]}',
-      _ => '$via ${core[0]} # ${core[1]}-${core.sublist(2).join()}',
-    };
+    if (core.length < 2) return null; // the gate
+    return core.length == 2
+        ? '$via ${core[0]} # ${core[1]}'
+        : '$via ${core[0]} # ${core[1]}-${core.sublist(2).join()}';
   }
 }

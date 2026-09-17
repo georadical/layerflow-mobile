@@ -165,6 +165,21 @@ NormalizedAddress normalizeAddress(String raw) {
   );
 }
 
+/// Pinned v1.2 (CL-R1, backend a52883d): whether the RAW typed text
+/// matches the linked normalized address — fully, or by its cruce-placa
+/// part. Colombian door plates usually show ONLY that part ("3A-08"), so
+/// typing it is literally what the door says: coincidente, rutina, no
+/// confirmation dialog.
+bool typedMatchesLinked(String typed, String linkedNorm) {
+  final full = normalizeAddress(typed).direccionNorm;
+  if (full != null && full == linkedNorm) return true;
+  final hash = linkedNorm.indexOf('# ');
+  if (hash < 0) return false;
+  final part = linkedNorm.substring(hash + 2); // "3A-08"
+  final cleanedTyped = cleanAddress(typed);
+  return cleanedTyped.isNotEmpty && cleanedTyped == cleanAddress(part);
+}
+
 /// Levenshtein distance for the OCR soft-check (CL-R2): edit distance over
 /// the two CLEANED strings; similarity below the caller's threshold →
 /// "¿confirmas?".

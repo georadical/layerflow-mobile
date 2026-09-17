@@ -31,26 +31,46 @@ class EvidenceRepository {
     if (notInList || duplicateNpn) return AppConfig.soporteDivergencia;
     final blank = typedPlaca == null || typedPlaca.trim().isEmpty;
     if (blank) return AppConfig.soporteDivergencia; // triggers 3 and 4
-    if (linkedDireccionNorm != null) {
-      final norm = normalizeAddress(typedPlaca).direccionNorm;
-      if (norm != linkedDireccionNorm) {
-        return AppConfig.soporteDivergencia; // trigger 2 (or context link)
-      }
+    if (linkedDireccionNorm != null &&
+        !typedMatchesLinked(typedPlaca, linkedDireccionNorm)) {
+      // trigger 2 (or context link). Part-match counts as coincidente:
+      // door plates usually show only the cruce-placa part (v1.2).
+      return AppConfig.soporteDivergencia;
     }
     return AppConfig.soporteRutina;
   }
 
-  /// Queues (or replaces) the unit's photo. Re-capturing replaces file and
-  /// row — the upload is idempotent per unit anyway. The OLD file is
-  /// removed best-effort so re-shots do not accumulate on disk.
+  /// CL-R3 v1.1 — whether THIS save must open the deliberate, aimed shot
+  /// (full-screen camera, pinch-to-zoom):
+  /// - divergence: always — the photo IS the product there;
+  /// - routine: when the lottery hits ([lotteryRoll] == 0, drawn at save);
+  /// - never when the worker already took one deliberately (CTA), and
+  /// - never when the camera is dead (hardware valve: capture must not
+  ///   block; the ABSENCE of the expected photo is itself the QA signal).
+  static bool needsDeliberateShot({
+    required String soporte,
+    required bool cameraReady,
+    required bool alreadyDeliberate,
+    required int lotteryRoll,
+  }) {
+    if (!cameraReady || alreadyDeliberate) return false;
+    if (soporte == AppConfig.soporteDivergencia) return true;
+    return lotteryRoll == 0;
+  }
+
+  /// Queues (or replaces) a unit's photo for a [proposito]. Re-capturing
+  /// replaces file and row — the upload is idempotent per (unit, proposito)
+  /// anyway. The OLD file is removed best-effort so re-shots do not
+  /// accumulate on disk.
   Future<void> enqueue({
     required String clientId,
     required String routeId,
     required String filePath,
     required String soporte,
+    String proposito = AppConfig.propositoPlaca,
     String? owner,
   }) async {
-    final existing = await _db.getEvidence(clientId);
+    final existing = await _db.getEvidence(clientId, proposito: proposito);
     if (existing != null && existing.filePath != filePath) {
       await _deleteFile(existing.filePath);
     }
@@ -58,6 +78,7 @@ class EvidenceRepository {
     await _db.upsertEvidence(EvidenceCompanion(
       clientId: Value(clientId),
       routeId: Value(routeId),
+      proposito: Value(proposito),
       filePath: Value(filePath),
       soporte: Value(soporte),
       ownerEmail: Value(owner),
@@ -68,20 +89,36 @@ class EvidenceRepository {
     ));
   }
 
+  /// Removes a unit's queued photo for a [proposito] (row + local file) —
+  /// e.g. when the surveyor clears a declared totalizador before sending.
+  Future<void> remove(
+    String clientId, {
+    String proposito = AppConfig.propositoPlaca,
+  }) async {
+    final existing = await _db.getEvidence(clientId, proposito: proposito);
+    if (existing == null) return;
+    await _db.deleteEvidence(clientId, proposito: proposito);
+    await _deleteFile(existing.filePath);
+  }
+
   Future<List<EvidenceData>> pendingForRoute(String routeId, {String? owner}) =>
       _db.pendingEvidenceForRoute(routeId, owner: owner);
+
+  /// Live count for the send bar (photos can outlive the capture queue).
+  Stream<int> watchPendingCount(String routeId, {String? owner}) =>
+      _db.watchPendingEvidenceCount(routeId, owner: owner);
 
   /// Server confirmed reception (2xx): purge row AND local file — the
   /// device holds no photo the server already has.
   Future<void> confirmUploaded(EvidenceData row) async {
-    await _db.deleteEvidence(row.clientId);
+    await _db.deleteEvidence(row.clientId, proposito: row.proposito);
     await _deleteFile(row.filePath);
   }
 
   /// A server VERDICT on the photo's merits (413/415/400/404): recorded on
   /// the row; a re-shot replaces it. Transport failures never call this.
-  Future<void> markError(String clientId, String error) =>
-      _db.markEvidenceError(clientId, error);
+  Future<void> markError(EvidenceData row, String error) =>
+      _db.markEvidenceError(row.clientId, error, proposito: row.proposito);
 
   Future<void> _deleteFile(String path) async {
     try {

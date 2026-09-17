@@ -57,9 +57,15 @@ class PlateCamera {
   }
 
   /// Compresses [shot] to the contract limits (JPEG, longest side <=1600px,
-  /// <=500KB) and stores it as evidence/<clientId>.jpg under the app's
-  /// documents dir. Returns the file path, or null on any failure.
-  Future<String?> storeShotFor(String clientId, XFile shot) async {
+  /// <=500KB) and stores it under the app's documents dir. Returns the file
+  /// path, or null on any failure. [variant] distinguishes photos of the
+  /// same unit (e.g. the totalizador shot) so they never overwrite the placa
+  /// file: evidence/<clientId>.jpg vs evidence/<clientId>-<variant>.jpg.
+  Future<String?> storeShotFor(
+    String clientId,
+    XFile shot, {
+    String? variant,
+  }) async {
     try {
       final raw = await File(shot.path).readAsBytes();
       // Compression is CPU-bound (~1s): run it off the UI thread.
@@ -69,7 +75,8 @@ class PlateCamera {
       final docs = await getApplicationDocumentsDirectory();
       final dir = Directory('${docs.path}/evidence');
       await dir.create(recursive: true);
-      final out = File('${dir.path}/$clientId.jpg');
+      final name = variant == null ? clientId : '$clientId-$variant';
+      final out = File('${dir.path}/$name.jpg');
       await out.writeAsBytes(jpeg, flush: true);
       return out.path;
     } catch (_) {

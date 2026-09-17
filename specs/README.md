@@ -14,7 +14,9 @@ with a verifiable gate, a commit and explicit approval.
 | 4 | Offline-first queue and retry | [offline-queue-and-retry.md](offline-queue-and-retry.md) | Done — T4.1 verified on device |
 | 5 | Field worker login | [field-login.md](field-login.md) (shared) | Done — T5.1–T5.5 verified live against the backend |
 | 6 | ESP switching (multi-ESP, app side) | [esp-switching.md](esp-switching.md) | Done — switch verified live both ways |
-| 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done — E2E verified both sides on the sacrifice route |
+| 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done — full version E2E-verified both sides (2026-09-15) |
+| 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | Done @ d2bb861 — T8.1–T8.6 complete; E2E 9/9 aplicada both sides (Isnos/Ruta 10, 2026-09-17) |
+| 9 | Route-state locks (capture + survey gating) | [route-state-locks.md](route-state-locks.md) | Done — L.1 foundation, L.2 survey gate, L.3 placa gate; survey gate verified live (unlock on open route) |
 
 ## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
 
@@ -44,6 +46,56 @@ action — divergence is the census's product, not an error.
 
 Blocked on backend TI.1–TI.3 for wiring; T7.1's normalizer, T7.2 and the
 schema work can start now.
+
+## Spec 8 — Extended survey PH/PV (shared spec, frozen 2026-09-13 @ a968d72)
+
+The census pass: the surveyor declares building structure WITH BUTTONS
+("agregar piso" / "agregar unidad"), the app generates PH/PV (never shown
+as editable digits — "Piso 2 · Unidad 3"), and office promotion expands
+the 00/00 anchor into real units. All four app blockers landed pinned:
+the /sync/push contract with field-capture-api rigor (point 0), frame
+invariance post-expansion — siblings have client_id NULL and never enter
+the placa frame (point 1, verified in code), the PH/PV generation
+algorithm including pre-send deletion with compact renumber (point 2),
+and instancia semantics (point 4). CL-E1..E7 pinned as proposed.
+
+**App tickets (against the shared contract):**
+- **T8.1 — Sync client** ✅ DONE (36a2721, wired at 3f397bf): /sync/push
+  envelope DTOs + `orderOperations` (parents before children), two-layer
+  idempotency, `operaciones`/`resumen` result mapping (Q3), and the
+  `SurveyStructure → visit → observation_set → field_response` builder with
+  the Q2 `data` shapes (all `create`; totalizador photo out of band via
+  evidence; deterministic v5 field ids).
+- **T8.2 — Survey rail wireframe** ✅ DONE (58b2f2c): per-unit survey-state
+  chips in the resume list (one list, not a parallel survey list), pre-loaded
+  full-screen form (the editor refactor is the chassis), structure buttons,
+  CL-E3 questions verbatim, totalizador gesture. Wireframe approved + on-theme.
+- **T8.3 — Local pyramid + pinned PH/PV generator** ✅ DONE (Q1=(B),
+  2a68eb4): positional model in `lib/core/survey/survey_pyramid.dart` —
+  codes derived from position so pre-send deletion compacts for free, the
+  app always emits a `unidad` (a lone unit is still 01/01; the backend
+  decides 00/00-vs-expand), CL-E7 device-side convention validator. Unit
+  tests against the spec's pseudocode + acceptance codes.
+- **T8.4 — Totalizador photo** ✅ DONE (b4a4cb0): evidence flow with
+  proposito='totalizador' (backend TJ.3), soporte=divergencia fixed,
+  declared only WITH its photo; coexists with the placa photo (Evidence
+  keyed by (client_id, proposito), schema v11).
+- **T8.5 — The Enviar chain grows** ✅ DONE: resumable survey state in drift
+  (T8.5a, cd07d3c, schema v10), the real survey screen + resume-list entry
+  (T8.5b, 5d3e4f7), and the survey push chained into Enviar (T8.5c, 3f397bf,
+  placas → evidence → /sync/push, CL-E5). The CL-E8 lock gate is Spec 9.
+- **T8.6 — Coordinated E2E** ✅ DONE: Isnos / Ruta 10 / CALLE 7 3-21,
+  9/9 aplicada both sides — lock passed, assignment_id derived by the
+  backend, unidad 01/01 + totalizador photo landed; test rows cleaned up.
+
+Spec 7 closed 2026-09-15: typeahead v1.2 (placa-only mode scoped by
+manzana, part-match), graduated photos v1.1 (deliberate shot on
+divergence, 1/10 lottery on rutina, pinch-to-zoom, hardware valve),
+`enlazado` markers + discovery mode (CL-R6) and tri-state `sin_r1`
+findings (CL-R7). Four-case E2E on a sacrifice route, confirmed on both
+sides. Open item for a future E2E: the matcher's skip of
+`field_sin_match` is covered by the backend's test but was never seen
+live (the retraction case had already cleared the finding).
 
 ## Field deployment (backlog — noted 2026-09-12, not scheduled)
 

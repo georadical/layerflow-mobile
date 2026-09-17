@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/config/app_config.dart';
 import '../../data/api/api_client.dart';
 import '../../data/db/database.dart';
-import '../../data/repositories/capture_repository.dart';
+import '../../data/repositories/survey_repository.dart';
 import '../providers.dart';
 import 'capture_screen.dart';
+import 'edit_unit_screen.dart';
 import 'settings_screen.dart';
+import 'survey_screen.dart';
 
 /// Resume view — Spec 1, T1.6/T1.7. Read-only list of what the route already
 /// has, with the address leading (BR5).
@@ -36,6 +38,10 @@ class ResumeRouteScreen extends ConsumerWidget {
     final routeCodigo =
         codigo ?? ref.watch(routeCodigoProvider(routeId)).valueOrNull;
     final esp = ref.watch(espNameProvider).valueOrNull;
+    // Spec 9: the placa pass can be closed by the office. Fail-open — only an
+    // explicit 'cerrada' disables capture.
+    final placasClosed = ref.watch(placasClosedProvider(routeId));
+    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -45,11 +51,25 @@ class ResumeRouteScreen extends ConsumerWidget {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => CaptureScreen(routeId: routeId)),
-        ),
-        icon: const Icon(Icons.add),
-        label: const Text('Capturar'),
+        // Closed: the button reads as a lock and its tap explains why, rather
+        // than opening a capture the server would refuse with 409.
+        onPressed: placasClosed
+            ? () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                        'La oficina cerró la captura de placas en esta ruta.'),
+                  ),
+                )
+            : () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => CaptureScreen(routeId: routeId)),
+                ),
+        backgroundColor:
+            placasClosed ? theme.colorScheme.surfaceContainerHighest : null,
+        foregroundColor:
+            placasClosed ? theme.colorScheme.onSurfaceVariant : null,
+        icon: Icon(placasClosed ? Icons.lock_outline : Icons.add),
+        label: Text(placasClosed ? 'Captura cerrada' : 'Capturar'),
       ),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(routeFrameProvider(routeId).future),
@@ -236,10 +256,11 @@ class _UnitList extends StatelessWidget {
           return Column(
             children: [
               _FrameSummary(total: rows.length, stale: stale),
-              // Only when there is a queue: a fully sent route carries no
-              // dead control (Spec 3, BR2).
-              if (rows.any((r) => r.syncStatus != AppConfig.syncSynced))
-                _QueueBar(routeId: rows.first.routeId),
+              // Only when there is something to send: a fully sent route
+              // carries no dead control (Spec 3, BR2). Photos count too —
+              // a routine one waits for WiFi and outlives its queue row,
+              // and without this the bar vanished with it (E2E finding).
+              _QueueBar(routeId: rows.first.routeId),
             ],
           );
         }
@@ -298,12 +319,17 @@ class _QueueBar extends ConsumerWidget {
       if (!context.mounted) return;
       // The queue is untouched by any of these: a credentials or network
       // problem must never cost captured work (BR6).
-      final detail = switch (e.statusCode) {
-        401 => 'Token vencido o inválido — renuévalo en Ajustes.',
-        403 => 'Ese token no es de campo — pide un field_token al operador.',
-        404 => 'Esa ruta no existe o no es de tu ESP.',
-        _ => 'No se pudo enviar: ${e.message}',
-      };
+      final detail = e.codigo == AppConfig.codeRutaPlacasCerrada
+          // Spec 9: the route closed for placas between opening it and sending.
+          // Nothing was written server-side; the queue stays as it was.
+          ? 'La oficina cerró la captura de placas en esta ruta; nada se envió.'
+          : switch (e.statusCode) {
+              401 => 'Token vencido o inválido — renuévalo en Ajustes.',
+              403 =>
+                'Ese token no es de campo — pide un field_token al operador.',
+              404 => 'Esa ruta no existe o no es de tu ESP.',
+              _ => 'No se pudo enviar: ${e.message}',
+            };
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(detail)));
     }
@@ -330,8 +356,16 @@ class _QueueBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final waiting = ref.watch(pendingCountProvider(routeId));
+    final photos =
+        ref.watch(pendingEvidenceCountProvider(routeId)).valueOrNull ?? 0;
+    final surveys =
+        ref.watch(pendingSurveyCountProvider(routeId)).valueOrNull ?? 0;
+    if (waiting == 0 && photos == 0 && surveys == 0) {
+      return const SizedBox.shrink();
+    }
     final sending = ref.watch(pushProvider(routeId));
     final online = ref.watch(isOnlineProvider);
+    final onWifi = ref.watch(isOnWifiProvider);
     final route = ref.watch(routeRowProvider(routeId)).valueOrNull;
     final lastAt = route?.lastPushAt;
     final lastOutcome = route?.lastPushOutcome;
@@ -352,13 +386,31 @@ class _QueueBar extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  online
-                      ? '$waiting sin enviar'
-                      : '$waiting sin enviar · sin conexión',
+                  [
+                    if (waiting > 0) '$waiting sin enviar',
+                    // Photos and surveys are named apart: with the capture
+                    // queue empty, one of these may be the only reason the
+                    // bar is here.
+                    if (photos > 0) '$photos ${photos == 1 ? 'foto' : 'fotos'}',
+                    if (surveys > 0)
+                      '$surveys ${surveys == 1 ? 'encuesta' : 'encuestas'}',
+                    if (!online) 'sin conexión',
+                  ].join(' · '),
                   style: theme.textTheme.titleSmall?.copyWith(
                     color: theme.colorScheme.onSecondaryContainer,
                   ),
                 ),
+                // CL-R5: routine photos only travel under WiFi. Say so,
+                // rather than letting the worker press Enviar and wonder
+                // why the count did not move.
+                if (waiting == 0 && photos > 0 && online && !onWifi)
+                  Text(
+                    'Las fotos de rutina esperan WiFi',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSecondaryContainer
+                          .withValues(alpha: 0.8),
+                    ),
+                  ),
                 // "Tried, and when": tells never-tried from tried-and-failed
                 // even if the momentary message was missed (Spec 4, BR7).
                 if (lastAt != null)
@@ -395,12 +447,6 @@ class _QueueBar extends ConsumerWidget {
   }
 }
 
-const _tipoAccesoLabels = <String, String>{
-  'puerta_calle': 'Puerta a la calle',
-  'area_comun': 'Área común',
-  'otro': 'Otro',
-};
-
 class _UnitTile extends ConsumerWidget {
   const _UnitTile({required this.row, required this.allRows});
 
@@ -418,6 +464,16 @@ class _UnitTile extends ConsumerWidget {
     // waiting its turn (Spec 3, BR3).
     final refused = row.syncStatus == AppConfig.syncError;
     final queued = row.syncStatus == AppConfig.syncPending;
+
+    // CL-E1: the survey is the second pass over this same unit — the row
+    // gains a per-unit survey chip, it does not spawn a separate list.
+    final surveys = ref.watch(routeSurveysProvider(row.routeId)).valueOrNull;
+    final estado =
+        ref.read(surveyRepositoryProvider).estadoOf(surveys?[row.clientId]);
+    // CL-E8 gate (Spec 9): the entry is locked unless the worker is cleared
+    // AND the route is open. Fail-closed.
+    final surveyUnlocked = ref.watch(surveyUnlockedProvider(row.routeId));
+    final canSurvey = ref.watch(canSurveyProvider);
 
     final meta = <String>[
       'posición ${row.posicion}',
@@ -476,7 +532,7 @@ class _UnitTile extends ConsumerWidget {
                           const SizedBox(width: 4),
                           Flexible(
                             child: Text(
-                              'tras ${_anchorLabel(allRows, row.clientId, row.insAfter!)}',
+                              'tras ${anchorLabel(allRows, row.clientId, row.insAfter!)}',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
                                 fontStyle: FontStyle.italic,
@@ -499,6 +555,16 @@ class _UnitTile extends ConsumerWidget {
                         ),
                       ),
                     ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: _SurveyLine(
+                      estado: estado,
+                      locked: !surveyUnlocked,
+                      onTap: surveyUnlocked
+                          ? () => _survey(context)
+                          : () => _explainLock(context, canSurvey),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -510,356 +576,110 @@ class _UnitTile extends ConsumerWidget {
     );
   }
 
-  /// Edits the unit's attributes. `posicion` is shown but never editable (BR1):
-  /// it is the walking order the backend turns into `loc`.
+  /// Opens the full-screen editor (Spec 1.1's dialog outgrew Spec 7: the
+  /// editor now carries the R1 typeahead and the door link, which never fit
+  /// a modal). The screen persists on save; nothing to hand back here.
+  Future<void> _edit(BuildContext context, WidgetRef ref) {
+    return Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EditUnitScreen(row: row, allRows: allRows),
+      ),
+    );
+  }
+
+  /// Opens the survey pass for this unit (Spec 8). Tapping the chip enters
+  /// the survey; tapping the rest of the row still edits the placa — the two
+  /// passes share the row without a mode toggle.
   ///
-  /// Saving marks the row `pending`; the push is idempotent by `client_id`, so
-  /// a unit that came from the server is updated in place, not duplicated.
-  Future<void> _edit(BuildContext context, WidgetRef ref) async {
-    final edit = await showDialog<_UnitEdit>(
-      context: context,
-      builder: (_) => _EditUnitDialog(row: row, allRows: allRows),
-    );
-    if (edit == null) return;
-
-    final repo = ref.read(captureRepositoryProvider);
-    final owner = ref.read(queueOwnerProvider);
-    // editCapture leaves insAfter alone (A3); the relocation change, if any,
-    // is applied as its own step so cancelling one never loses the other.
-    await repo.editCapture(
-      clientId: row.clientId,
-      placa: edit.placa,
-      tipoAcceso: edit.tipoAcceso,
-      // Not editable here (it belongs to capture, set per block), but it must
-      // be preserved: the push is full-replacement, so dropping it would
-      // clear it on the server the next time this row travels.
-      manzanaCatastral: row.manzanaCatastral,
-      observacion: edit.observacion,
-      owner: owner,
-    );
-    if (edit.insAfterChanged) {
-      if (edit.insAfter == null) {
-        await repo.clearInsAfter(row.clientId, owner: owner);
-      } else {
-        await repo.setInsAfter(
-            clientId: row.clientId, insAfter: edit.insAfter!, owner: owner);
-      }
-    }
-  }
-}
-
-/// Human name for a row's anchor: the placa of the unit whose loc matches,
-/// "el inicio de la ruta" for 0, or the bare loc when the anchor is not on
-/// this device (set elsewhere, or dangling).
-String _anchorLabel(List<Capture> rows, String excludeClientId, int target) {
-  if (target == 0) return 'el inicio de la ruta';
-  for (final r in rows) {
-    if (r.clientId == excludeClientId) continue;
-    if (CaptureRepository.anchorLoc(r) == target) {
-      final placa = r.placa?.trim();
-      return (placa == null || placa.isEmpty)
-          ? 'la unidad ${r.posicion}'
-          : placa;
-    }
-  }
-  // Anchor not on this device: set elsewhere, or dangling after a rejection.
-  return 'loc $target';
-}
-
-/// What the editor hands back. Null means the worker cancelled.
-typedef _UnitEdit = ({
-  String placa,
-  String? tipoAcceso,
-  String observacion,
-  bool insAfterChanged,
-  int? insAfter,
-});
-
-/// Editor for one captured unit.
-///
-/// Stateful on purpose: it owns its TextEditingControllers and disposes them
-/// with itself. Creating them in the caller and disposing right after
-/// `await showDialog` looks equivalent but is not — the route keeps rebuilding
-/// through its exit animation, and the rebuild hits controllers that were
-/// already disposed.
-class _EditUnitDialog extends StatefulWidget {
-  const _EditUnitDialog({required this.row, required this.allRows});
-
-  final Capture row;
-
-  /// The whole route, for the anchor picker.
-  final List<Capture> allRows;
-
-  @override
-  State<_EditUnitDialog> createState() => _EditUnitDialogState();
-}
-
-class _EditUnitDialogState extends State<_EditUnitDialog> {
-  late final TextEditingController _placa;
-  late final TextEditingController _obs;
-  String? _tipo;
-  int? _insAfter;
-  bool _insAfterChanged = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _placa = TextEditingController(text: widget.row.placa ?? '');
-    _obs = TextEditingController(text: widget.row.observacion ?? '');
-    _tipo = widget.row.tipoAcceso;
-    _insAfter = widget.row.insAfter;
-  }
-
-  /// Opens the anchor picker. The worker points at a unit; the number that
-  /// travels as `ins_after` is derived, never typed (Spec 2.1, BR1/BR2).
-  Future<void> _pickAnchor() async {
-    final choice = await showDialog<_AnchorChoice>(
-      context: context,
-      builder: (_) => _AnchorPicker(
-        candidates: [
-          for (final r in widget.allRows)
-            if (r.clientId != widget.row.clientId) r,
-        ],
-      ),
-    );
-    if (choice == null || !mounted) return;
-    if (choice.loc > 9999) {
-      // Cannot happen through normal routes (loc 9999 = posicion ~2000), but one
-      // bad value would cost the whole batch a 422 (BR6).
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Esa unidad queda fuera del rango permitido.')));
-      return;
-    }
-    setState(() {
-      _insAfter = choice.loc;
-      _insAfterChanged = true;
-    });
-    if (choice.anchorRefused) {
-      // A5: warn, never block — the intent is still information, but a
-      // dangling anchor can hold up other relocations behind it.
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Ojo: esa unidad fue rechazada por el servidor. '
-            'La oficina no podrá aplicar el movimiento hasta corregirla.'),
-      ));
-    }
-  }
-
-  @override
-  void dispose() {
-    _placa.dispose();
-    _obs.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      // posicion is shown, never editable (BR1).
-      // Same rule as the picker: the loc shown is the row's effective one
-      // (anchorLoc), so a never-synced row reads the value it will get.
-      title: Text(
-        'Posición ${widget.row.posicion} · '
-        'Loc ${CaptureRepository.anchorLoc(widget.row)}',
-      ),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _placa,
-              autofocus: true,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                labelText: 'Placa (dirección en la puerta)',
-                helperText: 'Opcional: puede quedar en blanco.',
-              ),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              // Not migrated to `initialValue`: FormFieldState ignores it
-              // after the first build, and this rebuilds on every selection.
-              // ignore: deprecated_member_use
-              value: _tipo,
-              decoration: const InputDecoration(
-                labelText: 'Tipo de acceso (opcional)',
-              ),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('—')),
-                for (final e in _tipoAccesoLabels.entries)
-                  DropdownMenuItem(value: e.key, child: Text(e.value)),
-              ],
-              onChanged: (v) => setState(() => _tipo = v),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _obs,
-              decoration: const InputDecoration(
-                labelText: 'Observación (opcional)',
-              ),
-              minLines: 1,
-              maxLines: 3,
-            ),
-            const SizedBox(height: 12),
-            // Spec 2.1: the answer to the question the append-only note
-            // raises — "what if I put it in the wrong place?".
-            _RelocateRow(
-              anchorLabel: _insAfter == null
-                  ? null
-                  : _anchorLabel(
-                      widget.allRows, widget.row.clientId, _insAfter!),
-              onPick: _pickAnchor,
-              onClear: () => setState(() {
-                _insAfter = null;
-                _insAfterChanged = true;
-              }),
-            ),
-            const SizedBox(height: 12),
-            const Text('La posición no se puede cambiar (append-only).'),
-          ],
+  /// (The CL-E8 lock gate rides here once the backend's TJ.5 flags land; for
+  /// now the entry is always open — enforcement is server-side at push.)
+  Future<void> _survey(BuildContext context) {
+    return Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SurveyScreen(
+          anchorClientId: row.clientId,
+          routeId: row.routeId,
+          posicion: row.posicion,
+          placa: row.placa,
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, (
-            placa: _placa.text,
-            tipoAcceso: _tipo,
-            observacion: _obs.text,
-            insAfterChanged: _insAfterChanged,
-            insAfter: _insAfter,
-          )),
-          child: const Text('Guardar'),
-        ),
-      ],
     );
+  }
+
+  /// CL-E8: a locked survey chip says WHY, and distinguishes the two causes —
+  /// the worker is not cleared, or the route is not open — so the surveyor
+  /// knows whether to ask about themselves or about the route.
+  void _explainLock(BuildContext context, bool canSurvey) {
+    final msg = canSurvey
+        ? 'La oficina no ha habilitado la encuesta en esta ruta.'
+        : 'La oficina no ha habilitado la encuesta para este encuestador.';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 }
 
-/// What the anchor picker hands back. [loc] is what travels as `ins_after`;
-/// [anchorRefused] triggers the dangling-anchor warning (A5).
-class _AnchorChoice {
-  const _AnchorChoice({required this.loc, this.anchorRefused = false});
-  final int loc;
-  final bool anchorRefused;
-}
-
-/// Entry to "Mover localización" inside the editor: shows the current anchor
-/// or invites setting one. "Quitar" appears only when there is a mark.
-class _RelocateRow extends StatelessWidget {
-  const _RelocateRow({
-    required this.anchorLabel,
-    required this.onPick,
-    required this.onClear,
+/// The per-unit survey chip in the resume list (CL-E1). Tappable, and it
+/// stops the tap from reaching the row's placa editor underneath. When
+/// [locked] (CL-E8, Spec 9) it shows the lock and its tap only explains why.
+class _SurveyLine extends StatelessWidget {
+  const _SurveyLine({
+    required this.estado,
+    required this.onTap,
+    this.locked = false,
   });
 
-  final String? anchorLabel;
-  final VoidCallback onPick;
-  final VoidCallback onClear;
+  final SurveyEstado estado;
+  final VoidCallback onTap;
+  final bool locked;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final marked = anchorLabel != null;
-
+    final (label, bg, fg, icon) = locked
+        ? (
+            'Encuesta bloqueada',
+            theme.colorScheme.surfaceContainerHighest,
+            theme.colorScheme.onSurfaceVariant,
+            Icons.lock_outline,
+          )
+        : switch (estado) {
+            SurveyEstado.completa => (
+                'Encuesta completa',
+                theme.colorScheme.secondaryContainer,
+                theme.colorScheme.onSecondaryContainer,
+                Icons.check_circle_outline,
+              ),
+            SurveyEstado.aMedias => (
+                'Encuesta a medias',
+                theme.colorScheme.tertiaryContainer,
+                theme.colorScheme.onTertiaryContainer,
+                Icons.timelapse,
+              ),
+            SurveyEstado.sinEncuesta => (
+                'Levantar encuesta',
+                theme.colorScheme.surfaceContainerHighest,
+                theme.colorScheme.onSurfaceVariant,
+                Icons.assignment_outlined,
+              ),
+          };
     return InkWell(
-      onTap: onPick,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+        ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.low_priority,
-              size: 20,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Mover localización', style: theme.textTheme.bodyLarge),
-                  Text(
-                    marked
-                        ? 'Va tras $anchorLabel'
-                        : 'Va al final del recorrido',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (marked)
-              TextButton(onPressed: onClear, child: const Text('Quitar')),
-            Icon(Icons.chevron_right,
-                color: theme.colorScheme.onSurfaceVariant),
+            Icon(icon, size: 14, color: fg),
+            const SizedBox(width: 6),
+            Text(label,
+                style: theme.textTheme.labelMedium?.copyWith(color: fg)),
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Anchor picker. The worker points at a unit — placa and posicion on show —
-/// and the loc that travels as `ins_after` is derived (BR1/BR2). There is no
-/// numeric field anywhere.
-class _AnchorPicker extends StatelessWidget {
-  const _AnchorPicker({required this.candidates});
-
-  /// The route's units, already excluding the one being moved.
-  final List<Capture> candidates;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return AlertDialog(
-      title: const Text('¿Después de cuál va?'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.vertical_align_top),
-              title: const Text('Al inicio de la ruta'),
-              onTap: () => Navigator.pop(context, const _AnchorChoice(loc: 0)),
-            ),
-            Divider(height: 1, color: theme.colorScheme.outlineVariant),
-            for (final r in candidates)
-              ListTile(
-                title: Text(
-                  (r.placa?.trim().isNotEmpty ?? false)
-                      ? r.placa!.trim()
-                      : 'Sin dirección aún',
-                  style: (r.placa?.trim().isNotEmpty ?? false)
-                      ? null
-                      : const TextStyle(fontStyle: FontStyle.italic),
-                ),
-                // The loc shown is the very value that will travel as
-                // ins_after — never a second, different number.
-                subtitle: Text(
-                    'posición ${r.posicion} · loc ${CaptureRepository.anchorLoc(r)}'),
-                onTap: () => Navigator.pop(
-                  context,
-                  _AnchorChoice(
-                    loc: CaptureRepository.anchorLoc(r),
-                    anchorRefused: r.syncStatus == AppConfig.syncError,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-      ],
     );
   }
 }

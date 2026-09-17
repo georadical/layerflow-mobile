@@ -7,6 +7,8 @@
 /// INVARIANT: ZERO coordinates. No DTO carries lat/lon.
 library;
 
+import '../../core/config/app_config.dart';
+
 /// Capture item in the POST request.
 class PlacaItemRequest {
   const PlacaItemRequest({
@@ -18,6 +20,7 @@ class PlacaItemRequest {
     this.observacion,
     this.insAfter,
     this.npn,
+    this.sinR1,
   });
 
   final String clientId;
@@ -37,6 +40,12 @@ class PlacaItemRequest {
   /// the row's current value.
   final String? npn;
 
+  /// CL-R7, TRI-STATE (backend 287cf2a): true asserts the finding (the
+  /// worker tapped "No está en la lista"), false RETRACTS it, null omits
+  /// the key and the server PRESERVES what it holds. Mutually exclusive
+  /// with [npn].
+  final bool? sinR1;
+
   Map<String, dynamic> toJson() => {
         'client_id': clientId,
         'posicion': posicion,
@@ -49,6 +58,9 @@ class PlacaItemRequest {
         // only a real mark is serialised.
         if (insAfter != null) 'ins_after': insAfter,
         if (npn != null) 'npn': npn,
+        // Tri-state: the key travels only when there is something to say
+        // (assert or retract). Sending it beside npn is a per-item error.
+        if (sinR1 != null && npn == null) 'sin_r1': sinR1,
       };
 }
 
@@ -148,6 +160,8 @@ class RouteSummary {
     required this.estado,
     this.nombre,
     this.totalCapturado,
+    this.placasEstado = AppConfig.placasAbierta,
+    this.surveyEstado = AppConfig.surveyBloqueada,
   });
 
   /// The same id consumed by `GET /field/capture/route/{route_id}`.
@@ -163,6 +177,13 @@ class RouteSummary {
   /// Units captured so far. Absent — not zero — when the wire omits it.
   final int? totalCapturado;
 
+  /// Placa-pass lock (Spec 9). Fail-OPEN: absent → abierta, only an explicit
+  /// 'cerrada' disables capture.
+  final String placasEstado;
+
+  /// Survey-pass lock (CL-E8). Fail-CLOSED: absent → bloqueada.
+  final String surveyEstado;
+
   factory RouteSummary.fromJson(Map<String, dynamic> json) {
     return RouteSummary(
       routeId: json['route_id'] as String,
@@ -170,6 +191,10 @@ class RouteSummary {
       estado: json['estado']?.toString() ?? '',
       nombre: json['nombre'] as String?,
       totalCapturado: (json['total_capturado'] as num?)?.toInt(),
+      placasEstado:
+          json['placas_estado']?.toString() ?? AppConfig.placasAbierta,
+      surveyEstado:
+          json['survey_estado']?.toString() ?? AppConfig.surveyBloqueada,
     );
   }
 
@@ -182,6 +207,8 @@ class RouteSummary {
         'nombre': nombre,
         // Written only when present: absent and zero mean different things.
         if (totalCapturado != null) 'total_capturado': totalCapturado,
+        'placas_estado': placasEstado,
+        'survey_estado': surveyEstado,
       };
 }
 
@@ -220,6 +247,7 @@ class LoginEsp {
     required this.fieldWorkerId,
     required this.fieldToken,
     this.rutasAsignadas,
+    this.canSurvey = false,
   });
 
   final int tenantId;
@@ -231,6 +259,11 @@ class LoginEsp {
   /// always matches the list (contract, backend f371076).
   final int? rutasAsignadas;
 
+  /// CL-E8: whether this worker-in-ESP may run the extended survey. Rides in
+  /// the login response beside the token; the authority is the backend
+  /// (checked live at /sync/push). Fail-CLOSED: absent → false.
+  final bool canSurvey;
+
   final String fieldToken;
 
   factory LoginEsp.fromJson(Map<String, dynamic> json) {
@@ -239,6 +272,7 @@ class LoginEsp {
       espNombre: json['esp_nombre']?.toString() ?? '',
       fieldWorkerId: json['field_worker_id'] as String,
       rutasAsignadas: (json['rutas_asignadas'] as num?)?.toInt(),
+      canSurvey: json['can_survey'] as bool? ?? false,
       fieldToken: json['field_token'] as String,
     );
   }
@@ -250,6 +284,7 @@ class LoginEsp {
         'esp_nombre': espNombre,
         'field_worker_id': fieldWorkerId,
         if (rutasAsignadas != null) 'rutas_asignadas': rutasAsignadas,
+        'can_survey': canSurvey,
         'field_token': fieldToken,
       };
 }
@@ -335,6 +370,7 @@ class FieldSession {
                     espNombre: e.espNombre,
                     fieldWorkerId: e.fieldWorkerId,
                     rutasAsignadas: e.rutasAsignadas,
+                    canSurvey: e.canSurvey,
                     fieldToken: token,
                   )
                 : e,
@@ -372,6 +408,7 @@ class R1DirectoryItem {
     required this.direccion,
     required this.direccionNorm,
     this.manzana,
+    this.enlazadoLoc,
   });
 
   final String npn;
@@ -379,12 +416,28 @@ class R1DirectoryItem {
   final String direccionNorm;
   final String? manzana;
 
+  /// CL-R6: `{loc, ruta}` when this R1 row is ALREADY linked to a captured
+  /// unit — computed server-side on purpose, because a local count cannot
+  /// see links made by another device, worker or campaign. Consumed rows
+  /// are MARKED, never hidden: if the worker recognises that address at
+  /// THIS door they must still be able to pick it (the server accepts the
+  /// duplicate NPN and flags divergence), which is how a bad previous link
+  /// surfaces instead of staying buried.
+  final String? enlazadoLoc;
+
   factory R1DirectoryItem.fromJson(Map<String, dynamic> json) {
+    final enlazado = json['enlazado'];
     return R1DirectoryItem(
       npn: json['npn'] as String,
       direccion: json['direccion']?.toString() ?? '',
       direccionNorm: json['direccion_norm']?.toString() ?? '',
       manzana: json['manzana']?.toString(),
+      enlazadoLoc: enlazado is Map
+          ? [
+              if (enlazado['ruta'] != null) 'ruta ${enlazado['ruta']}',
+              if (enlazado['loc'] != null) 'loc ${enlazado['loc']}',
+            ].join(' · ')
+          : null,
     );
   }
 }
@@ -465,11 +518,18 @@ class RouteFrame {
     required this.routeId,
     this.codigo,
     required this.items,
+    this.placasEstado = AppConfig.placasAbierta,
+    this.surveyEstado = AppConfig.surveyBloqueada,
   });
 
   final String routeId;
   final String? codigo;
   final List<RouteFrameItem> items;
+
+  /// Route-state locks carried on the frame too (Spec 9), so a resumed route
+  /// gates against the freshest value. Same fail-open/closed defaults.
+  final String placasEstado;
+  final String surveyEstado;
 
   factory RouteFrame.fromJson(Map<String, dynamic> json) {
     return RouteFrame(
@@ -478,6 +538,10 @@ class RouteFrame {
       items: (json['items'] as List<dynamic>? ?? const [])
           .map((e) => RouteFrameItem.fromJson(e as Map<String, dynamic>))
           .toList(),
+      placasEstado:
+          json['placas_estado']?.toString() ?? AppConfig.placasAbierta,
+      surveyEstado:
+          json['survey_estado']?.toString() ?? AppConfig.surveyBloqueada,
     );
   }
 }

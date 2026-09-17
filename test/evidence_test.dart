@@ -17,16 +17,19 @@ class _FakeEvidenceApi implements ApiClient {
   /// simulates transport death.
   final Map<String, ApiException> verdicts = {};
   final List<String> uploadedIds = [];
+  final List<({String clientId, String proposito})> uploaded = [];
 
   @override
   Future<void> uploadEvidence({
     required String clientId,
     required String soporte,
     required String filePath,
+    String proposito = AppConfig.propositoPlaca,
   }) async {
     final verdict = verdicts[clientId];
     if (verdict != null) throw verdict;
     uploadedIds.add(clientId);
+    uploaded.add((clientId: clientId, proposito: proposito));
   }
 
   @override
@@ -100,6 +103,19 @@ void main() {
       }
     });
 
+    test('v1.2: the cruce-placa part alone counts as coincidente (rutina)', () {
+      expect(
+        EvidenceRepository.classifySoporte(
+          notInList: false,
+          duplicateNpn: false,
+          typedPlaca: '3A 08',
+          linkedDireccionNorm: 'CALLE 13 # 3A-08',
+        ),
+        AppConfig.soporteRutina,
+        reason: 'door plates usually show only the part — honest match',
+      );
+    });
+
     test('trigger 5: duplicate NPN in the route', () {
       expect(
         EvidenceRepository.classifySoporte(
@@ -109,6 +125,69 @@ void main() {
           linkedDireccionNorm: 'CALLE 5 # 2-06',
         ),
         AppConfig.soporteDivergencia,
+      );
+    });
+  });
+
+  group('needsDeliberateShot (CL-R3 v1.1)', () {
+    test('divergence always demands the aimed shot (camera alive)', () {
+      for (var roll = 0; roll < 10; roll++) {
+        expect(
+          EvidenceRepository.needsDeliberateShot(
+            soporte: AppConfig.soporteDivergencia,
+            cameraReady: true,
+            alreadyDeliberate: false,
+            lotteryRoll: roll,
+          ),
+          isTrue,
+          reason: 'the photo IS the product there — no lottery escape',
+        );
+      }
+    });
+
+    test('routine only when the lottery hits (roll 0)', () {
+      expect(
+        EvidenceRepository.needsDeliberateShot(
+          soporte: AppConfig.soporteRutina,
+          cameraReady: true,
+          alreadyDeliberate: false,
+          lotteryRoll: 0,
+        ),
+        isTrue,
+      );
+      expect(
+        EvidenceRepository.needsDeliberateShot(
+          soporte: AppConfig.soporteRutina,
+          cameraReady: true,
+          alreadyDeliberate: false,
+          lotteryRoll: 7,
+        ),
+        isFalse,
+      );
+    });
+
+    test('a CTA shot already taken satisfies everything', () {
+      expect(
+        EvidenceRepository.needsDeliberateShot(
+          soporte: AppConfig.soporteDivergencia,
+          cameraReady: true,
+          alreadyDeliberate: true,
+          lotteryRoll: 0,
+        ),
+        isFalse,
+      );
+    });
+
+    test('hardware valve: a dead camera never blocks the capture', () {
+      expect(
+        EvidenceRepository.needsDeliberateShot(
+          soporte: AppConfig.soporteDivergencia,
+          cameraReady: false,
+          alreadyDeliberate: false,
+          lotteryRoll: 0,
+        ),
+        isFalse,
+        reason: 'the ABSENT expected photo is itself the QA signal',
       );
     });
   });
@@ -211,6 +290,103 @@ void main() {
       expect(await evidence.pendingForRoute(routeId), isEmpty);
       final files = tmp.listSync().whereType<File>();
       expect(files, isEmpty, reason: 'confirmed photos purge their files');
+    });
+
+    test('placa and totalizador photos of one unit coexist and both travel '
+        '(CL-E4)', () async {
+      final db = await memoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final captures = CaptureRepository(db);
+      final evidence = EvidenceRepository(db);
+      final api = _FakeEvidenceApi();
+      final sync = SyncService(api, captures, evidence: evidence);
+
+      await captures.mergeFrame(const RouteFrame(routeId: routeId, items: [
+        RouteFrameItem(clientId: 'u1', posicion: 1, loc: 5),
+      ]));
+      // Same unit, two purposes → two distinct rows.
+      await evidence.enqueue(
+          clientId: 'u1',
+          routeId: routeId,
+          filePath: await photo('u1-placa'),
+          soporte: AppConfig.soporteRutina);
+      await evidence.enqueue(
+          clientId: 'u1',
+          routeId: routeId,
+          filePath: await photo('u1-tot'),
+          soporte: AppConfig.soporteDivergencia,
+          proposito: AppConfig.propositoTotalizador);
+      expect((await evidence.pendingForRoute(routeId)).length, 2);
+
+      // Both travel (WiFi so the routine placa also goes), each with its own
+      // proposito on the wire.
+      final res = await sync.pushEvidence(routeId, wifiAvailable: true);
+      expect(res.uploaded, 2);
+      expect(
+        api.uploaded.map((u) => u.proposito).toSet(),
+        {AppConfig.propositoPlaca, AppConfig.propositoTotalizador},
+      );
+      expect(await evidence.pendingForRoute(routeId), isEmpty);
+    });
+
+    test('remove drops only the given proposito', () async {
+      final db = await memoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final evidence = EvidenceRepository(db);
+
+      await evidence.enqueue(
+          clientId: 'u1',
+          routeId: routeId,
+          filePath: await photo('u1-placa'),
+          soporte: AppConfig.soporteRutina);
+      await evidence.enqueue(
+          clientId: 'u1',
+          routeId: routeId,
+          filePath: await photo('u1-tot'),
+          soporte: AppConfig.soporteDivergencia,
+          proposito: AppConfig.propositoTotalizador);
+
+      await evidence.remove('u1', proposito: AppConfig.propositoTotalizador);
+      final left = await evidence.pendingForRoute(routeId);
+      expect(left.length, 1);
+      expect(left.single.proposito, AppConfig.propositoPlaca);
+    });
+
+    test('REGRESSION: a held photo outlives its queue row and stays visible',
+        () async {
+      final db = await memoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final captures = CaptureRepository(db);
+      final evidence = EvidenceRepository(db);
+
+      // A fully SYNCED unit whose routine photo still waits for WiFi —
+      // exactly the E2E state where the send bar vanished and the photo
+      // had no way to travel.
+      await captures.mergeFrame(const RouteFrame(routeId: routeId, items: [
+        RouteFrameItem(clientId: 'u1', posicion: 1, loc: 5),
+      ]));
+      await evidence.enqueue(
+          clientId: 'u1',
+          routeId: routeId,
+          filePath: await photo('held'),
+          soporte: AppConfig.soporteRutina);
+
+      expect(await captures.pending(routeId), isEmpty,
+          reason: 'the capture queue is empty…');
+      expect(await evidence.watchPendingCount(routeId).first, 1,
+          reason: '…but the bar must still have a reason to exist');
     });
 
     test('a photo whose unit has not synced is held (would 404)', () async {

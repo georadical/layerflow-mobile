@@ -1,12 +1,12 @@
 # Spec — R1-assisted capture (typeahead, field-confirmed NPN, selective photo)
 
 > **Shared spec, mirrored copy** — source of truth in the backend repo
-> (`specs/r1-assisted-capture.md`) @ `8d06a61` (frozen with the app's four
-> contract observations and CL-R1…R5). Do not edit here — changes go through
-> the backend session and get re-copied. App tickets: see
-> [README.md](README.md), Spec 7.
+> (`specs/r1-assisted-capture.md`) @ `a52883d` (CL-R1 v1.2: placa-only
+> typing, manzana scope, part-match; CL-R3 v1.1: graduated photo
+> obligation). Do not edit here — changes go through the backend session
+> and get re-copied. App tickets: [README.md](README.md), Spec 7.
 
-Status: frozen (mobile observations incorporated 2026-09; backend TI.1–TI.3 pending)
+Status: implemented (TI.1–TI.3; app-side TI.4 verified E2E; TI.5 QA screen later) — CL-R1 v1.2 + CL-R3 v1.1 (2026-09-13)
 Type: Backend / API + app contract → pipeline: Spec → Tickets → Implementation
 Consumed by: the capture app (typeahead + OCR + photo UX) and office QA
 Depends on: cadastral-reference-r1 (R1 loaded per tenant), field-capture-api,
@@ -153,34 +153,91 @@ normalize(raw):
   Else, over the remaining tokens:
     a. Extract structural suffixes anywhere: IN|INT|INTERIOR → interior flag;
        LO|LOTE|LT <v> → lote; MZ|MZA|MANZANA <v> → mz. Removed from core.
+    a2. (v1.1) Discard NUMBER MARKERS: NO|NRO|NUM always ("Nº" ASCII-folds to
+       NO); bare N ONLY when the next token starts with a digit ("N°" folds
+       to bare N). Trailing bare N is kept (cardinal suffix ambiguity).
     b. Strip TRAILING pure-alpha tokens → barrio (in reading order).
     c. Core remainder maps positionally: num_via, num_cruce, placa.
   direccion_norm = "<VIA> <num_via> # <num_cruce>-<placa>"  (only if all 3).
 ```
 Examples: `K 2 4A 09` → `CARRERA 2 # 4A-09`; `CL 5 Nº 2-06` →
-`CALLE 5 # 2-06`; `SAMARIA` → (no street address). Any change to this
-algorithm is a **contract change**: version-bumped here and announced.
+`CALLE 5 # 2-06`; `C 4 N° 3 15` → `CALLE 4 # 3-15`; `SAMARIA` → (no street
+address). **Current version: v1.1** (2026-09: number-marker discard added —
+found by the app's review; v1.0 mis-parsed `Nº` as address data). Any change
+to this algorithm is a **contract change**: version-bumped here and announced.
 
 ## App-side contract (CL — PINNED with the mobile session, freeze round)
-- **CL-R1** The placa field is free text (the observed truth, always
-  editable); the suggestion panel filters the directory beneath it, with
-  **"No está en la lista" as a FIXED first row of the panel, same tap size as
-  any suggestion**. Hard rule: selecting an NPN NEVER overwrites the typed
-  placa — the pair is stored as the doctrine requires.
+- **CL-R1 (amended v1.1, 2026-09-13 — the lazy-typing incentive)** The placa
+  field is free text (the observed truth, always editable); the suggestion
+  panel filters the directory beneath it, with **"No está en la lista" as a
+  FIXED first row of the panel, same tap size as any suggestion**.
+  - **Specificity gate:** suggestions appear only once the typed text carries
+    at least vía + número + start of the cruce ("C 1 3", never "C"). Rationale:
+    single-letter typeahead rewarded laziness — garbage observed placas ("C")
+    AND a divergence queue drowned in false findings (every lazy capture
+    classified divergent), killing the signal that hunts Fantasma/Invasor.
+    The gate governs SUGGESTIONS only; "No está en la lista" and free capture
+    are always available (no cage).
+  - **Selection never silently overwrites the typed placa. Copying the R1 text
+    into the placa field happens ONLY through the surveyor's explicit
+    confirmation that the physical plate reads exactly that** ("¿La placa de
+    la puerta dice exactamente <dirección R1>?"). "Sí, es esa" copies and
+    classifies rutina — an AFFIRMED observation, not an overwrite. "No,
+    difiere" keeps the typed text and classifies legitimate divergence.
+  - Residual risk, named: the bias moves from selection to the dialog
+    (reflexive "Sí"). Mitigation: the office QA sample (TI.5) MUST include
+    confirmed-copies, not only divergences — systematic false confirmation is
+    detectable there.
+  - **v1.2 (2026-09-13) — placa-part typing, scoped by manzana (field
+    speed):** two auto-detected input modes — first clean token ∈ VIA map →
+    **address mode** (v1.1 behavior); otherwise → **placa mode**: the surveyor
+    types only the plate part ("3A 08" for CALLE 13 # 3A-08) and the filter
+    runs over the cruce+placa part of the directory, scoped to the CURRENT
+    manzana when known (today: the form's manzana field persisting per block;
+    when stops ship, they feed the same field with zero app change).
+    Specificity gate in this mode: cruce + start of placa ("3A 0", never
+    "3"). **Part-match rule:** if the typed clean text ≡ the linked address's
+    cruce-placa part, the pair is COINCIDENT (rutina, no confirmation
+    dialog) — physical plates usually show exactly that part, so "3A 08" IS
+    what the door says. The v1.1 explicit confirmation stays for every other
+    incomplete case; silent overwrite stays banned.
+    Named consequence: an UNLINKED placa-mode capture ("no está en la lista"
+    with just "3A 08") lands in the matcher's `sin_direccion` bucket (the
+    normalizer sees no vía token) — acceptable: it reaches the manual queue
+    carrying manzana context + its divergence photo, but it is named here so
+    nobody reads the queue growth as a bug.
 - **CL-R2** On-device OCR (ML Kit, offline) as soft-check only. No
   per-line confidence (ML Kit does not expose it usefully): the check is
   **edit-distance over the two normalized strings** (the pinned algorithm
   above); similarity under threshold → "¿confirmas?". OCR reads nothing
   plausible → total silence, never interrupt. No OCR text reaches the backend.
-- **CL-R3** Photo policy (three tiers): the app captures the plate photo on
-  EVERY unit (the OCR frame is reused; no extra gesture; camera per capture,
-  no permanent viewfinder). **Divergence triggers (mandatory, `soporte=
-  divergencia`)**: (1) "no está en la lista", (2) selected-R1 ≠ observed
-  placa, (3) plate illegible/absent, **(4) no physical plate but an NPN was
-  selected by context — the most fragile link of all**, **(5) second
-  selection of an NPN already used in the route** (the app warns locally;
-  the second unit is marked divergence; the server accepts duplicates — PH).
-  Everything else: `soporte=rutina`. Local purge only after the endpoint's 2xx.
+- **CL-R3 (v1.1, 2026-09-13 — photo obligation GRADUATED by evidentiary
+  value).** The automatic OCR-frame reuse produced pocket/floor shots in real
+  field use; garbage evidence kills divergence resolution. Three grades:
+  1. **Divergence (the 5 triggers below): DELIBERATE photo required at save**
+     — camera on screen, framed, one tap. The photo IS the product there.
+     (Precedent: the extended survey's totalizador already requires it.)
+  2. **Rutina: random lottery** — the app demands the deliberate photo even
+     when the pair matches, drawn AT SAVE (unpredictable). Rate: **v1 fixed
+     in-app at 1/10** (decided backend-side; serving it as config would be a
+     contract change — deferred unless tuning becomes frequent). Effect: the
+     surveyor's dominant strategy is to type well and verify always, and the
+     office QA sample of confirmed-copies receives REAL photos to review.
+     Remaining rutina: optional CTA in the viewfinder + automatic frame as
+     fallback.
+  3. **Hardware valve intact:** dead camera → capture proceeds marked
+     "sin foto" (the ABSENCE of the expected photo is itself the QA signal;
+     the app may annotate observacion). Capture never blocks on hardware —
+     but the shortcut closes for healthy cameras. The required shot includes
+     **pinch-to-zoom** (fenced houses: plate framed from a distance).
+  No contract change: same endpoints, same soportes.
+  **Divergence triggers (mandatory, `soporte=divergencia`)**: (1) "no está en
+  la lista", (2) selected-R1 ≠ observed placa, (3) plate illegible/absent,
+  **(4) no physical plate but an NPN was selected by context — the most
+  fragile link of all**, **(5) second selection of an NPN already used in the
+  route** (the app warns locally; the second unit is marked divergence; the
+  server accepts duplicates — PH). Everything else: `soporte=rutina`. Local
+  purge only after the endpoint's 2xx.
 - **CL-R4** Full snapshot with `version` tag (no delta); refresh at sync
   moments; capture never blocks on a stale directory.
 - **CL-R5** **Nothing travels alone** (the app's manual-only doctrine covers

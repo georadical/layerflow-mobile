@@ -146,6 +146,7 @@ void main() {
       routeId: routeId,
       posicion: 2,
       loc: 7,
+      sinR1: false,
       syncStatus: AppConfig.syncSynced,
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
@@ -156,6 +157,7 @@ void main() {
       clientId: 'b',
       routeId: routeId,
       posicion: 3,
+      sinR1: false,
       syncStatus: AppConfig.syncPending,
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
@@ -430,6 +432,131 @@ void main() {
       expect(row.posicion, 2, reason: 'position belongs to the server');
       expect(row.npn, 'npn-nuevo',
           reason: 'the unsent link belongs to the worker until sent');
+    });
+  });
+
+  group('sin_r1 findings (CL-R7)', () {
+    test('REGRESSION: a later placa edit must not evaporate the finding',
+        () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id = await repo.appendCapture(
+          routeId: routeId, placa: 'C 99 99', sinR1: true);
+
+      // The exact path that would silently clear it under the
+      // full-replacement contract — third occurrence of the trap.
+      await repo.editCapture(clientId: id, placa: 'C 99 99 corregida');
+
+      final row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.sinR1, isTrue,
+          reason: 'the strongest assertion the census makes must survive');
+      expect(row.syncStatus, AppConfig.syncPending);
+    });
+
+    test('TRI-STATE: retracting is false (not an omission), merge leaves null',
+        () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id = await repo.appendCapture(routeId: routeId, placa: 'X');
+
+      // Never touched: null — the server preserves whatever it holds.
+      expect((await repo.capturesForRoute(routeId)).single.sinR1, isNull);
+
+      await repo.setSinR1(clientId: id, sinR1: true);
+      expect((await repo.capturesForRoute(routeId)).single.sinR1, isTrue);
+
+      // Undoing must RETRACT explicitly: omitting would preserve the
+      // finding on the server forever (tri-state, backend 287cf2a).
+      await repo.setSinR1(clientId: id, sinR1: false);
+      expect((await repo.capturesForRoute(routeId)).single.sinR1, isFalse);
+    });
+
+    test('the frame reconstructs the finding from the method on resume',
+        () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [
+          RouteFrameItem(
+              clientId: 's1',
+              posicion: 1,
+              loc: 5,
+              npnMatchMethod: AppConfig.methodSinMatch),
+        ],
+      ));
+
+      final row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.sinR1, isTrue,
+          reason: 'resuming on another device re-carries it on every push');
+      expect(row.npn, isNull);
+
+      // A frame WITHOUT the method leaves null ("in sync, nothing to
+      // declare"), never false — false would retract other devices' work.
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [RouteFrameItem(clientId: 's1', posicion: 1, loc: 5)],
+      ));
+      expect((await repo.capturesForRoute(routeId)).single.sinR1, isNull);
+    });
+
+    test('linking and asserting are mutually exclusive, both ways', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id = await repo.appendCapture(routeId: routeId, placa: 'X');
+
+      await repo.setSinR1(clientId: id, sinR1: true);
+      await repo.setNpn(clientId: id, npn: 'npn-1');
+      var row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.sinR1, isFalse, reason: 'linking supersedes the assertion');
+      expect(row.npn, 'npn-1');
+
+      await repo.setSinR1(clientId: id, sinR1: true);
+      row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, isNull, reason: 'asserting clears the link');
+      expect(row.sinR1, isTrue);
+    });
+
+    test('UNLINKING is not an assertion — "this link was wrong" (case c)',
+        () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id =
+          await repo.appendCapture(routeId: routeId, placa: 'X', npn: 'npn-1');
+
+      await repo.setNpn(clientId: id, npn: null);
+
+      final row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, isNull);
+      expect(row.sinR1, isNull,
+          reason: 'a bad link must never masquerade as a census finding, '
+              'and unlinking says nothing about the R1 at all');
     });
   });
 

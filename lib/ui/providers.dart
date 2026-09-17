@@ -10,9 +10,11 @@ import '../data/api/api_client.dart';
 import '../data/api/dtos.dart';
 import '../data/cache/assigned_routes_cache.dart';
 import '../data/db/database.dart';
+import '../core/survey/survey_pyramid.dart';
 import '../data/repositories/capture_repository.dart';
 import '../data/repositories/evidence_repository.dart';
 import '../data/repositories/r1_directory_repository.dart';
+import '../data/repositories/survey_repository.dart';
 import '../data/settings/settings_store.dart';
 import '../data/sync/sync_service.dart';
 
@@ -56,6 +58,7 @@ final syncServiceProvider = Provider<SyncService>(
     ref.watch(apiClientProvider),
     ref.watch(captureRepositoryProvider),
     evidence: ref.watch(evidenceRepositoryProvider),
+    survey: ref.watch(surveyRepositoryProvider),
   ),
 );
 
@@ -405,18 +408,40 @@ class PushNotifier extends FamilyNotifier<bool, String> {
             owner: owner,
             wifiAvailable: ref.read(isOnWifiProvider),
           );
-      if (evidence.uploaded > 0 || evidence.failed > 0) {
-        final extra = 'fotos: ${evidence.uploaded} subidas'
-            '${evidence.failed > 0 ? ', ${evidence.failed} rechazadas' : ''}'
-            '${evidence.held > 0 ? ', ${evidence.held} en espera' : ''}';
-        return SyncResult(
-          attempted: result.attempted,
-          synced: result.synced,
-          failed: result.failed,
-          message: result.isNoop ? extra : '${result.message} · $extra',
-        );
+
+      // CL-E5: the survey leg, last in the chain. Only when the route is
+      // unlocked for this worker (else the visit-create would be refused and
+      // the surveys would needlessly show as errored) — locked, they stay
+      // pending, held until the office opens the route.
+      SurveyResult? survey;
+      final workerId =
+          ref.read(sessionProvider).valueOrNull?.activeEsp?.fieldWorkerId;
+      if (ref.read(surveyUnlockedProvider(arg)) && workerId != null) {
+        survey = await ref.read(syncServiceProvider).pushSurveys(
+              arg,
+              owner: owner,
+              fieldWorkerId: workerId,
+            );
       }
-      return result;
+
+      final extras = <String>[
+        if (evidence.uploaded > 0 || evidence.failed > 0)
+          'fotos: ${evidence.uploaded} subidas'
+              '${evidence.failed > 0 ? ', ${evidence.failed} rechazadas' : ''}'
+              '${evidence.held > 0 ? ', ${evidence.held} en espera' : ''}',
+        if (survey != null && (survey.synced > 0 || survey.failed > 0))
+          'encuestas: ${survey.synced} enviadas'
+              '${survey.failed > 0 ? ', ${survey.failed} rechazadas' : ''}'
+              '${survey.held > 0 ? ', ${survey.held} en espera' : ''}',
+      ];
+      if (extras.isEmpty) return result;
+      final extra = extras.join(' · ');
+      return SyncResult(
+        attempted: result.attempted,
+        synced: result.synced,
+        failed: result.failed,
+        message: result.isNoop ? extra : '${result.message} · $extra',
+      );
     } on ApiException catch (e) {
       // No verdict reached the items (BR3); the attempt itself still counts.
       await repo.recordPushAttempt(
@@ -446,6 +471,17 @@ final queueOwnerProvider = Provider<String?>(
   (ref) => ref.watch(sessionProvider).valueOrNull?.email,
 );
 
+/// Unsent PHOTOS of a route. Separate from the capture count because a
+/// routine photo waits for WiFi and can easily outlive its queue row —
+/// the send bar must stay alive for it (E2E finding).
+final pendingEvidenceCountProvider =
+    StreamProvider.autoDispose.family<int, String>((ref, routeId) {
+  final owner = ref.watch(queueOwnerProvider);
+  return ref
+      .watch(evidenceRepositoryProvider)
+      .watchPendingCount(routeId, owner: owner);
+});
+
 /// How many of a route's rows are still waiting or were refused.
 final pendingCountProvider = Provider.family<int, String>((ref, routeId) {
   final rows = ref.watch(capturesProvider(routeId)).valueOrNull ?? const [];
@@ -460,3 +496,143 @@ final capturesProvider =
       .watch(captureRepositoryProvider)
       .watchCaptures(routeId, owner: owner);
 });
+
+// ---- Route-state locks (Spec 9) ----
+
+/// CL-E8: whether the active worker-in-ESP may run the survey at all.
+/// Fail-closed: no session / no active ESP / flag false → false.
+final canSurveyProvider = Provider<bool>(
+  (ref) =>
+      ref.watch(sessionProvider).valueOrNull?.activeEsp?.canSurvey ?? false,
+);
+
+/// The placa pass is CLOSED for this route (Spec 9). Fail-open: only an
+/// explicit 'cerrada' disables capture; a not-yet-loaded route reads open.
+final placasClosedProvider = Provider.family<bool, String>((ref, routeId) {
+  final route = ref.watch(routeRowProvider(routeId)).valueOrNull;
+  return route?.placasEstado == AppConfig.placasCerrada;
+});
+
+/// The survey is UNLOCKED for this route (CL-E8): the worker is cleared AND
+/// the route is open. Fail-closed: anything missing → locked.
+final surveyUnlockedProvider = Provider.family<bool, String>((ref, routeId) {
+  if (!ref.watch(canSurveyProvider)) return false;
+  final route = ref.watch(routeRowProvider(routeId)).valueOrNull;
+  return route?.surveyEstado == AppConfig.surveyAbierta;
+});
+
+// ---- Extended survey (Spec 8, T8.5) ----
+
+final surveyRepositoryProvider = Provider<SurveyRepository>(
+  (ref) => SurveyRepository(ref.watch(databaseProvider)),
+);
+
+/// Unsent SURVEYS of a route (CL4-scoped). The send bar counts these too, so
+/// it stays alive when only surveys are pending — the same reason evidence is
+/// counted apart (an E2E lesson).
+final pendingSurveyCountProvider =
+    StreamProvider.autoDispose.family<int, String>((ref, routeId) {
+  final owner = ref.watch(queueOwnerProvider);
+  return ref
+      .watch(surveyRepositoryProvider)
+      .watchPendingCount(routeId, owner: owner);
+});
+
+/// Live map of a route's surveys, keyed by the anchor's clientId — the resume
+/// list hangs a per-unit survey-state chip from it (CL-E1), CL4-scoped.
+final routeSurveysProvider =
+    StreamProvider.autoDispose.family<Map<String, Survey>, String>(
+  (ref, routeId) {
+    final owner = ref.watch(queueOwnerProvider);
+    return ref
+        .watch(surveyRepositoryProvider)
+        .watchSurveysForRoute(routeId, owner: owner)
+        .map((list) => {for (final s in list) s.anchorClientId: s});
+  },
+);
+
+/// Identity of the survey being edited: the anchor unit and its route.
+class SurveyArgs {
+  const SurveyArgs({required this.anchorClientId, required this.routeId});
+
+  final String anchorClientId;
+  final String routeId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is SurveyArgs &&
+      other.anchorClientId == anchorClientId &&
+      other.routeId == routeId;
+
+  @override
+  int get hashCode => Object.hash(anchorClientId, routeId);
+}
+
+/// Drives one predio's survey form (Spec 8, T8.5). Loads the persisted
+/// structure (or a fresh unifamiliar), and every gesture auto-saves to drift
+/// so a half-done survey is never memory-only (CL-E6). autoDispose so
+/// re-entering reloads from the source of truth.
+final surveyControllerProvider = AsyncNotifierProvider.autoDispose
+    .family<SurveyController, SurveyStructure, SurveyArgs>(
+  SurveyController.new,
+);
+
+class SurveyController
+    extends AutoDisposeFamilyAsyncNotifier<SurveyStructure, SurveyArgs> {
+  @override
+  Future<SurveyStructure> build(SurveyArgs arg) async {
+    final loaded =
+        await ref.read(surveyRepositoryProvider).loadStructure(arg.anchorClientId);
+    return loaded ?? SurveyStructure.unifamiliar();
+  }
+
+  Future<void> _apply(SurveyStructure next) async {
+    state = AsyncData(next);
+    await ref.read(surveyRepositoryProvider).saveSurvey(
+          anchorClientId: arg.anchorClientId,
+          routeId: arg.routeId,
+          structure: next,
+          owner: ref.read(queueOwnerProvider),
+        );
+  }
+
+  SurveyStructure get _cur => state.requireValue;
+
+  Future<void> setAnswers(int floor, int unit, SurveyAnswers answers) =>
+      _apply(_cur.setAnswers(floor, unit, answers));
+
+  Future<void> addUnit(int floor) => _apply(_cur.addUnit(floor));
+
+  Future<void> addFloor() => _apply(_cur.addFloor());
+
+  Future<void> removeUnit(int floor, int unit) =>
+      _apply(_cur.removeUnit(floor, unit));
+
+  Future<void> removeFloor(int floor) => _apply(_cur.removeFloor(floor));
+
+  /// Declares the totalizador with its just-taken photo (CL-E4): the photo
+  /// is queued as evidence (proposito=totalizador, always divergencia, bound
+  /// to the anchor's client_id) and the 99/99 is added to the structure. It
+  /// travels on the SAME Enviar as the placas, via /field/capture/evidence.
+  Future<void> declareTotalizador(String photoPath) async {
+    await ref.read(evidenceRepositoryProvider).enqueue(
+          clientId: arg.anchorClientId,
+          routeId: arg.routeId,
+          filePath: photoPath,
+          soporte: AppConfig.soporteDivergencia,
+          proposito: AppConfig.propositoTotalizador,
+          owner: ref.read(queueOwnerProvider),
+        );
+    await _apply(_cur.declareTotalizador(photo: photoPath));
+  }
+
+  /// Undeclares the totalizador before sending: drops the 99/99 and its
+  /// queued photo (row + local file).
+  Future<void> clearTotalizador() async {
+    await ref.read(evidenceRepositoryProvider).remove(
+          arg.anchorClientId,
+          proposito: AppConfig.propositoTotalizador,
+        );
+    await _apply(_cur.clearTotalizador());
+  }
+}

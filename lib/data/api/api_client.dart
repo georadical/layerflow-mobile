@@ -3,14 +3,20 @@ import 'package:dio/dio.dart';
 import '../../core/config/app_config.dart';
 import '../settings/settings_store.dart';
 import 'dtos.dart';
+import 'sync_dtos.dart';
 
 /// Network/server error that the UI can display.
 class ApiException implements Exception {
-  ApiException(this.message, {this.statusCode});
+  ApiException(this.message, {this.statusCode, this.codigo});
   final String message;
   final int? statusCode;
+
+  /// Stable machine code from the server's `detail.codigo` when present
+  /// (e.g. 'ruta_placas_cerrada'), so callers map the cause, not the prose.
+  final String? codigo;
+
   @override
-  String toString() => 'ApiException($statusCode): $message';
+  String toString() => 'ApiException($statusCode/$codigo): $message';
 }
 
 /// Capture API client. Reads baseUrl and field_token on every request from
@@ -56,6 +62,23 @@ class ApiClient {
         data: batch.toJson(),
       );
       return PlacaBatchResponse.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// POST /sync/push — the survey pass batch (Spec 8, T8.5c). Serialises the
+  /// operations parents-before-children (`ordered()`), and parses the
+  /// per-op verdicts + resumen. A closed/unauthorized op comes back inside
+  /// the 200 envelope with its `codigo`, not as an HTTP error.
+  Future<SyncPushResponse> pushSync(SyncPushRequest req) async {
+    final base = await _baseUrl();
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '$base${AppConfig.syncPushPath}',
+        data: req.ordered().toJson(),
+      );
+      return SyncPushResponse.fromJson(res.data ?? const {});
     } on DioException catch (e) {
       throw _mapError(e);
     }
@@ -156,12 +179,14 @@ class ApiClient {
     required String clientId,
     required String soporte,
     required String filePath,
+    String proposito = AppConfig.propositoPlaca,
   }) async {
     final base = await _baseUrl();
     try {
       final form = FormData.fromMap({
         'client_id': clientId,
         'soporte': soporte,
+        'proposito': proposito,
         'foto': await MultipartFile.fromFile(
           filePath,
           contentType: DioMediaType('image', 'jpeg'),
@@ -176,15 +201,26 @@ class ApiClient {
   ApiException _mapError(DioException e) {
     final code = e.response?.statusCode;
     final data = e.response?.data;
+    final rawDetail = data is Map ? data['detail'] : null;
     String detail;
-    if (data is Map && data['detail'] != null) {
-      detail = data['detail'].toString();
+    String? codigo;
+    if (rawDetail is Map) {
+      // Structured detail (e.g. 409 {detail:{codigo, motivo}}): keep the
+      // machine code apart from the human message.
+      codigo = rawDetail['codigo']?.toString();
+      detail = (rawDetail['motivo'] ??
+              rawDetail['mensaje'] ??
+              codigo ??
+              'Error del servidor.')
+          .toString();
+    } else if (rawDetail != null) {
+      detail = rawDetail.toString();
     } else if (e.type == DioExceptionType.connectionTimeout ||
         e.type == DioExceptionType.connectionError) {
       detail = 'Sin conexión con el backend.';
     } else {
       detail = e.message ?? 'Error de red.';
     }
-    return ApiException(detail, statusCode: code);
+    return ApiException(detail, statusCode: code, codigo: codigo);
   }
 }
