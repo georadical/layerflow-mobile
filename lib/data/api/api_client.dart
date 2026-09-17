@@ -6,11 +6,16 @@ import 'dtos.dart';
 
 /// Network/server error that the UI can display.
 class ApiException implements Exception {
-  ApiException(this.message, {this.statusCode});
+  ApiException(this.message, {this.statusCode, this.codigo});
   final String message;
   final int? statusCode;
+
+  /// Stable machine code from the server's `detail.codigo` when present
+  /// (e.g. 'ruta_placas_cerrada'), so callers map the cause, not the prose.
+  final String? codigo;
+
   @override
-  String toString() => 'ApiException($statusCode): $message';
+  String toString() => 'ApiException($statusCode/$codigo): $message';
 }
 
 /// Capture API client. Reads baseUrl and field_token on every request from
@@ -178,15 +183,26 @@ class ApiClient {
   ApiException _mapError(DioException e) {
     final code = e.response?.statusCode;
     final data = e.response?.data;
+    final rawDetail = data is Map ? data['detail'] : null;
     String detail;
-    if (data is Map && data['detail'] != null) {
-      detail = data['detail'].toString();
+    String? codigo;
+    if (rawDetail is Map) {
+      // Structured detail (e.g. 409 {detail:{codigo, motivo}}): keep the
+      // machine code apart from the human message.
+      codigo = rawDetail['codigo']?.toString();
+      detail = (rawDetail['motivo'] ??
+              rawDetail['mensaje'] ??
+              codigo ??
+              'Error del servidor.')
+          .toString();
+    } else if (rawDetail != null) {
+      detail = rawDetail.toString();
     } else if (e.type == DioExceptionType.connectionTimeout ||
         e.type == DioExceptionType.connectionError) {
       detail = 'Sin conexión con el backend.';
     } else {
       detail = e.message ?? 'Error de red.';
     }
-    return ApiException(detail, statusCode: code);
+    return ApiException(detail, statusCode: code, codigo: codigo);
   }
 }

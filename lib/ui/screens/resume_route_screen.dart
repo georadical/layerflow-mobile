@@ -38,6 +38,10 @@ class ResumeRouteScreen extends ConsumerWidget {
     final routeCodigo =
         codigo ?? ref.watch(routeCodigoProvider(routeId)).valueOrNull;
     final esp = ref.watch(espNameProvider).valueOrNull;
+    // Spec 9: the placa pass can be closed by the office. Fail-open — only an
+    // explicit 'cerrada' disables capture.
+    final placasClosed = ref.watch(placasClosedProvider(routeId));
+    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -47,11 +51,25 @@ class ResumeRouteScreen extends ConsumerWidget {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => CaptureScreen(routeId: routeId)),
-        ),
-        icon: const Icon(Icons.add),
-        label: const Text('Capturar'),
+        // Closed: the button reads as a lock and its tap explains why, rather
+        // than opening a capture the server would refuse with 409.
+        onPressed: placasClosed
+            ? () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                        'La oficina cerró la captura de placas en esta ruta.'),
+                  ),
+                )
+            : () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => CaptureScreen(routeId: routeId)),
+                ),
+        backgroundColor:
+            placasClosed ? theme.colorScheme.surfaceContainerHighest : null,
+        foregroundColor:
+            placasClosed ? theme.colorScheme.onSurfaceVariant : null,
+        icon: Icon(placasClosed ? Icons.lock_outline : Icons.add),
+        label: Text(placasClosed ? 'Captura cerrada' : 'Capturar'),
       ),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(routeFrameProvider(routeId).future),
@@ -301,12 +319,17 @@ class _QueueBar extends ConsumerWidget {
       if (!context.mounted) return;
       // The queue is untouched by any of these: a credentials or network
       // problem must never cost captured work (BR6).
-      final detail = switch (e.statusCode) {
-        401 => 'Token vencido o inválido — renuévalo en Ajustes.',
-        403 => 'Ese token no es de campo — pide un field_token al operador.',
-        404 => 'Esa ruta no existe o no es de tu ESP.',
-        _ => 'No se pudo enviar: ${e.message}',
-      };
+      final detail = e.codigo == AppConfig.codeRutaPlacasCerrada
+          // Spec 9: the route closed for placas between opening it and sending.
+          // Nothing was written server-side; the queue stays as it was.
+          ? 'La oficina cerró la captura de placas en esta ruta; nada se envió.'
+          : switch (e.statusCode) {
+              401 => 'Token vencido o inválido — renuévalo en Ajustes.',
+              403 =>
+                'Ese token no es de campo — pide un field_token al operador.',
+              404 => 'Esa ruta no existe o no es de tu ESP.',
+              _ => 'No se pudo enviar: ${e.message}',
+            };
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(detail)));
     }

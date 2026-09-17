@@ -218,6 +218,33 @@ void main() {
     expect(rows.map((r) => r.syncError), everyElement(isNull));
   });
 
+  test('a closed-route 409 leaves the queue untouched and carries its codigo '
+      '(Spec 9)', () async {
+    final db = await memoryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final (repo, _) = await seed(db, 2);
+    final api = _FakeApi(
+      throwing: ApiException('captura cerrada',
+          statusCode: 409, codigo: AppConfig.codeRutaPlacasCerrada),
+    );
+
+    // The codigo rides through the service so the UI can map the cause.
+    await expectLater(
+      SyncService(api, repo).pushPending(routeId),
+      throwsA(isA<ApiException>()
+          .having((e) => e.codigo, 'codigo', 'ruta_placas_cerrada')),
+    );
+
+    // Nothing was written server-side, and no row is marked on its merits.
+    final rows = await repo.capturesForRoute(routeId);
+    expect(rows.map((r) => r.syncStatus), everyElement(AppConfig.syncPending));
+    expect(rows.map((r) => r.syncError), everyElement(isNull));
+  });
+
   test('retrying includes rows the server rejected, with the same client_id',
       () async {
     final db = await memoryDb();
