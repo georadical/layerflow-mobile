@@ -17,6 +17,7 @@ with a verifiable gate, a commit and explicit approval.
 | 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done — full version E2E-verified both sides (2026-09-15) |
 | 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | Done @ d2bb861 — T8.1–T8.6 complete; E2E 9/9 aplicada both sides (Isnos/Ruta 10, 2026-09-17) |
 | 9 | Route-state locks (capture + survey gating) | [route-state-locks.md](route-state-locks.md) | Done — L.1 foundation, L.2 survey gate, L.3 placa gate; survey gate verified live (unlock on open route) |
+| — | Road to production (backlog) | [road-to-production.md](road-to-production.md) | Backlog — deployment infra, rich census, pilot (run first); not scheduled |
 
 ## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
 
@@ -97,25 +98,15 @@ sides. Open item for a future E2E: the matcher's skip of
 `field_sin_match` is covered by the backend's test but was never seen
 live (the retraction case had already cleared the finding).
 
-## Field deployment (backlog — noted 2026-09-12, not scheduled)
+## Road to production (backlog — not scheduled)
 
-The app is functionally field-ready (Specs 1–6 done, release APK builds
-with network). What remains to actually go to the field is deployment
-work, deliberately parked until the project decides to take that step:
-
-1. **Backend reachable from the street, HTTPS only.** Today it runs on the
-   dev laptop (`10.0.2.2`). Credentials and tokens must never travel over
-   plain HTTP, and Android release blocks cleartext by default anyway.
-   Needs the definitive base URL to configure in the app.
-2. **Real provisioning** (backend/operator side): `field`-role credentials
-   for the real surveyors and `verificada` routes of the real ESP.
-3. **Brute-force rate limiting on login** — the shared spec left it out of
-   the MVP "until any public deployment"; exposing the backend to the
-   internet is that moment.
-4. **Release APK on a physical phone** — never yet run outside the
-   emulator or debug mode.
-5. **Pilot before rollout**: one day, one surveyor, one real route, with
-   the office watching what lands.
+The app is functionally complete (Specs 1–9, E2E-verified), but a real
+rollout still needs deployment infra, richer census depth, and a field
+pilot. That backlog now lives in its own ordered doc:
+[road-to-production.md](road-to-production.md) — Track A (deployment infra),
+Track B (rich census: hogar/connection/meter, which the app does not
+capture yet), Track C (backend promotion/reconciliation), Track D (pilot,
+to run FIRST). The old "Field deployment" list is folded into Track A there.
 
 ## Spec 3 — notes carried in from Spec 1.1
 
