@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'ui/theme.dart';
 import 'ui/wireframes/assisted_capture_wireframe.dart';
 import 'ui/wireframes/login_wireframe.dart';
+import 'ui/wireframes/parada_capture_wireframe.dart';
 import 'ui/wireframes/resume_route_wireframe.dart';
 import 'ui/wireframes/route_selector_wireframe.dart';
 import 'ui/wireframes/survey_rail_wireframe.dart';
@@ -83,8 +84,45 @@ class WireframeIndex extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const _SurveyHost()),
             ),
           ),
+          const Divider(height: 1),
+          ListTile(
+            title: const Text('Captura por parada'),
+            subtitle: const Text('Spec 10 · PC.2'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const _ParadaHost()),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _ParadaHost extends StatefulWidget {
+  const _ParadaHost();
+
+  @override
+  State<_ParadaHost> createState() => _ParadaHostState();
+}
+
+class _ParadaHostState extends State<_ParadaHost> {
+  int _i = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _StateSwitcher(
+          labels: [for (final s in ParadaState.values) s.name],
+          selected: _i,
+          onSelect: (i) => setState(() => _i = i),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ParadaCaptureWireframe(state: ParadaState.values[_i]),
+        ),
+      ],
     );
   }
 }
