@@ -1,6 +1,7 @@
 # Spec — Parada-scoped capture, app side
 
-Status: draft (awaiting approval to implement)
+Status: draft — decisions Q1–Q3 resolved 2026-09-18 (offline sweep, LOCAL
+prediction, foto_obligatoria valve); awaiting approval to start PC.1/PC.2
 Type: App (UI + local state) consuming a backend contract → pipeline:
 Spec → Wireframe → Design → Implementation
 Consumes: [../docs/mobile-parada-capture-contract.md](../docs/mobile-parada-capture-contract.md)
@@ -100,29 +101,49 @@ camera vs a mandatory photo) is an open question below.
   `localizaciones`).
 - Offline: the predicted-placa step falls back to the manzana-scoped typeahead.
 
-## Open questions to validate BEFORE building
-1. **Sweep + manual-only sync.** Capture data travels only on Enviar
-   (manual-only doctrine). But the sweep gate is server-enforced and
-   `expected-placa` is a live server call. Is marking swept an **immediate**
-   online call (like the R1 refresh, exempt from manual-only), or queued? What
-   happens when the worker finishes a face **offline** — can they mark it swept
-   locally (optimistic) and it syncs later, or is swept online-only? A whole
-   face captured offline still needs to unlock the next parada.
-2. **Offline `expected-placa`.** It is server-side (reads R1). Offline, the app
-   falls back to the local manzana-scoped typeahead (cached R1) — confirm this
-   is the intended degrade (capture never blocks), and whether the app should
-   try to predict locally from the cached R1 or simply drop to manual.
-3. **`foto_obligatoria` vs the hardware valve.** Capture must NEVER block
-   (offline-first law), yet `foto_obligatoria` rejects a photo-less capture. If
-   the camera is dead under `foto_obligatoria`, does the app (a) block the
-   capture, (b) save it photo-less and let the push/swept reject it, or (c)
-   allow it and surface the face as photo-pending? Decide the field behaviour.
-4. **Order of `block_face_id` vs `ins_after`.** A skipped house within a face
-   uses shift-insert (`ins_after`); a skipped parada is gated. Confirm the two
-   coexist unchanged.
-5. **Manzana field.** Inside a parada the manzana is authoritative from the
-   face. Does the manual manzana field disappear entirely on assisted routes,
-   or stay as an override for rural/unassisted capture?
+## Decisions (resolved with Jorge 2026-09-18)
+1. **Sweep is offline-capable (optimistic-local).** A face MUST be closeable
+   offline to unlock the next — the local `swept` mark advances the walk
+   immediately and syncs on the next online moment; the field is never stalled
+   waiting for the server. The backend gate still enforces server-side on push
+   (multi-device: another device cannot skip); if the server later rejects a
+   sweep it surfaces as an error to reconcile, but never blocks the walk.
+2. **Prediction is LOCAL (a client mirror), not a runtime server dependency.**
+   The expected placa is computed ON DEVICE from the cached R1, near-instant
+   and offline — the app must not wait on the server to predict. The algorithm
+   is the backend's pinned one (PS5–PS7), mirrored like the address normalizer;
+   any change to it is a contract change the app follows. The server's
+   `expected-placa` endpoint stays as the authority/reference.
+   - **Face list:** cached R1 rows of the parada's manzana, parseable, grouped
+     by `(tipo_via, num_via, num_cruce, parity)`; `parity = placa mod 2` (the
+     two aceras of the same vía+generadora), ordered by placa **numerically**
+     (text→int; irregular gaps are irrelevant — it is "next in the ordered
+     list", never arithmetic).
+   - **Direction from the anchor** (first captured placa): list minimum → asc;
+     maximum → desc; middle → unresolved + warning "esta placa no inicia la
+     cara" (start at an end). This is the "check placas before/after" step.
+   - **Next expected** = the next entry after the anchor in that direction;
+     none → end of face → offer "cara barrida".
+   - The pieces come from the existing normalizer: `direccionNorm`
+     "CALLE 5 # 2-06" → via/num_via(5)/num_cruce(2)/placa(06), parity = 06 mod
+     2. No new R1 columns strictly required; the backend may add parsed columns
+     later for robustness. Mirror lives beside `address_normalizer`.
+3. **`foto_obligatoria` vs the valve — local capture NEVER blocks.** When
+   `foto_obligatoria` and the camera works, the aimed shot is required at save
+   (cancelling aborts the save — you must shoot). When the camera is genuinely
+   dead, the capture still saves (valve), photo-less and flagged; the photo
+   obligation is then enforced server-side — the push rejects a photo-less
+   capture / the face cannot close (`foto_obligatoria_pendiente`) — until the
+   worker re-shoots when the camera is back. Never stall the walk; the face
+   just cannot close without its photos.
+
+## Open (app-side, resolved at PC.3/PC.5 design)
+4. **`block_face_id` vs `ins_after` coexistence** — a skipped house within a
+   face uses shift-insert (`ins_after`); a skipped parada is gated. Confirm
+   they coexist unchanged in the push.
+5. **Manzana field** — inside a parada the manzana is authoritative from the
+   face (the manual field hides on assisted routes); it stays as an override
+   for rural/unassisted capture. Finalise in PC.3.
 
 ## Tickets (app side; wireframe-first per the workflow)
 - **PC.1 — Foundation:** DTOs (`stops`, `expected-placa`, `swept`,
@@ -132,13 +153,17 @@ camera vs a mandatory photo) is an open question below.
 - **PC.2 — Parada rail wireframe:** the face-by-face navigation + capture flow
   states (current/next/swept/locked, predicted placa, end-of-face). Wireframe →
   approval → design → wiring.
-- **PC.3 — Capture bound to parada:** `block_face_id` on the push (ride-on-every
-  -push), manzana from the face, expected-placa fetch + `direction` persistence
-  + confirm/"no coincide" (finding).
-- **PC.4 — foto_obligatoria:** mandatory on-demand shot per capture; resolve the
-  hardware-valve question (Q3).
-- **PC.5 — Sweep:** mark swept / reopen; map `barrido_fuera_de_orden` and
-  `foto_obligatoria_pendiente`; resolve the offline-sweep question (Q1).
+- **PC.3 — Capture bound to parada + LOCAL prediction:** `block_face_id` on the
+  push (ride-on-every-push), manzana from the face, and the on-device
+  expected-placa mirror (face list by `(via,num_via,num_cruce,parity)` ordered
+  by placa::int; direction from the anchor; next/end-of-face) with tests against
+  the pinned examples; `direction` persisted per face; confirm/"no coincide"
+  (finding). The server `expected-placa` stays the authority; runtime is local.
+- **PC.4 — foto_obligatoria:** mandatory on-demand shot per capture when true
+  (needsDeliberateShot returns true), with the valve behaviour of Decision 3.
+- **PC.5 — Sweep (offline-capable):** optimistic-local `swept` that unlocks the
+  next parada offline and syncs later; map `barrido_fuera_de_orden` and
+  `foto_obligatoria_pendiente`.
 - **PC.6 — Coordinated E2E** on a sacrifice route, both sides.
 
 ## To verify the happy path
