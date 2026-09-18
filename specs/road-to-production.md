@@ -38,10 +38,17 @@ Today the survey emits ONLY `entidad_objetivo='unidad'`: the PH/PV structure
 plus the four CL-E3 access/use answers. The full census needs the per-unit
 sub-entities the contract already whitelists but the app never fills:
 `hogar`, `connection`, `service_point`, `meter`, `meter_inspection` (each
-riding its unit's instancia N; `premise` is predio-level, derived by the
-backend). This is a real feature — new question sets, new field_responses,
-and the promotion mapping for each — and should be its own spec, scoped by
-what the pilot shows the office actually needs first.
+riding its unit's instancia N). This is a real feature — new question sets,
+new field_responses, and the promotion mapping for each — and should be its
+own spec, scoped by what the pilot shows the office actually needs first.
+
+`premise` is predio-level (one, shared by the sibling census_codes), and the
+backend already DERIVES it from the anchor at promotion (TJ.2b.2 done:
+`estado='habitado'`, `tipo_inmueble`/`uso_principal` from the units' `uso`,
+`parcel_id` from the anchor, `numero_unidades` = real-unit count). The app
+sends no premise today, and it need not — but the guarantee for this track is
+that **when the app captures a real premise, the backend respects it
+verbatim**; the derivation only fills the gap when none is sent.
 
 ## Track C — Backend / office dependencies (not app code)
 - **Promotion / expansion engine (TJ.2)** — turns the declared structure into
