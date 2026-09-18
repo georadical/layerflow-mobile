@@ -345,4 +345,87 @@ void main() {
       expect(LoginEsp.fromJson(on.toJson()).canSurvey, isTrue);
     });
   });
+
+  group('parada-scoped capture DTOs (Spec 10)', () {
+    test('RouteStops parses paradas with es_actual / swept', () {
+      final s = RouteStops.fromJson({
+        'route_id': 'r1',
+        'items': [
+          {
+            'stop_id': 's1',
+            'face_sequence': 1,
+            'block_face_id': 'bf1',
+            'face_index': 1,
+            'manzana_catastral': '001',
+            'orientation': 'N',
+            'swept': true,
+          },
+          {
+            'stop_id': 's2',
+            'face_sequence': 2,
+            'block_face_id': 'bf2',
+            'es_actual': true,
+          },
+        ],
+      });
+      expect(s.items.length, 2);
+      expect(s.items[0].swept, isTrue);
+      expect(s.items[0].faceIndex, 1);
+      expect(s.items[1].esActual, isTrue);
+      expect(s.items[1].swept, isFalse);
+    });
+
+    test('PlacaItemRequest carries block_face_id only when present', () {
+      expect(
+        const PlacaItemRequest(clientId: 'a', posicion: 1, blockFaceId: 'bf1')
+            .toJson()['block_face_id'],
+        'bf1',
+      );
+      expect(
+        const PlacaItemRequest(clientId: 'a', posicion: 1)
+            .toJson()
+            .containsKey('block_face_id'),
+        isFalse,
+      );
+    });
+
+    test('PlacaItemResult reads the per-item codigo', () {
+      final r = PlacaItemResult.fromJson({
+        'client_id': 'a',
+        'ok': false,
+        'codigo': 'barrido_fuera_de_orden',
+      });
+      expect(r.ok, isFalse);
+      expect(r.codigo, 'barrido_fuera_de_orden');
+    });
+
+    test('foto_obligatoria: absent → false, explicit true; round-trips', () {
+      final def = RouteSummary.fromJson(
+          {'route_id': 'r', 'codigo': '10', 'estado': 'verificada'});
+      expect(def.fotoObligatoria, isFalse);
+
+      final on = RouteSummary.fromJson({
+        'route_id': 'r',
+        'codigo': '10',
+        'estado': 'verificada',
+        'foto_obligatoria': true,
+      });
+      expect(on.fotoObligatoria, isTrue);
+      expect(RouteSummary.fromJson(on.toJson()).fotoObligatoria, isTrue);
+
+      final frame = RouteFrame.fromJson(
+          {'route_id': 'r', 'items': [], 'foto_obligatoria': true});
+      expect(frame.fotoObligatoria, isTrue);
+    });
+
+    test('RouteFrameItem carries block_face_id', () {
+      final item = RouteFrameItem.fromJson({
+        'client_id': 'a',
+        'posicion': 1,
+        'loc': 5,
+        'block_face_id': 'bf1',
+      });
+      expect(item.blockFaceId, 'bf1');
+    });
+  });
 }

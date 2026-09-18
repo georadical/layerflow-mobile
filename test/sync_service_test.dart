@@ -55,6 +55,15 @@ class _FakeApi implements ApiClient {
       throw UnimplementedError();
 
   @override
+  Future<RouteStops> getRouteStops(String routeId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> markSwept(String routeId, String stopId,
+          {required bool swept}) =>
+      throw UnimplementedError();
+
+  @override
   Future<LoginResponse> login({
     required String email,
     required String password,
@@ -383,5 +392,29 @@ void main() {
     expect(items.first.toJson().containsKey('npn'), isFalse);
     // Linked row: the link rides along, like the mark.
     expect(items.last.toJson()['npn'], 'npn-1');
+  });
+
+  test('the block_face_id binding travels on every push (Spec 10)', () async {
+    final db = await memoryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final repo = CaptureRepository(db);
+    await repo.appendCapture(routeId: routeId, placa: 'A', blockFaceId: 'bf-9');
+    await repo.appendCapture(routeId: routeId, placa: 'B'); // unbound
+
+    final api = _FakeApi(
+      respond: (b) => _response([
+        for (final i in b.items) _ok(i.clientId, i.posicion * 5),
+      ]),
+    );
+    await SyncService(api, repo).pushPending(routeId);
+
+    final items = api.lastBatch!.items;
+    expect(items.first.toJson()['block_face_id'], 'bf-9');
+    // Unbound row: no key at all (omitting keeps, by contract).
+    expect(items.last.toJson().containsKey('block_face_id'), isFalse);
   });
 }

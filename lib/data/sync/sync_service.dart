@@ -234,6 +234,8 @@ class SyncService {
             // Third field under the same rule: omit it on a re-push and
             // the server clears the finding (CL-R7).
             sinR1: c.sinR1,
+            // Spec 10: the parada binding rides on every push, same rule.
+            blockFaceId: c.blockFaceId,
           ),
       ],
     );

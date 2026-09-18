@@ -521,6 +521,13 @@ final surveyUnlockedProvider = Provider.family<bool, String>((ref, routeId) {
   return route?.surveyEstado == AppConfig.surveyAbierta;
 });
 
+/// Spec 10: whether this route requires a photo per placa (pilot=true). From
+/// the persisted route row, so it holds offline. Absent → false.
+final fotoObligatoriaProvider = Provider.family<bool, String>((ref, routeId) {
+  final route = ref.watch(routeRowProvider(routeId)).valueOrNull;
+  return route?.fotoObligatoria ?? false;
+});
+
 // ---- Extended survey (Spec 8, T8.5) ----
 
 final surveyRepositoryProvider = Provider<SurveyRepository>(

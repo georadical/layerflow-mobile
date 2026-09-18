@@ -32,6 +32,11 @@ class Routes extends Table {
   TextColumn get surveyEstado =>
       text().withDefault(const Constant(AppConfig.surveyBloqueada))();
 
+  /// Parada photo policy (Spec 10): when true, a face cannot close until every
+  /// placa on it has a photo. Persisted from the frame / assigned routes.
+  BoolColumn get fotoObligatoria =>
+      boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column<Object>> get primaryKey => {routeId};
 }
@@ -102,6 +107,11 @@ class Captures extends Table {
   /// force a choice between breaking retraction (omit-always) and wiping
   /// another device's finding (send-always).
   BoolColumn get sinR1 => boolean().nullable()();
+
+  /// Parada binding (Spec 10): the block_face this capture belongs to. Rides
+  /// on EVERY push like npn (full-replacement, omit → keep). Null = unassisted
+  /// / rural capture. The worker never types it — it comes from the parada.
+  TextColumn get blockFaceId => text().nullable()();
 
   /// Person who owns this row's UNSENT content (normalized login email,
   /// CL4). Null = unowned: legacy rows and the CL1 paste flow, visible to
@@ -232,7 +242,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -305,6 +315,12 @@ class AppDatabase extends _$AppDatabase {
             // them.
             await m.addColumn(routes, routes.placasEstado);
             await m.addColumn(routes, routes.surveyEstado);
+          }
+          if (from < 13) {
+            // Parada-scoped capture (Spec 10): the face binding on a capture
+            // and the per-route photo policy.
+            await m.addColumn(captures, captures.blockFaceId);
+            await m.addColumn(routes, routes.fotoObligatoria);
           }
         },
       );

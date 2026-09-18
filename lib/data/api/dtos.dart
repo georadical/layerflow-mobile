@@ -21,6 +21,7 @@ class PlacaItemRequest {
     this.insAfter,
     this.npn,
     this.sinR1,
+    this.blockFaceId,
   });
 
   final String clientId;
@@ -29,6 +30,11 @@ class PlacaItemRequest {
   final String? manzanaCatastral;
   final String? tipoAcceso;
   final String? observacion;
+
+  /// Parada binding (Spec 10): the current face this capture belongs to. Same
+  /// full-replacement rule as npn/ins_after — omitting it on a re-push keeps
+  /// the server's value; null here means unassisted/rural capture.
+  final String? blockFaceId;
 
   /// Pending relocation: the loc this unit goes after (0 = start of route).
   /// The contract is full-replacement, so omitting it clears the mark on the
@@ -61,6 +67,7 @@ class PlacaItemRequest {
         // Tri-state: the key travels only when there is something to say
         // (assert or retract). Sending it beside npn is a per-item error.
         if (sinR1 != null && npn == null) 'sin_r1': sinR1,
+        if (blockFaceId != null) 'block_face_id': blockFaceId,
       };
 }
 
@@ -92,6 +99,7 @@ class PlacaItemResult {
     this.loc,
     this.status,
     this.error,
+    this.codigo,
   });
 
   final String clientId;
@@ -103,6 +111,10 @@ class PlacaItemResult {
   final String? status;
   final String? error;
 
+  /// Stable per-item machine code when refused (Spec 10, e.g.
+  /// 'barrido_fuera_de_orden'); null otherwise.
+  final String? codigo;
+
   factory PlacaItemResult.fromJson(Map<String, dynamic> json) {
     return PlacaItemResult(
       clientId: json['client_id'] as String,
@@ -111,6 +123,7 @@ class PlacaItemResult {
       loc: (json['loc'] as num?)?.toInt(),
       status: json['status'] as String?,
       error: json['error']?.toString(),
+      codigo: json['codigo']?.toString(),
     );
   }
 }
@@ -162,6 +175,7 @@ class RouteSummary {
     this.totalCapturado,
     this.placasEstado = AppConfig.placasAbierta,
     this.surveyEstado = AppConfig.surveyBloqueada,
+    this.fotoObligatoria = false,
   });
 
   /// The same id consumed by `GET /field/capture/route/{route_id}`.
@@ -184,6 +198,10 @@ class RouteSummary {
   /// Survey-pass lock (CL-E8). Fail-CLOSED: absent → bloqueada.
   final String surveyEstado;
 
+  /// Parada photo policy (Spec 10): when true, a face cannot close until every
+  /// placa on it has a photo. Absent → false.
+  final bool fotoObligatoria;
+
   factory RouteSummary.fromJson(Map<String, dynamic> json) {
     return RouteSummary(
       routeId: json['route_id'] as String,
@@ -195,6 +213,7 @@ class RouteSummary {
           json['placas_estado']?.toString() ?? AppConfig.placasAbierta,
       surveyEstado:
           json['survey_estado']?.toString() ?? AppConfig.surveyBloqueada,
+      fotoObligatoria: json['foto_obligatoria'] as bool? ?? false,
     );
   }
 
@@ -209,6 +228,7 @@ class RouteSummary {
         if (totalCapturado != null) 'total_capturado': totalCapturado,
         'placas_estado': placasEstado,
         'survey_estado': surveyEstado,
+        'foto_obligatoria': fotoObligatoria,
       };
 }
 
@@ -466,6 +486,73 @@ class R1DirectoryResponse {
   }
 }
 
+/// One parada of a route (Spec 10) — from GET /field/routes/{id}/stops.
+/// The app navigates by `faceSequence`; `faceIndex` is identity/QC.
+class RouteStop {
+  const RouteStop({
+    required this.stopId,
+    required this.faceSequence,
+    required this.blockFaceId,
+    this.faceIndex,
+    this.manzanaCatastral,
+    this.orientation,
+    this.swept = false,
+    this.esActual = false,
+  });
+
+  final String stopId;
+  final int faceSequence;
+  final String blockFaceId;
+  final int? faceIndex;
+  final String? manzanaCatastral;
+  final String? orientation;
+  final bool swept;
+
+  /// The workable parada: the lowest `faceSequence` not yet swept.
+  final bool esActual;
+
+  factory RouteStop.fromJson(Map<String, dynamic> json) {
+    return RouteStop(
+      stopId: json['stop_id'].toString(),
+      faceSequence: (json['face_sequence'] as num?)?.toInt() ?? 0,
+      blockFaceId: json['block_face_id'].toString(),
+      faceIndex: (json['face_index'] as num?)?.toInt(),
+      manzanaCatastral: json['manzana_catastral'] as String?,
+      orientation: json['orientation'] as String?,
+      swept: json['swept'] as bool? ?? false,
+      esActual: json['es_actual'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'stop_id': stopId,
+        'face_sequence': faceSequence,
+        'block_face_id': blockFaceId,
+        if (faceIndex != null) 'face_index': faceIndex,
+        if (manzanaCatastral != null) 'manzana_catastral': manzanaCatastral,
+        if (orientation != null) 'orientation': orientation,
+        'swept': swept,
+        'es_actual': esActual,
+      };
+}
+
+/// Response of GET /field/routes/{id}/stops.
+class RouteStops {
+  const RouteStops({required this.routeId, required this.items});
+
+  final String routeId;
+  final List<RouteStop> items;
+
+  factory RouteStops.fromJson(Map<String, dynamic> json) {
+    return RouteStops(
+      routeId: json['route_id']?.toString() ?? '',
+      items: (json['items'] as List<dynamic>? ?? const [])
+          .map((e) => RouteStop.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
 /// Frame item (GET). What was already captured, used to resume.
 class RouteFrameItem {
   const RouteFrameItem({
@@ -477,6 +564,7 @@ class RouteFrameItem {
     this.insAfter,
     this.npn,
     this.npnMatchMethod,
+    this.blockFaceId,
   });
 
   final String clientId;
@@ -496,6 +584,9 @@ class RouteFrameItem {
   /// Provenance of the link (field_confirmed | manual | ...); informational.
   final String? npnMatchMethod;
 
+  /// Parada binding as the server holds it (Spec 10); re-carried on push.
+  final String? blockFaceId;
+
   factory RouteFrameItem.fromJson(Map<String, dynamic> json) {
     return RouteFrameItem(
       clientId: json['client_id'] as String,
@@ -508,6 +599,7 @@ class RouteFrameItem {
       insAfter: (json['ins_after'] as num?)?.toInt(),
       npn: json['npn'] as String?,
       npnMatchMethod: json['npn_match_method'] as String?,
+      blockFaceId: json['block_face_id'] as String?,
     );
   }
 }
@@ -520,6 +612,7 @@ class RouteFrame {
     required this.items,
     this.placasEstado = AppConfig.placasAbierta,
     this.surveyEstado = AppConfig.surveyBloqueada,
+    this.fotoObligatoria = false,
   });
 
   final String routeId;
@@ -530,6 +623,9 @@ class RouteFrame {
   /// gates against the freshest value. Same fail-open/closed defaults.
   final String placasEstado;
   final String surveyEstado;
+
+  /// Parada photo policy (Spec 10), carried on the frame too.
+  final bool fotoObligatoria;
 
   factory RouteFrame.fromJson(Map<String, dynamic> json) {
     return RouteFrame(
@@ -542,6 +638,7 @@ class RouteFrame {
           json['placas_estado']?.toString() ?? AppConfig.placasAbierta,
       surveyEstado:
           json['survey_estado']?.toString() ?? AppConfig.surveyBloqueada,
+      fotoObligatoria: json['foto_obligatoria'] as bool? ?? false,
     );
   }
 }

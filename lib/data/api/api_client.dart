@@ -84,6 +84,40 @@ class ApiClient {
     }
   }
 
+  /// GET /field/routes/{id}/stops — the route's paradas (Spec 10), ordered by
+  /// face_sequence, with the current one flagged (es_actual).
+  Future<RouteStops> getRouteStops(String routeId) async {
+    final base = await _baseUrl();
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '$base${AppConfig.routeStopsPath(routeId)}',
+      );
+      return RouteStops.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// POST /field/routes/{id}/stops/{stop_id}/swept — mark a face swept
+  /// (gated) or reopen it (`swept:false`, ungated). A gated rejection throws
+  /// ApiException with `codigo` (barrido_fuera_de_orden /
+  /// foto_obligatoria_pendiente).
+  Future<void> markSwept(
+    String routeId,
+    String stopId, {
+    required bool swept,
+  }) async {
+    final base = await _baseUrl();
+    try {
+      await _dio.post<void>(
+        '$base${AppConfig.stopSweptPath(routeId, stopId)}',
+        data: {'swept': swept},
+      );
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
   /// GET /field/routes — routes assigned to the authenticated field worker.
   ///
   /// The backend scopes and orders the list, so the app does not filter it.
