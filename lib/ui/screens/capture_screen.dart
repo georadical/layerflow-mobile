@@ -25,6 +25,15 @@ const _tipoAccesoOptions = <String, String>{
   'otro': 'Otro',
 };
 
+/// Result of an on-demand shot attempt. [cameraAvailable] false means the
+/// camera could not start (the valve → sin foto, never blocks); when true,
+/// [shot] null means the worker backed out.
+class _ShotOutcome {
+  const _ShotOutcome({this.shot, required this.cameraAvailable});
+  final XFile? shot;
+  final bool cameraAvailable;
+}
+
 /// Capture screen: strict append, one placa per household.
 class CaptureScreen extends ConsumerStatefulWidget {
   const CaptureScreen({super.key, required this.routeId});
@@ -74,33 +83,43 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() => _manzanaExhausted = stats.total > 0 && stats.free == 0);
   }
 
-  // Camera per capture (CL-R3): opens with the form, one frame per save,
-  // no gesture. Degrades to "sin foto" — capture NEVER blocks on it.
+  // Camera per SHOT, on demand (CL-R3): there is NO live preview and NO
+  // persistent camera across the walk — a streaming viewfinder open at every
+  // door is a real battery drain over a full route. The camera is started
+  // only when a shot is actually taken (the CTA, or a required trigger at
+  // save), then disposed at once. `_camera` here is never started; it hosts
+  // the stateless storeShotFor (compression + save) only.
   final _camera = PlateCamera();
   final _ocr = PlateOcr();
-  bool _cameraReady = false;
 
-  /// Deliberate shot taken via the strip's CTA (CL-R3 v1.1): used at save,
-  /// satisfies the lottery, and divergence never re-asks for it.
+  /// Deliberate shot taken via the CTA (CL-R3 v1.1): used at save, satisfies
+  /// the lottery, and divergence never re-asks for it.
   XFile? _deliberateShot;
 
-  /// While the aimed screen is up, the strip must NOT render: two live
-  /// previews on one controller make the capture session reconfigure and
-  /// the shot can lose that race.
-  bool _shotScreenOpen = false;
+  /// Guards the on-demand start→shot→dispose against a double tap.
+  bool _takingShot = false;
 
-  /// CL-R3 v1.1: opens the aimed full-screen shot. Optional from the CTA;
-  /// required (by trigger or lottery) from the save flow.
-  Future<XFile?> _takeDeliberateShot({required bool required}) async {
-    setState(() => _shotScreenOpen = true);
+  /// CL-R3 v1.1: starts a FRESH camera for one aimed shot and disposes it
+  /// right after. Returns the outcome so the caller can tell a dead camera
+  /// (valve → sin foto, never blocks) from a worker who backed out (a
+  /// required shot then aborts the save).
+  Future<_ShotOutcome> _takeDeliberateShot({required bool required}) async {
+    if (_takingShot) return const _ShotOutcome(cameraAvailable: true);
+    setState(() => _takingShot = true);
+    final camera = PlateCamera();
     try {
-      return await Navigator.of(context).push<XFile?>(
+      final ok = await camera.start();
+      if (!ok) return const _ShotOutcome(cameraAvailable: false);
+      if (!mounted) return const _ShotOutcome(cameraAvailable: true);
+      final shot = await Navigator.of(context).push<XFile?>(
         MaterialPageRoute(
-          builder: (_) => PlateShotScreen(camera: _camera, required: required),
+          builder: (_) => PlateShotScreen(camera: camera, required: required),
         ),
       );
+      return _ShotOutcome(shot: shot, cameraAvailable: true);
     } finally {
-      if (mounted) setState(() => _shotScreenOpen = false);
+      await camera.dispose();
+      if (mounted) setState(() => _takingShot = false);
     }
   }
 
@@ -114,10 +133,6 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
           await ref.read(r1DirectoryRepositoryProvider).countFor(tenantId);
       if (mounted) setState(() => _directoryAvailable = count > 0);
       await _refreshManzanaState();
-    });
-    Future.microtask(() async {
-      final ok = await _camera.start();
-      if (mounted) setState(() => _cameraReady = ok);
     });
   }
 
@@ -284,27 +299,34 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       // (the ABSENT expected photo is itself the QA signal).
       XFile? shot = _deliberateShot;
       final lotteryRoll = Random().nextInt(AppConfig.evidenceLotteryOneIn);
+      // cameraReady:true — we always ATTEMPT on demand; the hardware valve is
+      // handled at capture time (a dead camera returns cameraAvailable:false).
       final needsAimed = EvidenceRepository.needsDeliberateShot(
         soporte: soporte,
-        cameraReady: _cameraReady,
+        cameraReady: true,
         alreadyDeliberate: shot != null,
         lotteryRoll: lotteryRoll,
       );
       if (needsAimed) {
-        final taken = await _takeDeliberateShot(required: true);
-        if (taken == null) {
-          // Backed out of a required shot: the save aborts, form intact.
+        final outcome = await _takeDeliberateShot(required: true);
+        if (!outcome.cameraAvailable) {
+          // Hardware valve: a dead camera NEVER blocks the capture; the
+          // absent expected photo is itself the QA signal.
+          shot = null;
+        } else if (outcome.shot == null) {
+          // Camera worked but the worker backed out of a required shot: the
+          // save aborts, form intact.
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                 content: Text('Esta captura requiere la foto de la placa.')));
           }
           return;
+        } else {
+          shot = outcome.shot;
         }
-        shot = taken;
-      } else if (shot == null && _cameraReady) {
-        // Passive fallback frame, as before (no gesture).
-        shot = await _camera.takeShot();
       }
+      // No passive fallback frame: with no persistent camera there is nothing
+      // to grab for free. Routine photos are the CTA or the 1/N lottery only.
       if (shot != null && !await _ocrSoftCheck(shot)) {
         // The worker chose "Corregir": abort, keep the form as-is.
         return;
@@ -389,38 +411,39 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     ),
                   ],
                 ),
-                if (_cameraReady && !_shotScreenOpen) ...[
-                  const SizedBox(height: 16),
-                  InkWell(
-                    onTap: () async {
-                      final taken = await _takeDeliberateShot(required: false);
-                      if (taken != null && mounted) {
-                        setState(() => _deliberateShot = taken);
-                      }
-                    },
-                    child: Column(
-                      children: [
-                        _CameraStrip(camera: _camera),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              _deliberateShot != null
-                                  ? Icons.check_circle
-                                  : Icons.photo_camera,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(_deliberateShot != null
-                                ? 'Foto de placa lista'
-                                : 'Tomar foto de placa'),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                const SizedBox(height: 16),
+                // No live viewfinder (battery): a CTA that opens the camera
+                // only when tapped, shoots once, and releases it.
+                OutlinedButton.icon(
+                  onPressed: _takingShot
+                      ? null
+                      : () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final outcome =
+                              await _takeDeliberateShot(required: false);
+                          if (!mounted) return;
+                          if (!outcome.cameraAvailable) {
+                            messenger.showSnackBar(const SnackBar(
+                                content: Text('Cámara no disponible.')));
+                            return;
+                          }
+                          if (outcome.shot != null) {
+                            setState(() => _deliberateShot = outcome.shot);
+                          }
+                        },
+                  icon: _takingShot
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(_deliberateShot != null
+                          ? Icons.check_circle
+                          : Icons.photo_camera),
+                  label: Text(_deliberateShot != null
+                      ? 'Foto de placa lista'
+                      : 'Tomar foto de placa'),
+                ),
                 if (_manzanaExhausted) ...[
                   const SizedBox(height: 16),
                   const _DiscoveryBanner(),
@@ -740,37 +763,6 @@ class _DuplicateBanner extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Slim viewfinder while the form is open (CL-R3: camera per capture, no
-/// permanent viewfinder across the walk). Purely passive: the frame is
-/// grabbed by the save gesture, never by a tap here.
-class _CameraStrip extends StatelessWidget {
-  const _CameraStrip({required this.camera});
-
-  final PlateCamera camera;
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = camera.controller;
-    if (controller == null) return const SizedBox.shrink();
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: SizedBox(
-        height: 140,
-        width: double.infinity,
-        child: FittedBox(
-          fit: BoxFit.cover,
-          clipBehavior: Clip.hardEdge,
-          child: SizedBox(
-            width: controller.value.previewSize?.height ?? 320,
-            height: controller.value.previewSize?.width ?? 240,
-            child: CameraPreview(controller),
-          ),
         ),
       ),
     );
