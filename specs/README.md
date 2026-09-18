@@ -18,6 +18,7 @@ with a verifiable gate, a commit and explicit approval.
 | 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | Done @ d2bb861 — T8.1–T8.6 complete; E2E 9/9 aplicada both sides (Isnos/Ruta 10, 2026-09-17) |
 | 9 | Route-state locks (capture + survey gating) | [route-state-locks.md](route-state-locks.md) | Done — L.1 foundation, L.2 survey gate, L.3 placa gate; survey gate verified live (unlock on open route) |
 | — | Road to production (backlog) | [road-to-production.md](road-to-production.md) | Backlog — deployment infra, rich census, pilot (run first); not scheduled |
+| — | BlockFace & Paradas (reference) | [paradas-blockface.md](paradas-blockface.md) | Reference — backend model pinned; app consumes read-only (TP.4/TP.5) later, changes nothing today |
 
 ## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
 
