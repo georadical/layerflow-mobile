@@ -46,6 +46,11 @@ class R1DirectoryRepository {
           direccionNorm: item.direccionNorm,
           manzana: Value(item.manzana),
           enlazadoLoc: Value(item.enlazadoLoc),
+          tipoVia: Value(item.tipoVia),
+          numVia: Value(item.numVia),
+          numCruce: Value(item.numCruce),
+          placa: Value(item.placa),
+          parseOk: Value(item.parseOk),
         ),
     ]);
     await _settings.setR1Version(tenantId, res.version);

@@ -429,12 +429,27 @@ class R1DirectoryItem {
     required this.direccionNorm,
     this.manzana,
     this.enlazadoLoc,
+    this.tipoVia,
+    this.numVia,
+    this.numCruce,
+    this.placa,
+    this.parseOk = false,
   });
 
   final String npn;
   final String direccion;
   final String direccionNorm;
   final String? manzana;
+
+  /// Server-parsed address components (Spec 10, backend adds them to
+  /// /field/r1-directory). The local face prediction groups by these
+  /// authoritative values — never re-parsing direccion_norm, so vías with
+  /// letters/suffixes ("10AS") are used as sent, not synthesised.
+  final String? tipoVia;
+  final String? numVia;
+  final String? numCruce;
+  final String? placa;
+  final bool parseOk;
 
   /// CL-R6: `{loc, ruta}` when this R1 row is ALREADY linked to a captured
   /// unit — computed server-side on purpose, because a local count cannot
@@ -458,6 +473,11 @@ class R1DirectoryItem {
               if (enlazado['loc'] != null) 'loc ${enlazado['loc']}',
             ].join(' · ')
           : null,
+      tipoVia: json['tipo_via']?.toString(),
+      numVia: json['num_via']?.toString(),
+      numCruce: json['num_cruce']?.toString(),
+      placa: json['placa']?.toString(),
+      parseOk: json['parse_ok'] as bool? ?? false,
     );
   }
 }

@@ -65,6 +65,36 @@ class FaceAddress {
   /// The face key WITHIN a manzana: same vía, same generadora (num_cruce),
   /// same acera (parity).
   String get faceKey => '$via|$numVia|$numCruce|$parity';
+
+  /// Builds a face address from the server's PARSED R1 columns (Spec 10),
+  /// which is the preferred path: [numVia] is used verbatim ("10AS"), never
+  /// re-derived, so a suffix vía is never mis-grouped. Returns null when a
+  /// component is missing/empty or the placa has no leading integer (then the
+  /// row cannot be ordered and is skipped for prediction). The caller should
+  /// pass only rows the server marked `parse_ok`.
+  static FaceAddress? fromColumns({
+    required String direccionNorm,
+    required String? tipoVia,
+    required String? numVia,
+    required String? numCruce,
+    required String? placa,
+  }) {
+    final via = tipoVia?.trim() ?? '';
+    final nv = numVia?.trim() ?? '';
+    final nc = numCruce?.trim() ?? '';
+    final pl = placa?.trim() ?? '';
+    if (via.isEmpty || nv.isEmpty || nc.isEmpty || pl.isEmpty) return null;
+    final digits = RegExp(r'^\d+').firstMatch(pl)?.group(0);
+    if (digits == null) return null;
+    return FaceAddress(
+      direccionNorm: direccionNorm,
+      via: via,
+      numVia: nv,
+      numCruce: nc,
+      placa: pl,
+      placaNum: int.parse(digits),
+    );
+  }
 }
 
 /// Parses a normalized address into its face components, or null when it is
@@ -121,7 +151,11 @@ class FacePrediction {
       expectedDireccion == null && direction != FaceDirection.indeterminada;
 }
 
-/// Predicts the next placa for the anchor's face (client mirror of PS5–PS7).
+/// Predicts the next placa for the anchor's face (client mirror of PS5–PS7),
+/// parsing the addresses out of `direccion_norm`. Prefer
+/// [predictNextFromFaces] with the server-parsed columns — this string path is
+/// the fallback for rows without parsed columns (and what the unit tests
+/// exercise).
 ///
 /// [anchorDireccionNorm] is the last captured/linked R1 address (normalized).
 /// [manzanaR1] are the normalized R1 addresses of the parada's manzana.
@@ -139,13 +173,32 @@ FacePrediction predictNext({
     // sweep cannot be anchored — fall back to unassisted capture.
     return const FacePrediction(direction: FaceDirection.indeterminada);
   }
+  final faces =
+      manzanaR1.map(parseFaceAddress).whereType<FaceAddress>().toList();
+  return predictNextFromFaces(
+    anchor: anchor,
+    manzanaFaces: faces,
+    direction: direction,
+  );
+}
 
+/// Predicts the next placa for the anchor's face from already-parsed
+/// [FaceAddress]es — the production path, fed by [FaceAddress.fromColumns] over
+/// the server-parsed R1 columns so a suffix vía ("10AS") is grouped as sent.
+///
+/// [manzanaFaces] are every R1 address of the parada's manzana (all faces —
+/// this filters to the anchor's face by key). [direction], when carried from a
+/// previous call, is respected so the sweep does not re-flip at the face end.
+FacePrediction predictNextFromFaces({
+  required FaceAddress anchor,
+  required List<FaceAddress> manzanaFaces,
+  FaceDirection? direction,
+}) {
   // The face list: same face key, ordered by placa numerically, deduped by
   // placaNum (one door per number).
   final byPlaca = <int, FaceAddress>{};
-  for (final raw in manzanaR1) {
-    final fa = parseFaceAddress(raw);
-    if (fa == null || fa.faceKey != anchor.faceKey) continue;
+  for (final fa in manzanaFaces) {
+    if (fa.faceKey != anchor.faceKey) continue;
     byPlaca.putIfAbsent(fa.placaNum, () => fa);
   }
   byPlaca.putIfAbsent(anchor.placaNum, () => anchor); // the anchor belongs too

@@ -157,6 +157,17 @@ class R1Directory extends Table {
   /// by another device, worker or campaign. Marked, never hidden.
   TextColumn get enlazadoLoc => text().nullable()();
 
+  /// Server-parsed address components (Spec 10). The face prediction groups
+  /// by these authoritative values instead of re-parsing direccionNorm, so
+  /// vías with letters/suffixes ("10AS") are used as sent — never synthesised.
+  /// [parseOk] false ⇒ the components are unreliable and the row is skipped
+  /// for prediction.
+  TextColumn get tipoVia => text().nullable()();
+  TextColumn get numVia => text().nullable()();
+  TextColumn get numCruce => text().nullable()();
+  TextColumn get placa => text().nullable()();
+  BoolColumn get parseOk => boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column<Object>> get primaryKey => {tenantId, npn};
 }
@@ -276,7 +287,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -359,6 +370,17 @@ class AppDatabase extends _$AppDatabase {
           if (from < 14) {
             // Paradas cache (PC.1b): offline face-by-face navigation + sweep.
             await m.createTable(paradas);
+          }
+          if (from < 15) {
+            // Server-parsed R1 address columns (Spec 10): the prediction uses
+            // them verbatim instead of re-parsing direccionNorm. Null until the
+            // next R1 refresh backfills them; parseOk defaults false so a stale
+            // row is skipped for prediction, never mis-grouped.
+            await m.addColumn(r1Directory, r1Directory.tipoVia);
+            await m.addColumn(r1Directory, r1Directory.numVia);
+            await m.addColumn(r1Directory, r1Directory.numCruce);
+            await m.addColumn(r1Directory, r1Directory.placa);
+            await m.addColumn(r1Directory, r1Directory.parseOk);
           }
         },
       );
@@ -647,7 +669,8 @@ class AppDatabase extends _$AppDatabase {
   /// to hang a per-unit survey-state chip (CL-E1).
   Stream<List<Survey>> watchSurveysForRoute(String routeId, {String? owner}) {
     return (select(surveys)
-          ..where((s) => s.routeId.equals(routeId) & _surveyVisibleTo(s, owner)))
+          ..where(
+              (s) => s.routeId.equals(routeId) & _surveyVisibleTo(s, owner)))
         .watch();
   }
 
@@ -675,7 +698,8 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<bool> updateSurveyRow(String anchorClientId, SurveysCompanion patch) {
-    return (update(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
+    return (update(surveys)
+          ..where((s) => s.anchorClientId.equals(anchorClientId)))
         .write(patch)
         .then((rows) => rows > 0);
   }
@@ -686,17 +710,15 @@ class AppDatabase extends _$AppDatabase {
 
   // ---- Paradas (Spec 10, PC.1b) ----
 
-  Stream<List<Parada>> watchStops(String routeId) =>
-      (select(paradas)
-            ..where((p) => p.routeId.equals(routeId))
-            ..orderBy([(p) => OrderingTerm.asc(p.faceSequence)]))
-          .watch();
+  Stream<List<Parada>> watchStops(String routeId) => (select(paradas)
+        ..where((p) => p.routeId.equals(routeId))
+        ..orderBy([(p) => OrderingTerm.asc(p.faceSequence)]))
+      .watch();
 
-  Future<List<Parada>> stopsForRoute(String routeId) =>
-      (select(paradas)
-            ..where((p) => p.routeId.equals(routeId))
-            ..orderBy([(p) => OrderingTerm.asc(p.faceSequence)]))
-          .get();
+  Future<List<Parada>> stopsForRoute(String routeId) => (select(paradas)
+        ..where((p) => p.routeId.equals(routeId))
+        ..orderBy([(p) => OrderingTerm.asc(p.faceSequence)]))
+      .get();
 
   Future<Parada?> getParada(String stopId) =>
       (select(paradas)..where((p) => p.stopId.equals(stopId)))
@@ -710,8 +732,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// Replaces a route's paradas atomically (the repository computes the merge
   /// with local state first; a re-planned route drops stops no longer sent).
-  Future<void> replaceRouteStops(
-      String routeId, List<ParadasCompanion> rows) {
+  Future<void> replaceRouteStops(String routeId, List<ParadasCompanion> rows) {
     return transaction(() async {
       await (delete(paradas)..where((p) => p.routeId.equals(routeId))).go();
       for (final r in rows) {
@@ -726,9 +747,7 @@ class AppDatabase extends _$AppDatabase {
           .then((rows) => rows > 0);
 
   /// Paradas whose local sweep has not been pushed yet (PC.5 pushes these).
-  Future<List<Parada>> pendingSweeps(String routeId) =>
-      (select(paradas)
-            ..where((p) =>
-                p.routeId.equals(routeId) & p.sweptSynced.equals(false)))
-          .get();
+  Future<List<Parada>> pendingSweeps(String routeId) => (select(paradas)
+        ..where((p) => p.routeId.equals(routeId) & p.sweptSynced.equals(false)))
+      .get();
 }

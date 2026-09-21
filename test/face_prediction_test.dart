@@ -43,22 +43,22 @@ void main() {
 
   group('prediction — the pinned BDD examples (PS5–PS7)', () {
     test('ascending: anchor at the minimum → next entry', () {
-      final p = predictNext(anchorDireccionNorm: 'CARRERA 2 # 4-09',
-          manzanaR1: _odd);
+      final p =
+          predictNext(anchorDireccionNorm: 'CARRERA 2 # 4-09', manzanaR1: _odd);
       expect(p.direction, FaceDirection.ascendente);
       expect(p.expectedDireccion, 'CARRERA 2 # 4-15');
     });
 
     test('descending: anchor at the maximum → previous entry', () {
-      final p = predictNext(anchorDireccionNorm: 'CARRERA 2 # 4-74',
-          manzanaR1: _even);
+      final p = predictNext(
+          anchorDireccionNorm: 'CARRERA 2 # 4-74', manzanaR1: _even);
       expect(p.direction, FaceDirection.descendente);
       expect(p.expectedDireccion, 'CARRERA 2 # 4-16');
     });
 
     test('middle start warns and leaves direction unresolved', () {
-      final p = predictNext(anchorDireccionNorm: 'CARRERA 2 # 4-23',
-          manzanaR1: _odd);
+      final p =
+          predictNext(anchorDireccionNorm: 'CARRERA 2 # 4-23', manzanaR1: _odd);
       expect(p.direction, FaceDirection.indeterminada);
       expect(p.warning, 'esta placa no inicia la cara');
       expect(p.expectedDireccion, isNull);
@@ -125,6 +125,68 @@ void main() {
           manzanaR1: const ['CARRERA 2 # 4-09']);
       expect(p.expectedDireccion, isNull);
       expect(p.endOfFace, isTrue);
+    });
+  });
+
+  group('from server-parsed columns (PS.5 fidelity)', () {
+    FaceAddress col(String via, String numVia, String cruce, String placa,
+            {String? norm}) =>
+        FaceAddress.fromColumns(
+          direccionNorm: norm ?? '$via $numVia # $cruce-$placa',
+          tipoVia: via,
+          numVia: numVia,
+          numCruce: cruce,
+          placa: placa,
+        )!;
+
+    test('num_via is used verbatim — a suffix vía is not synthesised', () {
+      final f = col('CALLE', '10AS', '5', '12');
+      expect(f.numVia, '10AS');
+      expect(f.faceKey, 'CALLE|10AS|5|0');
+    });
+
+    test('a suffix vía is a face of its own — never merged with the base', () {
+      // CALLE 10 and CALLE 10AS are DIFFERENT faces; the anchor on 10AS must
+      // not pull in a 10 placa, even at the same cruce/parity.
+      final anchor = col('CALLE', '10AS', '5', '04');
+      final faces = [
+        anchor,
+        col('CALLE', '10AS', '5', '08'),
+        col('CALLE', '10', '5', '06'), // base vía — must be excluded
+      ];
+      final p = predictNextFromFaces(anchor: anchor, manzanaFaces: faces);
+      expect(p.direction, FaceDirection.ascendente);
+      expect(p.expectedDireccion, 'CALLE 10AS # 5-08');
+    });
+
+    test('predicts the next entry from columns, same as the string path', () {
+      final faces = [
+        col('CARRERA', '2', '4', '09'),
+        col('CARRERA', '2', '4', '15'),
+        col('CARRERA', '2', '4', '23'),
+      ];
+      final p = predictNextFromFaces(anchor: faces.first, manzanaFaces: faces);
+      expect(p.direction, FaceDirection.ascendente);
+      expect(p.expectedDireccion, 'CARRERA 2 # 4-15');
+    });
+
+    test('fromColumns rejects missing components / a non-numeric placa', () {
+      expect(
+          FaceAddress.fromColumns(
+              direccionNorm: 'x',
+              tipoVia: 'CALLE',
+              numVia: '5',
+              numCruce: '',
+              placa: '06'),
+          isNull);
+      expect(
+          FaceAddress.fromColumns(
+              direccionNorm: 'x',
+              tipoVia: 'CALLE',
+              numVia: '5',
+              numCruce: '2',
+              placa: 'S/N'),
+          isNull);
     });
   });
 }
