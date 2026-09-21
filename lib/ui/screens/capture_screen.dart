@@ -448,6 +448,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         !_notInList &&
         _placaCtrl.text.trim().isEmpty &&
         paradaCtx.expectedRow != null;
+    // Soft acera check (Spec 10): a typed distance whose parity is the other
+    // acera of this face. Only when NOT linked (a link is R1, same parity).
+    final faceParity = assisted ? paradaCtx.facePlacaParity : null;
+    final typedParity = _typedDistanceParity(_placaCtrl.text);
+    final parityMismatch = faceParity != null &&
+        _linked == null &&
+        typedParity != null &&
+        typedParity != faceParity;
 
     return Scaffold(
       appBar: AppBar(
@@ -555,8 +563,18 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     helperText: _directoryHelper,
                   ),
                   textInputAction: TextInputAction.next,
-                  onChanged: _onPlacaChanged,
+                  // setState first so the acera warning / prediction visibility
+                  // recompute on every keystroke (the async filter may return
+                  // early without one).
+                  onChanged: (t) {
+                    setState(() {});
+                    _onPlacaChanged(t);
+                  },
                 ),
+                if (parityMismatch) ...[
+                  const SizedBox(height: 8),
+                  _ParityWarningBanner(faceParity: faceParity),
+                ],
                 if (_duplicateOfPosicion != null) ...[
                   const SizedBox(height: 8),
                   _DuplicateBanner(posicion: _duplicateOfPosicion!),
@@ -860,6 +878,54 @@ class _DuplicateBanner extends StatelessWidget {
               child: Text(
                 'Esa dirección ya se usó en esta ruta (posición $posicion). '
                 'Puedes continuar — varias unidades pueden compartirla (PH).',
+                style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The parity of the distance the worker typed (0 = par, 1 = impar), read from
+/// the LAST integer run in the text — the placa/distance sits at the end of an
+/// address ("… # 2-15" → 15) whether they typed a fragment or the whole thing.
+/// Null when there is no number yet.
+int? _typedDistanceParity(String typed) {
+  final matches = RegExp(r'\d+').allMatches(typed);
+  if (matches.isEmpty) return null;
+  return int.parse(matches.last.group(0)!) % 2;
+}
+
+String _parityLabel(int parity) => parity == 0 ? 'par' : 'impar';
+
+/// Spec 10: the typed distance looks like the OTHER acera of this face. A soft
+/// warning only — the worker may be on the wrong side or the plate may be odd;
+/// either way it is saved as-is ("se guarda tal cual").
+class _ParityWarningBanner extends StatelessWidget {
+  const _ParityWarningBanner({required this.faceParity});
+
+  final int faceParity;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final other = faceParity == 0 ? 1 : 0;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(Icons.rule, color: theme.colorScheme.onTertiaryContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Esta cara es ${_parityLabel(faceParity)}, pero la distancia que '
+                'escribiste es ${_parityLabel(other)}. Revisa la acera — se '
+                'guarda igual.',
                 style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
               ),
             ),

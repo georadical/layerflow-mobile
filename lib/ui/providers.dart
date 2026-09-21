@@ -574,10 +574,18 @@ class ParadaCaptureContext {
     required this.capturedOnFace,
     this.prediction,
     this.expectedRow,
+    this.facePlacaParity,
   });
 
   final Parada parada;
   final int capturedOnFace;
+
+  /// The acera parity of this face (0 = even/par, 1 = odd/impar), taken from
+  /// the anchor's placa — every door on a face shares it. Null until the face
+  /// has an R1-linked anchor (the first placa DEFINES the acera). Used only for
+  /// a SOFT warning when a typed distance looks like the other acera; never
+  /// blocks ("se guarda tal cual").
+  final int? facePlacaParity;
 
   /// The next-placa prediction; null before the face has an anchor (the first
   /// placa of a face has none — it is chosen from the manzana's R1).
@@ -665,6 +673,7 @@ final paradaCaptureContextProvider = FutureProvider.autoDispose
     capturedOnFace: onFace.length,
     prediction: prediction,
     expectedRow: expectedRow,
+    facePlacaParity: anchor.parity,
   );
 });
 

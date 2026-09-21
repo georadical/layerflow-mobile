@@ -108,6 +108,9 @@ void main() {
     expect(ctx.prediction!.direction, FaceDirection.ascendente);
     expect(ctx.expectedDireccion, 'CARRERA 2 # 4-15');
     expect(ctx.expectedRow!.npn, 'npn-15');
+    // The face acera parity comes from the anchor (09 is odd → 1), for the
+    // soft warning when a typed distance looks like the other acera.
+    expect(ctx.facePlacaParity, 1);
 
     // The resolved direction is persisted so a mid-face anchor does not stall.
     expect((await db.getParada('s1'))!.direction, 'ascendente');
