@@ -67,6 +67,21 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   /// doors (loses exactly what the census is for).
   bool _manzanaExhausted = false;
 
+  /// Spec 10 PC.3: the worker tapped "No coincide" on the predicted placa —
+  /// hide the prediction for THIS capture so they enter what they see. Reset
+  /// on save (the next door predicts again).
+  bool _predictionDismissed = false;
+
+  /// The guided-sweep context for the current parada, or null on an unassisted
+  /// route (classic flow). Read via [ref] so the change-handlers can reach it.
+  ParadaCaptureContext? get _paradaCtx =>
+      ref.read(paradaCaptureContextProvider(widget.routeId)).valueOrNull;
+
+  /// The manzana scoping the R1 typeahead: authoritative from the parada on an
+  /// assisted route, the manual field otherwise.
+  String get _activeManzana =>
+      _paradaCtx?.parada.manzana ?? _manzanaCtrl.text.trim();
+
   Future<void> _refreshManzanaState() async {
     final tenantId = ref.read(activeTenantIdProvider);
     final mz = _manzanaCtrl.text.trim();
@@ -203,9 +218,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     final tenantId = ref.read(activeTenantIdProvider);
     if (tenantId == null) return;
     final seq = ++_searchSeq;
-    // CL-R1 v1.2: the current manzana (persisted per block; later fed by
-    // "paradas" with zero change here) scopes the placa-only mode.
-    final mz = _manzanaCtrl.text.trim();
+    // CL-R1 v1.2: the active manzana scopes the placa-only mode — from the
+    // parada on an assisted route (Spec 10), the manual field otherwise.
+    final mz = _activeManzana;
     final hits = await ref.read(r1DirectoryRepositoryProvider).search(
           tenantId,
           text,
@@ -264,6 +279,50 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         _duplicateOfPosicion = null;
         _suggestions = [];
       });
+
+  /// Spec 10 PC.3: the predicted door matches — link it in one tap. Reuses the
+  /// R1-link path (the pair is still the record: the raw placa is the predicted
+  /// R1 text, the npn rides hidden), then the worker just saves.
+  Future<void> _coincide(R1DirectoryData expected) async {
+    _placaCtrl.text = expected.direccionNorm;
+    final dup = await ref
+        .read(captureRepositoryProvider)
+        .npnPosicionInRoute(widget.routeId, expected.npn);
+    if (!mounted) return;
+    setState(() {
+      _linked = expected;
+      _duplicateOfPosicion = dup;
+      _notInList = false;
+      _suggestions = [];
+      _predictionDismissed = false;
+    });
+  }
+
+  /// The predicted door is NOT what is here (Spec 10): dismiss the prediction
+  /// for this capture and let the worker enter what they see — the manzana R1
+  /// typeahead, or "No está en la lista" (a finding). The anchor does not move,
+  /// so the same R1 door is offered again at the next door.
+  void _noCoincide() {
+    setState(() => _predictionDismissed = true);
+    _placaFocus.requestFocus();
+  }
+
+  /// Closes the current face (Spec 10). Optimistic-LOCAL (Decision Q1): the
+  /// next parada unlocks at once and the mark is queued. PC.4 adds the
+  /// foto_obligatoria gate; PC.5 pushes it and reconciles the server verdict
+  /// (barrido_fuera_de_orden / foto_obligatoria_pendiente).
+  Future<void> _markFaceSwept(String stopId) async {
+    await ref.read(paradaRepositoryProvider).markSwept(stopId);
+    if (!mounted) return;
+    setState(() {
+      _linked = null;
+      _notInList = false;
+      _duplicateOfPosicion = null;
+      _suggestions = [];
+      _predictionDismissed = false;
+      _placaCtrl.clear();
+    });
+  }
 
   String get _directoryHelper => _directoryAvailable
       ? 'Escribe lo que VES. Se guarda tal cual, siempre.'
@@ -331,12 +390,17 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         // The worker chose "Corregir": abort, keep the form as-is.
         return;
       }
+      // Spec 10: on an assisted route the parada fixes the manzana AND the
+      // block_face_id (rides on every push, full-replacement). Unassisted, the
+      // manual manzana holds and there is no face binding.
+      final paradaCtx = _paradaCtx;
       final clientId = await repo.appendCapture(
         routeId: widget.routeId,
         placa: _placaCtrl.text,
-        manzanaCatastral: _manzanaCtrl.text,
+        manzanaCatastral: paradaCtx?.parada.manzana ?? _manzanaCtrl.text,
         tipoAcceso: _tipoAcceso,
         observacion: _obsCtrl.text,
+        blockFaceId: paradaCtx?.parada.blockFaceId,
         // CL4: unsent content belongs to the person who captured it.
         owner: owner,
         // Spec 7: the pair is the record — raw placa above, npn here.
@@ -361,6 +425,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         _duplicateOfPosicion = null;
         _suggestions = [];
         _deliberateShot = null;
+        _predictionDismissed = false; // the next door predicts again
       });
       _placaFocus.requestFocus();
     } finally {
@@ -372,10 +437,22 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   Widget build(BuildContext context) {
     final capturesAsync = ref.watch(capturesProvider(widget.routeId));
     final pending = ref.watch(pendingCountProvider(widget.routeId));
+    // Spec 10: the guided-sweep context. Null = unassisted route → the classic
+    // flow renders unchanged.
+    final paradaCtx =
+        ref.watch(paradaCaptureContextProvider(widget.routeId)).valueOrNull;
+    final assisted = paradaCtx != null;
+    final showPrediction = assisted &&
+        !_predictionDismissed &&
+        _linked == null &&
+        !_notInList &&
+        _placaCtrl.text.trim().isEmpty &&
+        paradaCtx.expectedRow != null;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Captura'),
+        bottom: assisted ? _ParadaBar(parada: paradaCtx.parada) : null,
       ),
       body: capturesAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -390,6 +467,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
               children: [
                 const TokenWarningBanner(),
                 _LastCaptureCard(last: last, total: list.length),
+                if (assisted) ...[
+                  const SizedBox(height: 16),
+                  _FaceContextCard(parada: paradaCtx.parada),
+                ],
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -447,6 +528,20 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                 if (_manzanaExhausted) ...[
                   const SizedBox(height: 16),
                   const _DiscoveryBanner(),
+                ],
+                if (assisted && paradaCtx.endOfFace) ...[
+                  const SizedBox(height: 16),
+                  _FinCaraCard(
+                    onSweep: () => _markFaceSwept(paradaCtx.parada.stopId),
+                  ),
+                ],
+                if (showPrediction) ...[
+                  const SizedBox(height: 16),
+                  _ExpectedPlacaCard(
+                    expected: paradaCtx.expectedRow!.direccionNorm,
+                    onCoincide: () => _coincide(paradaCtx.expectedRow!),
+                    onNoCoincide: _noCoincide,
+                  ),
                 ],
                 const SizedBox(height: 16),
                 TextField(
@@ -511,31 +606,37 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   minLines: 1,
                   maxLines: 3,
                 ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    icon: Icon(
-                        _showAdvanced ? Icons.expand_less : Icons.expand_more),
-                    label: const Text('Manzana catastral (opcional)'),
-                    onPressed: () =>
-                        setState(() => _showAdvanced = !_showAdvanced),
-                  ),
-                ),
-                if (_showAdvanced)
-                  TextField(
-                    controller: _manzanaCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Manzana catastral',
-                      helperText:
-                          'Se conserva entre capturas del mismo bloque.',
+                // The manual manzana field only on an UNASSISTED route: inside a
+                // parada the manzana is authoritative from the face (Spec 10) —
+                // shown in the face context card, never typed.
+                if (!assisted) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      icon: Icon(_showAdvanced
+                          ? Icons.expand_less
+                          : Icons.expand_more),
+                      label: const Text('Manzana catastral (opcional)'),
+                      onPressed: () =>
+                          setState(() => _showAdvanced = !_showAdvanced),
                     ),
-                    autocorrect: false,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.deny(RegExp(r'\n')),
-                    ],
-                    onChanged: (_) => _refreshManzanaState(),
                   ),
+                  if (_showAdvanced)
+                    TextField(
+                      controller: _manzanaCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Manzana catastral',
+                        helperText:
+                            'Se conserva entre capturas del mismo bloque.',
+                      ),
+                      autocorrect: false,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.deny(RegExp(r'\n')),
+                      ],
+                      onChanged: (_) => _refreshManzanaState(),
+                    ),
+                ],
                 const SizedBox(height: 24),
                 FilledButton.icon(
                   onPressed: _saving ? null : _saveAndNext,
@@ -762,6 +863,186 @@ class _DuplicateBanner extends StatelessWidget {
                 style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String? _orientationLabel(String? code) {
+  if (code == null || code.isEmpty) return null;
+  const map = {
+    'N': 'Norte',
+    'S': 'Sur',
+    'E': 'Este',
+    'O': 'Oeste',
+    'W': 'Oeste',
+  };
+  return map[code.toUpperCase()] ?? code;
+}
+
+/// Spec 10: the parada context strip under the app bar — face + manzana +
+/// direction, so the worker always knows which face they are sweeping.
+class _ParadaBar extends StatelessWidget implements PreferredSizeWidget {
+  const _ParadaBar({required this.parada});
+
+  final Parada parada;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(26);
+
+  @override
+  Widget build(BuildContext context) {
+    final orient = _orientationLabel(parada.orientation);
+    final parts = <String>[
+      'Cara ${parada.faceSequence}',
+      if (parada.manzana != null) 'Manzana ${parada.manzana}',
+      if (orient != null) orient,
+      if (parada.direction != null) parada.direction!,
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(parts.join(' · '),
+            style: Theme.of(context).textTheme.bodyMedium),
+      ),
+    );
+  }
+}
+
+/// Spec 10: the face's manzana, authoritative and read-only — never a field
+/// inside a parada.
+class _FaceContextCard extends StatelessWidget {
+  const _FaceContextCard({required this.parada});
+
+  final Parada parada;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final orient = _orientationLabel(parada.orientation);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.surfaceContainerLow,
+      child: ListTile(
+        leading: const Icon(Icons.grid_4x4),
+        title: Text('Manzana ${parada.manzana ?? '—'} · cara '
+            '${parada.faceSequence}${orient == null ? '' : ' ($orient)'}'),
+        subtitle: Text('La manzana la fija la parada — no se escribe.',
+            style: theme.textTheme.bodySmall),
+      ),
+    );
+  }
+}
+
+/// Spec 10 PC.3: the predicted next placa — confirm it, or flag "No coincide"
+/// and enter what is really there.
+class _ExpectedPlacaCard extends StatelessWidget {
+  const _ExpectedPlacaCard({
+    required this.expected,
+    required this.onCoincide,
+    required this.onNoCoincide,
+  });
+
+  final String expected;
+  final VoidCallback onCoincide;
+  final VoidCallback onNoCoincide;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Siguiente esperada',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSecondaryContainer,
+                )),
+            const SizedBox(height: 4),
+            Text(expected,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  color: theme.colorScheme.onSecondaryContainer,
+                  fontWeight: FontWeight.bold,
+                )),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onCoincide,
+                    icon: const Icon(Icons.check),
+                    label: const Text('Coincide'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onNoCoincide,
+                    icon: const Icon(Icons.report_gmailerrorred),
+                    label: const Text('No coincide'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Spec 10: the prediction is exhausted for this face. The worker may still
+/// capture a straggler the R1 never knew (a finding), then close the face —
+/// which unlocks the next parada. Closing is optimistic-local (PC.3); PC.4
+/// adds the foto_obligatoria gate and PC.5 the server reconcile.
+class _FinCaraCard extends StatelessWidget {
+  const _FinCaraCard({required this.onSweep});
+
+  final VoidCallback onSweep;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.done_all,
+                  color: theme.colorScheme.onSecondaryContainer),
+              title: Text('Fin de la cara',
+                  style:
+                      TextStyle(color: theme.colorScheme.onSecondaryContainer)),
+              subtitle: Text(
+                'No hay más direcciones esperadas. Si ves una puerta que la '
+                'lista no tiene, captúrala como hallazgo; si no, cierra la cara.',
+                style: TextStyle(color: theme.colorScheme.onSecondaryContainer),
+              ),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: onSweep,
+              icon: const Icon(Icons.flag),
+              label: const Text('Marcar cara barrida'),
+            ),
+            const SizedBox(height: 4),
+            Text('Desbloquea la siguiente parada.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSecondaryContainer,
+                )),
           ],
         ),
       ),

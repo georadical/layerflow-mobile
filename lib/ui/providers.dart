@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/config/app_config.dart';
 import '../core/jwt.dart';
 import '../core/location/location_source.dart';
+import '../core/parada/face_prediction.dart';
 import '../data/api/api_client.dart';
 import '../data/api/dtos.dart';
 import '../data/cache/assigned_routes_cache.dart';
@@ -314,6 +315,14 @@ final routeFrameProvider =
           ),
     );
   }
+  // Paradas too (Spec 10): pull the route's stops so the guided sweep works
+  // offline. Best-effort — an unassisted route simply has none, and a
+  // failure leaves the last-known cache untouched (navigation never blocks).
+  unawaited(
+    ref.read(paradaRepositoryProvider).refreshStops(routeId).catchError(
+          (_) {},
+        ),
+  );
   await ref.read(syncServiceProvider).pullFrame(routeId);
 });
 
@@ -555,6 +564,110 @@ final currentParadaProvider =
   return null;
 });
 
+/// The guided-sweep context for the capture screen (Spec 10, PC.3): the current
+/// parada capture is bound to, how many placas are already on the face, and the
+/// LOCAL expected-placa prediction. Null overall = an UNASSISTED route (no
+/// current parada) → the classic capture flow applies unchanged.
+class ParadaCaptureContext {
+  const ParadaCaptureContext({
+    required this.parada,
+    required this.capturedOnFace,
+    this.prediction,
+    this.expectedRow,
+  });
+
+  final Parada parada;
+  final int capturedOnFace;
+
+  /// The next-placa prediction; null before the face has an anchor (the first
+  /// placa of a face has none — it is chosen from the manzana's R1).
+  final FacePrediction? prediction;
+
+  /// The R1 row behind the prediction's expected address — carried so
+  /// "Coincide" links it in one tap (a [FaceAddress] alone has no npn).
+  final R1DirectoryData? expectedRow;
+
+  String? get expectedDireccion => prediction?.expectedDireccion;
+  bool get endOfFace => prediction?.endOfFace ?? false;
+}
+
+FaceAddress? _faceFromRow(R1DirectoryData r) => FaceAddress.fromColumns(
+      direccionNorm: r.direccionNorm,
+      tipoVia: r.tipoVia,
+      numVia: r.numVia,
+      numCruce: r.numCruce,
+      placa: r.placa,
+    );
+
+/// Computes [ParadaCaptureContext] for the route's current parada (PC.3). The
+/// prediction is LOCAL and near-instant: it groups the manzana's cached R1 rows
+/// into faces (server-parsed columns) and takes the next entry from the anchor
+/// — the last R1-linked capture on the face. The server `expected-placa`
+/// endpoint stays the authority; this mirrors it for runtime.
+final paradaCaptureContextProvider = FutureProvider.autoDispose
+    .family<ParadaCaptureContext?, String>((ref, routeId) async {
+  final parada = ref.watch(currentParadaProvider(routeId));
+  if (parada == null) return null; // unassisted route → classic flow
+
+  final caps = ref.watch(capturesProvider(routeId)).valueOrNull ?? const [];
+  final onFace =
+      caps.where((c) => c.blockFaceId == parada.blockFaceId).toList();
+
+  final tenantId = ref.watch(activeTenantIdProvider);
+  final manzana = parada.manzana;
+  ParadaCaptureContext bare() =>
+      ParadaCaptureContext(parada: parada, capturedOnFace: onFace.length);
+  // No anchor yet (first placa of the face), no tenant, or no manzana on the
+  // parada → nothing to predict; the worker picks from the manzana's R1.
+  if (tenantId == null || manzana == null || onFace.isEmpty) return bare();
+
+  final r1 = ref.watch(r1DirectoryRepositoryProvider);
+  // Anchor: the last R1-LINKED capture on the face. A finding (unlinked) does
+  // not move the anchor — the sweep continues from the last known R1 door.
+  final anchorCap =
+      onFace.lastWhere((c) => c.npn != null, orElse: () => onFace.last);
+  if (anchorCap.npn == null) return bare();
+  final anchorRow = await r1.byNpn(tenantId, anchorCap.npn!);
+  if (anchorRow == null) return bare();
+  final anchor = _faceFromRow(anchorRow);
+  if (anchor == null) return bare();
+
+  final rows = await r1.rowsForManzana(tenantId, manzana);
+  final faces = rows.map(_faceFromRow).whereType<FaceAddress>().toList();
+  final prediction = predictNextFromFaces(
+    anchor: anchor,
+    manzanaFaces: faces,
+    direction: FaceDirection.fromWire(parada.direction),
+  );
+
+  // Persist the direction once it resolves, so a mid-face anchor (idx in the
+  // middle) does not re-read as "no inicia la cara" and stall the sweep. Runs
+  // at most once per face (guarded on the stored value being null).
+  if (parada.direction == null &&
+      prediction.direction != FaceDirection.indeterminada) {
+    await ref
+        .read(paradaRepositoryProvider)
+        .setDirection(parada.stopId, prediction.direction.wire);
+  }
+
+  final expected = prediction.expectedDireccion;
+  R1DirectoryData? expectedRow;
+  if (expected != null) {
+    for (final r in rows) {
+      if (r.direccionNorm == expected) {
+        expectedRow = r;
+        break;
+      }
+    }
+  }
+  return ParadaCaptureContext(
+    parada: parada,
+    capturedOnFace: onFace.length,
+    prediction: prediction,
+    expectedRow: expectedRow,
+  );
+});
+
 // ---- Extended survey (Spec 8, T8.5) ----
 
 final surveyRepositoryProvider = Provider<SurveyRepository>(
@@ -615,8 +728,9 @@ class SurveyController
     extends AutoDisposeFamilyAsyncNotifier<SurveyStructure, SurveyArgs> {
   @override
   Future<SurveyStructure> build(SurveyArgs arg) async {
-    final loaded =
-        await ref.read(surveyRepositoryProvider).loadStructure(arg.anchorClientId);
+    final loaded = await ref
+        .read(surveyRepositoryProvider)
+        .loadStructure(arg.anchorClientId);
     return loaded ?? SurveyStructure.unifamiliar();
   }
 

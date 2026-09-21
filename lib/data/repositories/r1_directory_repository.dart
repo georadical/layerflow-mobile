@@ -108,6 +108,11 @@ class R1DirectoryRepository {
   Future<R1DirectoryData?> byNpn(int tenantId, String npn) =>
       _db.r1ByNpn(tenantId, npn);
 
+  /// All parse_ok R1 rows of a manzana (Spec 10) — the candidate faces the
+  /// local prediction groups over.
+  Future<List<R1DirectoryData>> rowsForManzana(int tenantId, String manzana) =>
+      _db.r1RowsForManzana(tenantId, manzana);
+
   /// Builds the progressive normalized prefix, or null when the text does
   /// not (yet) look like a street address. Exposed for tests.
   ///

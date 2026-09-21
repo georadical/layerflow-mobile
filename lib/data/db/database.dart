@@ -628,6 +628,23 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// All R1 rows of a manzana whose server parse succeeded (Spec 10) — the
+  /// candidate faces the local prediction groups over. Filtered to
+  /// `parse_ok`, because a row without reliable components would be
+  /// mis-grouped; the manzana match is the same suffix rule as everywhere.
+  Future<List<R1DirectoryData>> r1RowsForManzana(
+    int tenantId,
+    String manzana,
+  ) {
+    final mz = manzana.trim();
+    return (select(r1Directory)
+          ..where((r) =>
+              r.tenantId.equals(tenantId) &
+              r.parseOk.equals(true) &
+              r.manzana.like('%$mz')))
+        .get();
+  }
+
   /// The directory row behind an npn, to NAME an existing link in the
   /// editor (the worker sees the address, never the npn).
   Future<R1DirectoryData?> r1ByNpn(int tenantId, String npn) =>
