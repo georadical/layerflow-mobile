@@ -236,13 +236,47 @@ class Surveys extends Table {
   Set<Column<Object>> get primaryKey => {anchorClientId};
 }
 
-@DriftDatabase(tables: [Routes, Captures, R1Directory, Evidence, Surveys])
+/// A route's paradas (Spec 10, PC.1b) — the cache of GET .../stops, so the
+/// face-by-face navigation and the sweep work offline with the last-known
+/// state. The app navigates by [faceSequence]; [faceIndex] is identity/QC.
+class Paradas extends Table {
+  /// Unique id of the route_block_face (the parada).
+  TextColumn get stopId => text()();
+
+  TextColumn get routeId => text()();
+  IntColumn get faceSequence => integer()();
+  TextColumn get blockFaceId => text()();
+  IntColumn get faceIndex => integer().nullable()();
+  TextColumn get manzana => text().nullable()();
+  TextColumn get orientation => text().nullable()();
+
+  /// Effective swept state (local truth). Set optimistically offline so the
+  /// next parada unlocks without waiting on the server (Decision Q1).
+  BoolColumn get swept => boolean().withDefault(const Constant(false))();
+
+  /// Whether [swept] is confirmed by the server. A local mark sets it false;
+  /// a refresh preserves a still-pending local sweep rather than downgrading
+  /// it. The push (PC.5) flips it true.
+  BoolColumn get sweptSynced => boolean().withDefault(const Constant(true))();
+
+  /// The face's inferred sweep direction (PC.3), stored so it does not re-flip
+  /// at the face end. Null until anchored.
+  TextColumn get direction => text().nullable()();
+
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {stopId};
+}
+
+@DriftDatabase(
+    tables: [Routes, Captures, R1Directory, Evidence, Surveys, Paradas])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -321,6 +355,10 @@ class AppDatabase extends _$AppDatabase {
             // and the per-route photo policy.
             await m.addColumn(captures, captures.blockFaceId);
             await m.addColumn(routes, routes.fotoObligatoria);
+          }
+          if (from < 14) {
+            // Paradas cache (PC.1b): offline face-by-face navigation + sweep.
+            await m.createTable(paradas);
           }
         },
       );
@@ -645,4 +683,52 @@ class AppDatabase extends _$AppDatabase {
   Future<void> deleteSurvey(String anchorClientId) =>
       (delete(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
           .go();
+
+  // ---- Paradas (Spec 10, PC.1b) ----
+
+  Stream<List<Parada>> watchStops(String routeId) =>
+      (select(paradas)
+            ..where((p) => p.routeId.equals(routeId))
+            ..orderBy([(p) => OrderingTerm.asc(p.faceSequence)]))
+          .watch();
+
+  Future<List<Parada>> stopsForRoute(String routeId) =>
+      (select(paradas)
+            ..where((p) => p.routeId.equals(routeId))
+            ..orderBy([(p) => OrderingTerm.asc(p.faceSequence)]))
+          .get();
+
+  Future<Parada?> getParada(String stopId) =>
+      (select(paradas)..where((p) => p.stopId.equals(stopId)))
+          .getSingleOrNull();
+
+  Future<void> upsertParada(ParadasCompanion parada) =>
+      into(paradas).insertOnConflictUpdate(parada);
+
+  Future<void> deleteStopsForRoute(String routeId) =>
+      (delete(paradas)..where((p) => p.routeId.equals(routeId))).go();
+
+  /// Replaces a route's paradas atomically (the repository computes the merge
+  /// with local state first; a re-planned route drops stops no longer sent).
+  Future<void> replaceRouteStops(
+      String routeId, List<ParadasCompanion> rows) {
+    return transaction(() async {
+      await (delete(paradas)..where((p) => p.routeId.equals(routeId))).go();
+      for (final r in rows) {
+        await into(paradas).insert(r);
+      }
+    });
+  }
+
+  Future<bool> updateParadaRow(String stopId, ParadasCompanion patch) =>
+      (update(paradas)..where((p) => p.stopId.equals(stopId)))
+          .write(patch)
+          .then((rows) => rows > 0);
+
+  /// Paradas whose local sweep has not been pushed yet (PC.5 pushes these).
+  Future<List<Parada>> pendingSweeps(String routeId) =>
+      (select(paradas)
+            ..where((p) =>
+                p.routeId.equals(routeId) & p.sweptSynced.equals(false)))
+          .get();
 }

@@ -13,6 +13,7 @@ import '../data/db/database.dart';
 import '../core/survey/survey_pyramid.dart';
 import '../data/repositories/capture_repository.dart';
 import '../data/repositories/evidence_repository.dart';
+import '../data/repositories/parada_repository.dart';
 import '../data/repositories/r1_directory_repository.dart';
 import '../data/repositories/survey_repository.dart';
 import '../data/settings/settings_store.dart';
@@ -526,6 +527,32 @@ final surveyUnlockedProvider = Provider.family<bool, String>((ref, routeId) {
 final fotoObligatoriaProvider = Provider.family<bool, String>((ref, routeId) {
   final route = ref.watch(routeRowProvider(routeId)).valueOrNull;
   return route?.fotoObligatoria ?? false;
+});
+
+// ---- Paradas cache (Spec 10, PC.1b) ----
+
+final paradaRepositoryProvider = Provider<ParadaRepository>(
+  (ref) => ParadaRepository(
+    ref.watch(databaseProvider),
+    ref.watch(apiClientProvider),
+  ),
+);
+
+/// A route's paradas from the cache, in face_sequence order (offline-safe).
+final routeStopsProvider =
+    StreamProvider.autoDispose.family<List<Parada>, String>(
+  (ref, routeId) => ref.watch(paradaRepositoryProvider).watchStops(routeId),
+);
+
+/// The current workable parada — the lowest face_sequence not swept. Recomputes
+/// when the cached stops change.
+final currentParadaProvider =
+    Provider.autoDispose.family<Parada?, String>((ref, routeId) {
+  final stops = ref.watch(routeStopsProvider(routeId)).valueOrNull ?? const [];
+  for (final p in stops) {
+    if (!p.swept) return p;
+  }
+  return null;
 });
 
 // ---- Extended survey (Spec 8, T8.5) ----
