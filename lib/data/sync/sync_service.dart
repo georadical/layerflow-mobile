@@ -235,6 +235,9 @@ class SyncService {
             // the server clears the finding (CL-R7).
             sinR1: c.sinR1,
             // Spec 10: the parada binding rides on every push, same rule.
+            // stop_id is the correct one from Decisions v2 §6 (urban AND
+            // rural); block_face_id keeps riding for compatibility.
+            stopId: c.stopId,
             blockFaceId: c.blockFaceId,
           ),
       ],

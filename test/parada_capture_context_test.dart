@@ -72,12 +72,17 @@ void main() {
       _r1(tenant, 'npn-15', 'CARRERA 2 # 4-15', '4', '15'),
       _r1(tenant, 'npn-23', 'CARRERA 2 # 4-23', '4', '23'),
     ]);
-    // The parada the worker is standing at (direction not resolved yet).
+    // The parada the worker is standing at (direction not resolved yet). It
+    // carries a terna (Decisions v2 §7) — an urban parada — matching the
+    // R1 rows above, so hasTerna is true and prediction runs.
     await db.upsertParada(ParadasCompanion.insert(
       stopId: 's1',
       routeId: routeId,
       faceSequence: 1,
-      blockFaceId: 'bf1',
+      blockFaceId: const Value('bf1'),
+      tipoVia: const Value('CARRERA'),
+      numVia: const Value('2'),
+      numCruce: const Value('4'),
       manzana: const Value('001'),
       orientation: const Value('N'),
       updatedAt: DateTime.now(),
@@ -89,6 +94,7 @@ void main() {
       manzanaCatastral: '001',
       npn: 'npn-09',
       blockFaceId: 'bf1',
+      stopId: 's1',
     );
     final caps = await (db.select(db.captures)
           ..where((c) => c.routeId.equals(routeId)))
@@ -104,7 +110,8 @@ void main() {
     expect(ctx, isNotNull);
     expect(ctx!.parada.stopId, 's1');
     expect(ctx.parada.blockFaceId, 'bf1');
-    expect(ctx.capturedOnFace, 1);
+    expect(ctx.capturedOnStop, 1);
+    expect(ctx.hasTerna, isTrue);
     expect(ctx.prediction!.direction, FaceDirection.ascendente);
     expect(ctx.expectedDireccion, 'CARRERA 2 # 4-15');
     expect(ctx.expectedRow!.npn, 'npn-15');
@@ -114,6 +121,49 @@ void main() {
 
     // The resolved direction is persisted so a mid-face anchor does not stall.
     expect((await db.getParada('s1'))!.direction, 'ascendente');
+
+    // The live preview composes vía+cruce from the parada — the worker never
+    // types them (Decisions v2 §4).
+    expect(ctx.previewFor(''), 'CARRERA 2 # 4-__');
+    expect(ctx.previewFor('15'), 'CARRERA 2 # 4-15');
+  });
+
+  test('rural parada (no terna): bare context, no prediction, no R1 lookup',
+      () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+
+    // A rural parada: no block_face_id, no terna (Decisions v2 §6/§8) — a
+    // predio reached mid-route with no manzana face at all.
+    await db.upsertParada(ParadasCompanion.insert(
+      stopId: 's-rural',
+      routeId: routeId,
+      faceSequence: 4,
+      updatedAt: DateTime.now(),
+    ));
+    await CaptureRepository(db).appendCapture(
+      routeId: routeId,
+      placa: 'FINCA CANAÁN',
+      stopId: 's-rural',
+    );
+    final caps = await (db.select(db.captures)
+          ..where((c) => c.routeId.equals(routeId)))
+        .get();
+
+    final c = _container(db, tenant, caps);
+    addTearDown(c.dispose);
+    await c.read(routeStopsProvider(routeId).future);
+    await c.read(capturesProvider(routeId).future);
+
+    final ctx = await c.read(paradaCaptureContextProvider(routeId).future);
+    expect(ctx, isNotNull);
+    expect(ctx!.hasTerna, isFalse);
+    expect(ctx.capturedOnStop, 1);
+    expect(ctx.prediction, isNull);
+    expect(ctx.expectedRow, isNull);
+    expect(ctx.facePlacaParity, isNull);
+    expect(ctx.endOfFace, isFalse);
   });
 
   test('unassisted route (no parada) → null context, classic flow', () async {

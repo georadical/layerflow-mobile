@@ -213,19 +213,41 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
 
   /// Filters the directory as the worker types (CL-R1). The typed text is
   /// NEVER modified by anything here — it is the observed truth.
+  ///
+  /// Three-way branch by parada mode (Decisions v2 §8): a GUIDED parada (has a
+  /// terna) searches by the EXACT distance the worker typed, scoped to that
+  /// terna — a deterministic lookup, not a fuzzy fragment match, since the
+  /// vía/generadora are already fixed. A RURAL parada (no terna) has no R1
+  /// concept at all: free text, no search. Unassisted stays the classic
+  /// fragment search.
   Future<void> _onPlacaChanged(String text) async {
-    if (_linked != null || _notInList || !_directoryAvailable) return;
+    if (_linked != null || _notInList) return;
+    final ctx = _paradaCtx;
+    if (ctx != null && !ctx.hasTerna) return; // rural: nothing to search
     final tenantId = ref.read(activeTenantIdProvider);
     if (tenantId == null) return;
     final seq = ++_searchSeq;
-    // CL-R1 v1.2: the active manzana scopes the placa-only mode — from the
-    // parada on an assisted route (Spec 10), the manual field otherwise.
-    final mz = _activeManzana;
-    final hits = await ref.read(r1DirectoryRepositoryProvider).search(
-          tenantId,
-          text,
-          manzana: mz.isEmpty ? null : mz,
-        );
+    List<R1DirectoryData> hits;
+    if (ctx != null && ctx.hasTerna) {
+      final p = ctx.parada;
+      hits = await ref.read(r1DirectoryRepositoryProvider).searchByDistance(
+            tenantId,
+            tipoVia: p.tipoVia!,
+            numVia: p.numVia!,
+            numCruce: p.numCruce!,
+            distancePrefix: text.trim(),
+            manzana: p.manzana,
+          );
+    } else {
+      if (!_directoryAvailable) return;
+      // CL-R1 v1.2: the manual manzana field scopes the placa-only mode.
+      final mz = _activeManzana;
+      hits = await ref.read(r1DirectoryRepositoryProvider).search(
+            tenantId,
+            text,
+            manzana: mz.isEmpty ? null : mz,
+          );
+    }
     if (!mounted || seq != _searchSeq) return;
     // setState even when empty: the panel must show "No está en la lista"
     // for text that matches NOTHING — the most divergent case of all is
@@ -233,11 +255,15 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() => _suggestions = hits);
   }
 
-  bool get _panelVisible =>
-      _directoryAvailable &&
-      _linked == null &&
-      !_notInList &&
-      _placaCtrl.text.trim().isNotEmpty;
+  bool get _panelVisible {
+    final ctx = _paradaCtx;
+    if (ctx != null && !ctx.hasTerna) return false; // rural: no directory UI
+    final hasDirectory = (ctx != null && ctx.hasTerna) || _directoryAvailable;
+    return hasDirectory &&
+        _linked == null &&
+        !_notInList &&
+        _placaCtrl.text.trim().isNotEmpty;
+  }
 
   /// Links the unit to the tapped R1 address. The NPN rides hidden. A
   /// second use of the same NPN in the route warns and marks divergence —
@@ -247,15 +273,22 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   /// physical plate reads exactly the R1 text. "Sí" copies it (affirmed
   /// observation, rutina); "No" keeps the typed text (legitimate
   /// divergence); dismissing links nothing. Silent overwrite stays
-  /// forbidden.
+  /// forbidden. On a GUIDED parada (Decisions v2 §4) this never applies: the
+  /// worker typed only a distance, which is already an exact match by
+  /// construction (that is why it is in the suggestions at all).
   Future<void> _select(R1DirectoryData hit) async {
-    // v1.2: full match OR cruce-placa part match ("3A 08" is literally
-    // what the door says) counts as coincidente — no dialog.
-    final matches = typedMatchesLinked(_placaCtrl.text, hit.direccionNorm);
-    if (!matches) {
-      final saysExactly = await confirmExactPlate(context, hit.direccionNorm);
-      if (saysExactly == null || !mounted) return; // dismissed: no link
-      if (saysExactly) _placaCtrl.text = hit.direccionNorm;
+    final ctx = _paradaCtx;
+    if (ctx != null && ctx.hasTerna) {
+      _placaCtrl.text = hit.placa ?? _placaCtrl.text;
+    } else {
+      // v1.2: full match OR cruce-placa part match ("3A 08" is literally
+      // what the door says) counts as coincidente — no dialog.
+      final matches = typedMatchesLinked(_placaCtrl.text, hit.direccionNorm);
+      if (!matches) {
+        final saysExactly = await confirmExactPlate(context, hit.direccionNorm);
+        if (saysExactly == null || !mounted) return; // dismissed: no link
+        if (saysExactly) _placaCtrl.text = hit.direccionNorm;
+      }
     }
     final dup = await ref
         .read(captureRepositoryProvider)
@@ -280,11 +313,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         _suggestions = [];
       });
 
-  /// Spec 10 PC.3: the predicted door matches — link it in one tap. Reuses the
-  /// R1-link path (the pair is still the record: the raw placa is the predicted
-  /// R1 text, the npn rides hidden), then the worker just saves.
+  /// Spec 10: the predicted door matches — link it in one tap. Only ever
+  /// called on a GUIDED parada (a prediction exists only with a terna), so the
+  /// field takes just the distance (Decisions v2 §4) — never the composed
+  /// address, which the worker never types.
   Future<void> _coincide(R1DirectoryData expected) async {
-    _placaCtrl.text = expected.direccionNorm;
+    _placaCtrl.text = expected.placa ?? expected.direccionNorm;
     final dup = await ref
         .read(captureRepositoryProvider)
         .npnPosicionInRoute(widget.routeId, expected.npn);
@@ -390,25 +424,30 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         // The worker chose "Corregir": abort, keep the form as-is.
         return;
       }
-      // Spec 10: on an assisted route the parada fixes the manzana AND the
-      // block_face_id (rides on every push, full-replacement). Unassisted, the
-      // manual manzana holds and there is no face binding.
+      // Spec 10 / Decisions v2: on an assisted route the parada fixes the
+      // manzana and binds by stop_id (§6, both urban and rural); block_face_id
+      // rides too when the parada has one, for compatibility. Unassisted, the
+      // manual manzana holds and there is no parada binding at all. In RURAL
+      // mode (§8, no terna) there is no R1 concept: npn/sinR1 never apply.
       final paradaCtx = _paradaCtx;
+      final rural = paradaCtx != null && !paradaCtx.hasTerna;
       final clientId = await repo.appendCapture(
         routeId: widget.routeId,
         placa: _placaCtrl.text,
         manzanaCatastral: paradaCtx?.parada.manzana ?? _manzanaCtrl.text,
         tipoAcceso: _tipoAcceso,
         observacion: _obsCtrl.text,
+        stopId: paradaCtx?.parada.stopId,
         blockFaceId: paradaCtx?.parada.blockFaceId,
         // CL4: unsent content belongs to the person who captured it.
         owner: owner,
         // Spec 7: the pair is the record — raw placa above, npn here.
-        npn: _linked?.npn,
+        npn: rural ? null : _linked?.npn,
         // CL-R7: only the EXPLICIT tap asserts it. Typing and saving
         // without opening suggestions says nothing (null) — turning
-        // passivity into a "finding" would poison the very indicator.
-        sinR1: _notInList ? true : null,
+        // passivity into a "finding" would poison the very indicator. A
+        // rural (topónimo) capture has no R1 list to "not be in" at all.
+        sinR1: rural ? null : (_notInList ? true : null),
       );
       // The worker walks on while the photo compresses and queues.
       if (shot != null) {
@@ -442,6 +481,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     final paradaCtx =
         ref.watch(paradaCaptureContextProvider(widget.routeId)).valueOrNull;
     final assisted = paradaCtx != null;
+    // Decisions v2 §8: chosen by the PARADA, never a manual toggle.
+    final hasTerna = assisted && paradaCtx.hasTerna;
+    final rural = assisted && !paradaCtx.hasTerna;
     final showPrediction = assisted &&
         !_predictionDismissed &&
         _linked == null &&
@@ -456,6 +498,27 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         _linked == null &&
         typedParity != null &&
         typedParity != faceParity;
+
+    // The placa field's shape depends entirely on the parada's mode (§8): the
+    // worker never chooses it. Guided shows a live preview as the helper
+    // (Decision 4 — the vía/generadora/dash are never typed); rural asks for
+    // the predio's name outright (topónimo, §8); unassisted stays classic.
+    final String placaLabel;
+    final String? placaHint;
+    final String? placaHelper;
+    if (rural) {
+      placaLabel = 'Nombre del predio';
+      placaHint = 'FINCA CANAÁN';
+      placaHelper = 'Se guarda tal cual, siempre.';
+    } else if (hasTerna) {
+      placaLabel = 'Distancia (a la esquina)';
+      placaHint = null;
+      placaHelper = paradaCtx.previewFor(_placaCtrl.text);
+    } else {
+      placaLabel = 'Placa (dirección en la puerta)';
+      placaHint = 'C 5 1 11';
+      placaHelper = _directoryHelper;
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -537,11 +600,21 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   const SizedBox(height: 16),
                   const _DiscoveryBanner(),
                 ],
-                if (assisted && paradaCtx.endOfFace) ...[
+                if (assisted) ...[
                   const SizedBox(height: 16),
-                  _FinCaraCard(
-                    onSweep: () => _markFaceSwept(paradaCtx.parada.stopId),
-                  ),
+                  // Decision 9: closing is available whenever a parada is
+                  // open — never gated on exhausting a prediction, or a
+                  // parada with none (rural, or urban before end-of-face)
+                  // could never close and the walk would stall.
+                  paradaCtx.endOfFace
+                      ? _FinCaraCard(
+                          onSweep: () =>
+                              _markFaceSwept(paradaCtx.parada.stopId),
+                        )
+                      : _CerrarParadaButton(
+                          onSweep: () =>
+                              _markFaceSwept(paradaCtx.parada.stopId),
+                        ),
                 ],
                 if (showPrediction) ...[
                   const SizedBox(height: 16),
@@ -558,9 +631,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   autofocus: true,
                   textCapitalization: TextCapitalization.characters,
                   decoration: InputDecoration(
-                    labelText: 'Placa (dirección en la puerta)',
-                    hintText: 'C 5 1 11',
-                    helperText: _directoryHelper,
+                    labelText: placaLabel,
+                    hintText: placaHint,
+                    helperText: placaHelper,
                   ),
                   textInputAction: TextInputAction.next,
                   // setState first so the acera warning / prediction visibility
@@ -936,6 +1009,11 @@ class _ParityWarningBanner extends StatelessWidget {
   }
 }
 
+/// Decisions v2 §8: the terna is what tells the parada widgets apart —
+/// all-null together means rural (§6), never a value the UI infers otherwise.
+bool _paradaHasTerna(Parada p) =>
+    p.tipoVia != null && p.numVia != null && p.numCruce != null;
+
 String? _orientationLabel(String? code) {
   if (code == null || code.isEmpty) return null;
   const map = {
@@ -961,8 +1039,11 @@ class _ParadaBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final orient = _orientationLabel(parada.orientation);
+    final rural = !_paradaHasTerna(parada);
     final parts = <String>[
-      'Cara ${parada.faceSequence}',
+      // "Cara" only means something with a face; a rural point is just the
+      // next parada in the sequence (Decisions v2 §5/§8).
+      rural ? 'Parada ${parada.faceSequence}' : 'Cara ${parada.faceSequence}',
       if (parada.manzana != null) 'Manzana ${parada.manzana}',
       if (orient != null) orient,
       if (parada.direction != null) parada.direction!,
@@ -979,7 +1060,8 @@ class _ParadaBar extends StatelessWidget implements PreferredSizeWidget {
 }
 
 /// Spec 10: the face's manzana, authoritative and read-only — never a field
-/// inside a parada.
+/// inside a parada. A RURAL parada (Decisions v2 §8) has no manzana/cara at
+/// all — it is just the next point in the walk.
 class _FaceContextCard extends StatelessWidget {
   const _FaceContextCard({required this.parada});
 
@@ -988,6 +1070,20 @@ class _FaceContextCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (!_paradaHasTerna(parada)) {
+      return Card(
+        margin: EdgeInsets.zero,
+        color: theme.colorScheme.surfaceContainerLow,
+        child: ListTile(
+          leading: const Icon(Icons.cottage_outlined),
+          title: Text('Parada ${parada.faceSequence} · predio rural'),
+          subtitle: Text(
+            'Sin cara de manzana — escribe el nombre del predio.',
+            style: theme.textTheme.bodySmall,
+          ),
+        ),
+      );
+    }
     final orient = _orientationLabel(parada.orientation);
     return Card(
       margin: EdgeInsets.zero,
@@ -1059,6 +1155,29 @@ class _ExpectedPlacaCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Decision 9: closing must be available whenever a parada is open — mid-face
+/// on a guided one, or ALWAYS on a rural one (which has no prediction to
+/// exhaust, so this is its ONLY way to close and unlock the next parada). A
+/// plain action, not a card: it is not announcing "you're done" the way
+/// [_FinCaraCard] does, just always offering the door.
+class _CerrarParadaButton extends StatelessWidget {
+  const _CerrarParadaButton({required this.onSweep});
+
+  final VoidCallback onSweep;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton.icon(
+        onPressed: onSweep,
+        icon: const Icon(Icons.flag_outlined, size: 18),
+        label: const Text('Cerrar esta parada'),
       ),
     );
   }

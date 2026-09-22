@@ -46,6 +46,7 @@ class CaptureRepository {
     String? npn,
     bool? sinR1,
     String? blockFaceId,
+    String? stopId,
   }) async {
     final now = DateTime.now();
     final clientId = _uuid.v4();
@@ -64,6 +65,7 @@ class CaptureRepository {
         npn: Value(npn),
         sinR1: Value(sinR1),
         blockFaceId: Value(blockFaceId),
+        stopId: Value(stopId),
         syncStatus: const Value(AppConfig.syncPending),
         createdAt: now,
         updatedAt: now,
@@ -289,6 +291,7 @@ class CaptureRepository {
             sinR1: Value(
                 item.npnMatchMethod == AppConfig.methodSinMatch ? true : null),
             blockFaceId: Value(item.blockFaceId),
+            stopId: Value(item.stopId),
             syncStatus: const Value(AppConfig.syncSynced),
             createdAt: now,
             updatedAt: now,
@@ -317,6 +320,7 @@ class CaptureRepository {
                 item.npnMatchMethod == AppConfig.methodSinMatch ? true : null),
             // Re-carried from the frame (source of truth on resume), like npn.
             blockFaceId: Value(item.blockFaceId),
+            stopId: Value(item.stopId),
             updatedAt: Value(now),
           ),
         );

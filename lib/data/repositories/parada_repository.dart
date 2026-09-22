@@ -49,7 +49,12 @@ class ParadaRepository {
             stopId: s.stopId,
             routeId: routeId,
             faceSequence: s.faceSequence,
-            blockFaceId: s.blockFaceId,
+            blockFaceId: Value(s.blockFaceId),
+            // Decisions v2 §7/§8: the terna (null on a rural parada) is what
+            // the app reads to pick a capture mode — never re-derived locally.
+            tipoVia: Value(s.tipoVia),
+            numVia: Value(s.numVia),
+            numCruce: Value(s.numCruce),
             faceIndex: Value(s.faceIndex),
             manzana: Value(s.manzanaCatastral),
             orientation: Value(s.orientation),
@@ -67,7 +72,8 @@ class ParadaRepository {
   /// Marks a face swept locally and optimistically (Decision Q1): the next
   /// parada unlocks at once; `sweptSynced=false` queues it for the push (PC.5).
   /// `reopen` (swept=false) is the correction path.
-  Future<void> markSwept(String stopId, {bool swept = true}) => _db.updateParadaRow(
+  Future<void> markSwept(String stopId, {bool swept = true}) =>
+      _db.updateParadaRow(
         stopId,
         ParadasCompanion(
           swept: Value(swept),

@@ -34,6 +34,29 @@ R1DirectoryItem _item(String npn, String norm, {String? manzana}) =>
         direccionNorm: norm,
         manzana: manzana);
 
+/// A row WITH server-parsed columns (Spec 10) — what a guided parada's
+/// distance-only search reads.
+R1DirectoryItem _parsedItem(
+  String npn,
+  String norm, {
+  required String tipoVia,
+  required String numVia,
+  required String numCruce,
+  required String placa,
+  String? manzana,
+}) =>
+    R1DirectoryItem(
+      npn: npn,
+      direccion: norm.replaceAll(' # ', ' '),
+      direccionNorm: norm,
+      manzana: manzana,
+      tipoVia: tipoVia,
+      numVia: numVia,
+      numCruce: numCruce,
+      placa: placa,
+      parseOk: true,
+    );
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -183,5 +206,47 @@ void main() {
     expect((await repo.search(3, '3A 0', manzana: '107')).length, 2);
     // Below the placa-mode gate: nothing.
     expect(await repo.search(3, '3', manzana: '107'), isEmpty);
+  });
+
+  test('searchByDistance (PC.3b): exact terna, prefix on the distance only',
+      () async {
+    final db = await tryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final store = SettingsStore(secure: MemSecure());
+    final api = _FakeR1Api([
+      R1DirectoryResponse(version: 'v1', items: [
+        _parsedItem('npn-1', 'CALLE 13 # 3A-04',
+            tipoVia: 'CALLE', numVia: '13', numCruce: '3A', placa: '04'),
+        _parsedItem('npn-2', 'CALLE 13 # 3A-08',
+            tipoVia: 'CALLE', numVia: '13', numCruce: '3A', placa: '08'),
+        // Same distance, DIFFERENT terna — must never leak into the match.
+        _parsedItem('npn-3', 'CARRERA 2 # 4-08',
+            tipoVia: 'CARRERA', numVia: '2', numCruce: '4', placa: '08'),
+      ]),
+    ]);
+    final repo = R1DirectoryRepository(db, api, store);
+    await repo.refresh(3);
+
+    final exact = await repo.searchByDistance(3,
+        tipoVia: 'CALLE', numVia: '13', numCruce: '3A', distancePrefix: '08');
+    expect(exact.single.npn, 'npn-2');
+
+    final prefix = await repo.searchByDistance(3,
+        tipoVia: 'CALLE', numVia: '13', numCruce: '3A', distancePrefix: '0');
+    expect(prefix.map((r) => r.npn), unorderedEquals(['npn-1', 'npn-2']));
+
+    expect(
+      await repo.searchByDistance(3,
+          tipoVia: 'CARRERA',
+          numVia: '99',
+          numCruce: '4',
+          distancePrefix: '08'),
+      isEmpty,
+      reason: 'a different num_via must not match',
+    );
   });
 }

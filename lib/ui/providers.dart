@@ -565,20 +565,30 @@ final currentParadaProvider =
 });
 
 /// The guided-sweep context for the capture screen (Spec 10, PC.3): the current
-/// parada capture is bound to, how many placas are already on the face, and the
-/// LOCAL expected-placa prediction. Null overall = an UNASSISTED route (no
-/// current parada) → the classic capture flow applies unchanged.
+/// parada capture is bound to, how many placas are already on it, and — on a
+/// parada WITH a terna — the LOCAL expected-placa prediction. Null overall =
+/// an UNASSISTED route (no current parada) → the classic capture flow applies
+/// unchanged.
 class ParadaCaptureContext {
   const ParadaCaptureContext({
     required this.parada,
-    required this.capturedOnFace,
+    required this.capturedOnStop,
     this.prediction,
     this.expectedRow,
     this.facePlacaParity,
   });
 
   final Parada parada;
-  final int capturedOnFace;
+  final int capturedOnStop;
+
+  /// Decisions v2 §8: a terna `(tipoVia, numVia, numCruce)` selects the
+  /// GUIDED mode (distance-only + R1 prediction + preview); its absence
+  /// selects the RURAL free-text mode (topónimo, verbatim, no R1 anything).
+  /// Chosen by the parada — never a manual toggle.
+  bool get hasTerna =>
+      parada.tipoVia != null &&
+      parada.numVia != null &&
+      parada.numCruce != null;
 
   /// The acera parity of this face (0 = even/par, 1 = odd/impar), taken from
   /// the anchor's placa — every door on a face shares it. Null until the face
@@ -588,7 +598,8 @@ class ParadaCaptureContext {
   final int? facePlacaParity;
 
   /// The next-placa prediction; null before the face has an anchor (the first
-  /// placa of a face has none — it is chosen from the manzana's R1).
+  /// placa of a face has none — it is chosen from the manzana's R1), and
+  /// always null on a rural (no-terna) parada.
   final FacePrediction? prediction;
 
   /// The R1 row behind the prediction's expected address — carried so
@@ -597,6 +608,15 @@ class ParadaCaptureContext {
 
   String? get expectedDireccion => prediction?.expectedDireccion;
   bool get endOfFace => prediction?.endOfFace ?? false;
+
+  /// The live preview of the composed address on a guided parada — e.g.
+  /// `CALLE 13 # 3A-__` — filled in as the worker types the distance
+  /// (Decisions v2 §4: the dash and the vía are never typed, only shown).
+  String previewFor(String typedDistance) {
+    final d = typedDistance.trim();
+    return '${parada.tipoVia} ${parada.numVia} # ${parada.numCruce}-'
+        '${d.isEmpty ? '__' : d}';
+  }
 }
 
 FaceAddress? _faceFromRow(R1DirectoryData r) => FaceAddress.fromColumns(
@@ -618,22 +638,30 @@ final paradaCaptureContextProvider = FutureProvider.autoDispose
   if (parada == null) return null; // unassisted route → classic flow
 
   final caps = ref.watch(capturesProvider(routeId)).valueOrNull ?? const [];
-  final onFace =
-      caps.where((c) => c.blockFaceId == parada.blockFaceId).toList();
+  // Decisions v2 §6: the parada — not the face — is the binding, since a
+  // rural parada has no block_face_id at all.
+  final onStop = caps.where((c) => c.stopId == parada.stopId).toList();
+
+  ParadaCaptureContext bare() =>
+      ParadaCaptureContext(parada: parada, capturedOnStop: onStop.length);
+  // Rural (no terna, §8): free text, no R1 concept, nothing to predict.
+  final hasTerna = parada.tipoVia != null &&
+      parada.numVia != null &&
+      parada.numCruce != null;
+  if (!hasTerna) return bare();
 
   final tenantId = ref.watch(activeTenantIdProvider);
   final manzana = parada.manzana;
-  ParadaCaptureContext bare() =>
-      ParadaCaptureContext(parada: parada, capturedOnFace: onFace.length);
   // No anchor yet (first placa of the face), no tenant, or no manzana on the
-  // parada → nothing to predict; the worker picks from the manzana's R1.
-  if (tenantId == null || manzana == null || onFace.isEmpty) return bare();
+  // parada → nothing to predict; the worker's typed distance drives the
+  // exact-match search instead (the terna alone is enough for THAT).
+  if (tenantId == null || manzana == null || onStop.isEmpty) return bare();
 
   final r1 = ref.watch(r1DirectoryRepositoryProvider);
   // Anchor: the last R1-LINKED capture on the face. A finding (unlinked) does
   // not move the anchor — the sweep continues from the last known R1 door.
   final anchorCap =
-      onFace.lastWhere((c) => c.npn != null, orElse: () => onFace.last);
+      onStop.lastWhere((c) => c.npn != null, orElse: () => onStop.last);
   if (anchorCap.npn == null) return bare();
   final anchorRow = await r1.byNpn(tenantId, anchorCap.npn!);
   if (anchorRow == null) return bare();
@@ -670,7 +698,7 @@ final paradaCaptureContextProvider = FutureProvider.autoDispose
   }
   return ParadaCaptureContext(
     parada: parada,
-    capturedOnFace: onFace.length,
+    capturedOnStop: onStop.length,
     prediction: prediction,
     expectedRow: expectedRow,
     facePlacaParity: anchor.parity,

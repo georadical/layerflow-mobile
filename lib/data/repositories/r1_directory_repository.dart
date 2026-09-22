@@ -113,6 +113,26 @@ class R1DirectoryRepository {
   Future<List<R1DirectoryData>> rowsForManzana(int tenantId, String manzana) =>
       _db.r1RowsForManzana(tenantId, manzana);
 
+  /// PC.3b: distance-only lookup on a parada WITH a terna — the worker types
+  /// only the distance, scoped to the EXACT `(tipo_via, num_via, num_cruce)`
+  /// of the parada's face (known upfront from the parada, Decisions v2 §7).
+  Future<List<R1DirectoryData>> searchByDistance(
+    int tenantId, {
+    required String tipoVia,
+    required String numVia,
+    required String numCruce,
+    required String distancePrefix,
+    String? manzana,
+  }) =>
+      _db.r1SearchByDistance(
+        tenantId,
+        tipoVia: tipoVia,
+        numVia: numVia,
+        numCruce: numCruce,
+        distancePrefix: distancePrefix,
+        manzana: manzana,
+      );
+
   /// Builds the progressive normalized prefix, or null when the text does
   /// not (yet) look like a street address. Exposed for tests.
   ///

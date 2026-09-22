@@ -375,6 +375,36 @@ void main() {
       expect(s.items[1].swept, isFalse);
     });
 
+    test(
+        'RouteStop: a rural parada has no block_face_id and no terna '
+        '(Decisions v2 §6/§8)', () {
+      final s = RouteStops.fromJson({
+        'route_id': 'r1',
+        'items': [
+          {'stop_id': 's-rural', 'face_sequence': 4},
+          {
+            'stop_id': 's-urban',
+            'face_sequence': 1,
+            'block_face_id': 'bf1',
+            'tipo_via': 'CALLE',
+            'num_via': '13',
+            'num_cruce': '3A',
+          },
+        ],
+      });
+      final rural = s.items[0];
+      expect(rural.blockFaceId, isNull);
+      expect(rural.tipoVia, isNull);
+      expect(rural.numVia, isNull);
+      expect(rural.numCruce, isNull);
+
+      final urban = s.items[1];
+      expect(urban.blockFaceId, 'bf1');
+      expect(urban.tipoVia, 'CALLE');
+      expect(urban.numVia, '13');
+      expect(urban.numCruce, '3A');
+    });
+
     test('PlacaItemRequest carries block_face_id only when present', () {
       expect(
         const PlacaItemRequest(clientId: 'a', posicion: 1, blockFaceId: 'bf1')
@@ -385,6 +415,21 @@ void main() {
         const PlacaItemRequest(clientId: 'a', posicion: 1)
             .toJson()
             .containsKey('block_face_id'),
+        isFalse,
+      );
+    });
+
+    test('PlacaItemRequest carries stop_id only when present (Decisions v2 §6)',
+        () {
+      expect(
+        const PlacaItemRequest(clientId: 'a', posicion: 1, stopId: 's1')
+            .toJson()['stop_id'],
+        's1',
+      );
+      expect(
+        const PlacaItemRequest(clientId: 'a', posicion: 1)
+            .toJson()
+            .containsKey('stop_id'),
         isFalse,
       );
     });
@@ -426,6 +471,16 @@ void main() {
         'block_face_id': 'bf1',
       });
       expect(item.blockFaceId, 'bf1');
+    });
+
+    test('RouteFrameItem carries stop_id (Decisions v2 §6)', () {
+      final item = RouteFrameItem.fromJson({
+        'client_id': 'a',
+        'posicion': 1,
+        'loc': 5,
+        'stop_id': 's1',
+      });
+      expect(item.stopId, 's1');
     });
   });
 }

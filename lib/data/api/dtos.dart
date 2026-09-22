@@ -22,6 +22,7 @@ class PlacaItemRequest {
     this.npn,
     this.sinR1,
     this.blockFaceId,
+    this.stopId,
   });
 
   final String clientId;
@@ -31,9 +32,13 @@ class PlacaItemRequest {
   final String? tipoAcceso;
   final String? observacion;
 
-  /// Parada binding (Spec 10): the current face this capture belongs to. Same
-  /// full-replacement rule as npn/ins_after — omitting it on a re-push keeps
-  /// the server's value; null here means unassisted/rural capture.
+  /// Parada binding (Decisions v2 §6) — the correct one from here on: it
+  /// exists for both urban AND rural paradas. Same full-replacement rule as
+  /// npn/ins_after; null means an unassisted (no-parada) route.
+  final String? stopId;
+
+  /// Parada binding, legacy/compatibility form (Spec 10 PC.1a): the face a
+  /// rural parada does not have. Kept riding alongside [stopId].
   final String? blockFaceId;
 
   /// Pending relocation: the loc this unit goes after (0 = start of route).
@@ -67,6 +72,7 @@ class PlacaItemRequest {
         // Tri-state: the key travels only when there is something to say
         // (assert or retract). Sending it beside npn is a per-item error.
         if (sinR1 != null && npn == null) 'sin_r1': sinR1,
+        if (stopId != null) 'stop_id': stopId,
         if (blockFaceId != null) 'block_face_id': blockFaceId,
       };
 }
@@ -508,11 +514,20 @@ class R1DirectoryResponse {
 
 /// One parada of a route (Spec 10) — from GET /field/routes/{id}/stops.
 /// The app navigates by `faceSequence`; `faceIndex` is identity/QC.
+///
+/// Decisions v2 (§5–§8): EVERY point of the route is a parada, urban or
+/// rural, in one sequence. [blockFaceId] and the terna
+/// (`tipoVia`/`numVia`/`numCruce`) are null on a rural parada — that null-ness
+/// IS the mode signal the app reads (§8): a terna means guided/distance-only,
+/// its absence means free-text (topónimo), never a manual toggle.
 class RouteStop {
   const RouteStop({
     required this.stopId,
     required this.faceSequence,
-    required this.blockFaceId,
+    this.blockFaceId,
+    this.tipoVia,
+    this.numVia,
+    this.numCruce,
     this.faceIndex,
     this.manzanaCatastral,
     this.orientation,
@@ -522,7 +537,15 @@ class RouteStop {
 
   final String stopId;
   final int faceSequence;
-  final String blockFaceId;
+  final String? blockFaceId;
+
+  /// The terna that fixes this face's vía + generadora (§7) — lives on the
+  /// parada; the backend composes/normalizes against it. Null on a rural
+  /// parada (§8): all three null together means free-text/topónimo mode.
+  final String? tipoVia;
+  final String? numVia;
+  final String? numCruce;
+
   final int? faceIndex;
   final String? manzanaCatastral;
   final String? orientation;
@@ -535,7 +558,10 @@ class RouteStop {
     return RouteStop(
       stopId: json['stop_id'].toString(),
       faceSequence: (json['face_sequence'] as num?)?.toInt() ?? 0,
-      blockFaceId: json['block_face_id'].toString(),
+      blockFaceId: json['block_face_id'] as String?,
+      tipoVia: json['tipo_via'] as String?,
+      numVia: json['num_via'] as String?,
+      numCruce: json['num_cruce'] as String?,
       faceIndex: (json['face_index'] as num?)?.toInt(),
       manzanaCatastral: json['manzana_catastral'] as String?,
       orientation: json['orientation'] as String?,
@@ -547,7 +573,10 @@ class RouteStop {
   Map<String, dynamic> toJson() => {
         'stop_id': stopId,
         'face_sequence': faceSequence,
-        'block_face_id': blockFaceId,
+        if (blockFaceId != null) 'block_face_id': blockFaceId,
+        if (tipoVia != null) 'tipo_via': tipoVia,
+        if (numVia != null) 'num_via': numVia,
+        if (numCruce != null) 'num_cruce': numCruce,
         if (faceIndex != null) 'face_index': faceIndex,
         if (manzanaCatastral != null) 'manzana_catastral': manzanaCatastral,
         if (orientation != null) 'orientation': orientation,
@@ -585,6 +614,7 @@ class RouteFrameItem {
     this.npn,
     this.npnMatchMethod,
     this.blockFaceId,
+    this.stopId,
   });
 
   final String clientId;
@@ -604,7 +634,11 @@ class RouteFrameItem {
   /// Provenance of the link (field_confirmed | manual | ...); informational.
   final String? npnMatchMethod;
 
-  /// Parada binding as the server holds it (Spec 10); re-carried on push.
+  /// Parada binding as the server holds it (Decisions v2 §6 — the correct
+  /// one, urban or rural); re-carried on push.
+  final String? stopId;
+
+  /// Parada binding, legacy/compatibility form (Spec 10 PC.1a).
   final String? blockFaceId;
 
   factory RouteFrameItem.fromJson(Map<String, dynamic> json) {
@@ -620,6 +654,7 @@ class RouteFrameItem {
       npn: json['npn'] as String?,
       npnMatchMethod: json['npn_match_method'] as String?,
       blockFaceId: json['block_face_id'] as String?,
+      stopId: json['stop_id'] as String?,
     );
   }
 }

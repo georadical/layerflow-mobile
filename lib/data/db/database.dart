@@ -108,9 +108,14 @@ class Captures extends Table {
   /// another device's finding (send-always).
   BoolColumn get sinR1 => boolean().nullable()();
 
-  /// Parada binding (Spec 10): the block_face this capture belongs to. Rides
-  /// on EVERY push like npn (full-replacement, omit → keep). Null = unassisted
-  /// / rural capture. The worker never types it — it comes from the parada.
+  /// Parada binding (Spec 10). Rides on EVERY push like npn (full-replacement,
+  /// omit → keep). Null = unassisted capture. The worker never types it — it
+  /// comes from the parada.
+  ///
+  /// [stopId] is the correct binding from Decisions v2 (§6) on — it exists
+  /// for BOTH urban and rural paradas, unlike [blockFaceId] which a rural
+  /// parada has none of. [blockFaceId] keeps riding too, for compatibility.
+  TextColumn get stopId => text().nullable()();
   TextColumn get blockFaceId => text().nullable()();
 
   /// Person who owns this row's UNSENT content (normalized login email,
@@ -256,10 +261,25 @@ class Paradas extends Table {
 
   TextColumn get routeId => text()();
   IntColumn get faceSequence => integer()();
-  TextColumn get blockFaceId => text()();
+
+  /// The route_block_face, when this parada has one. NULLABLE (Decision v2,
+  /// §6): a RURAL parada — a point of the route with no manzana face — has
+  /// none. The capture binds by [stopId] from here on; this rides along only
+  /// for compatibility / local reference.
+  TextColumn get blockFaceId => text().nullable()();
+
   IntColumn get faceIndex => integer().nullable()();
   TextColumn get manzana => text().nullable()();
   TextColumn get orientation => text().nullable()();
+
+  /// The terna that fixes this face's vía + generadora (Decision v2, §7) —
+  /// lives on the PARADA (not the block_face): it is what the worker visits
+  /// and what the backend composes against, and a rural parada legitimately
+  /// has none. All three null together = rural (§8): the worker types the
+  /// predio's name (topónimo) instead of a distance.
+  TextColumn get tipoVia => text().nullable()();
+  TextColumn get numVia => text().nullable()();
+  TextColumn get numCruce => text().nullable()();
 
   /// Effective swept state (local truth). Set optimistically offline so the
   /// next parada unlocks without waiting on the server (Decision Q1).
@@ -287,7 +307,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 15;
+  int get schemaVersion => 16;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -381,6 +401,21 @@ class AppDatabase extends _$AppDatabase {
             await m.addColumn(r1Directory, r1Directory.numCruce);
             await m.addColumn(r1Directory, r1Directory.placa);
             await m.addColumn(r1Directory, r1Directory.parseOk);
+          }
+          if (from < 16) {
+            // Decisions v2 (2026-09-22): every point of the route is a
+            // parada, and a rural one has no face — block_face_id relaxes to
+            // nullable and the parada gains its own optional terna (used to
+            // compose/preview the address; all-null = rural). The capture
+            // binds by stop_id from here on (block_face_id keeps riding for
+            // compatibility). TableMigration recreates `paradas` for the
+            // nullability change; existing values carry over unchanged.
+            // ignore: experimental_member_use
+            await m.alterTable(TableMigration(
+              paradas,
+              newColumns: [paradas.tipoVia, paradas.numVia, paradas.numCruce],
+            ));
+            await m.addColumn(captures, captures.stopId);
           }
         },
       );
@@ -642,6 +677,39 @@ class AppDatabase extends _$AppDatabase {
               r.tenantId.equals(tenantId) &
               r.parseOk.equals(true) &
               r.manzana.like('%$mz')))
+        .get();
+  }
+
+  /// PC.3b (Decisions v2 §4/§7): distance-only lookup for a parada WITH a
+  /// terna — the worker types only the distance, so the search narrows to the
+  /// EXACT `(tipo_via, num_via, num_cruce)` of the parada's face (known
+  /// upfront, not derived from an anchor) instead of a free-text fragment.
+  /// [manzana] is an extra safety scope, skipped when the parada carries none.
+  Future<List<R1DirectoryData>> r1SearchByDistance(
+    int tenantId, {
+    required String tipoVia,
+    required String numVia,
+    required String numCruce,
+    required String distancePrefix,
+    String? manzana,
+    int limit = 8,
+  }) {
+    return (select(r1Directory)
+          ..where((r) {
+            var cond = r.tenantId.equals(tenantId) &
+                r.parseOk.equals(true) &
+                r.tipoVia.equals(tipoVia) &
+                r.numVia.equals(numVia) &
+                r.numCruce.equals(numCruce) &
+                r.placa.like('$distancePrefix%');
+            final mz = manzana?.trim();
+            if (mz != null && mz.isNotEmpty) {
+              cond = cond & r.manzana.like('%$mz');
+            }
+            return cond;
+          })
+          ..orderBy([(r) => OrderingTerm.asc(r.placa)])
+          ..limit(limit))
         .get();
   }
 
