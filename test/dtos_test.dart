@@ -403,6 +403,29 @@ void main() {
       expect(urban.tipoVia, 'CALLE');
       expect(urban.numVia, '13');
       expect(urban.numCruce, '3A');
+      expect(urban.cardinal, isNull);
+      expect(urban.cardinalPosicion, isNull);
+    });
+
+    test(
+        'RouteStop parses the cardinal zone suffix (address-profiles '
+        'AP.1–AP.5)', () {
+      final s = RouteStops.fromJson({
+        'route_id': 'r1',
+        'items': [
+          {
+            'stop_id': 's1',
+            'face_sequence': 1,
+            'tipo_via': 'CALLE',
+            'num_via': '11',
+            'num_cruce': '3A',
+            'cardinal': 'SUR',
+            'cardinal_posicion': 'via',
+          },
+        ],
+      });
+      expect(s.items.single.cardinal, 'SUR');
+      expect(s.items.single.cardinalPosicion, 'via');
     });
 
     test('PlacaItemRequest carries block_face_id only when present', () {

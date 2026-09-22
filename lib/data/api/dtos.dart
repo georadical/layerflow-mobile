@@ -528,6 +528,8 @@ class RouteStop {
     this.tipoVia,
     this.numVia,
     this.numCruce,
+    this.cardinal,
+    this.cardinalPosicion,
     this.faceIndex,
     this.manzanaCatastral,
     this.orientation,
@@ -546,6 +548,12 @@ class RouteStop {
   final String? numVia;
   final String? numCruce;
 
+  /// Cardinal zone suffix (NORTE/SUR/ESTE/OESTE, address-profiles AP.1–AP.5)
+  /// — from the face, never typed. [cardinalPosicion] is 'via' (after
+  /// num_via) or 'placa' (after the distance); meaningless when null.
+  final String? cardinal;
+  final String? cardinalPosicion;
+
   final int? faceIndex;
   final String? manzanaCatastral;
   final String? orientation;
@@ -562,6 +570,8 @@ class RouteStop {
       tipoVia: json['tipo_via'] as String?,
       numVia: json['num_via'] as String?,
       numCruce: json['num_cruce'] as String?,
+      cardinal: json['cardinal'] as String?,
+      cardinalPosicion: json['cardinal_posicion'] as String?,
       faceIndex: (json['face_index'] as num?)?.toInt(),
       manzanaCatastral: json['manzana_catastral'] as String?,
       orientation: json['orientation'] as String?,
@@ -577,6 +587,8 @@ class RouteStop {
         if (tipoVia != null) 'tipo_via': tipoVia,
         if (numVia != null) 'num_via': numVia,
         if (numCruce != null) 'num_cruce': numCruce,
+        if (cardinal != null) 'cardinal': cardinal,
+        if (cardinalPosicion != null) 'cardinal_posicion': cardinalPosicion,
         if (faceIndex != null) 'face_index': faceIndex,
         if (manzanaCatastral != null) 'manzana_catastral': manzanaCatastral,
         if (orientation != null) 'orientation': orientation,

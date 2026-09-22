@@ -67,7 +67,8 @@ void main() {
     final db = await _memoryDb();
     if (db == null) return markTestSkipped('native sqlite3 not available');
     addTearDown(db.close);
-    final api = _FakeStopsApi(_stops(routeId, [_stop('s1', 1), _stop('s2', 2)]));
+    final api =
+        _FakeStopsApi(_stops(routeId, [_stop('s1', 1), _stop('s2', 2)]));
     final repo = ParadaRepository(db, api);
     await repo.refreshStops(routeId);
 
@@ -83,7 +84,8 @@ void main() {
     final db = await _memoryDb();
     if (db == null) return markTestSkipped('native sqlite3 not available');
     addTearDown(db.close);
-    final api = _FakeStopsApi(_stops(routeId, [_stop('s1', 1), _stop('s2', 2)]));
+    final api =
+        _FakeStopsApi(_stops(routeId, [_stop('s1', 1), _stop('s2', 2)]));
     final repo = ParadaRepository(db, api);
     await repo.refreshStops(routeId);
 
@@ -117,6 +119,33 @@ void main() {
     expect(s1.sweptSynced, isTrue);
   });
 
+  test(
+      'refreshStops carries the terna + cardinal (address-profiles '
+      'AP.1–AP.5)', () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+    final api = _FakeStopsApi(_stops(routeId, [
+      const RouteStop(
+        stopId: 's1',
+        faceSequence: 1,
+        blockFaceId: 'bf1',
+        tipoVia: 'CALLE',
+        numVia: '11',
+        numCruce: '3A',
+        cardinal: 'SUR',
+        cardinalPosicion: 'via',
+      ),
+    ]));
+    final repo = ParadaRepository(db, api);
+    await repo.refreshStops(routeId);
+
+    final s1 = await db.getParada('s1');
+    expect(s1!.tipoVia, 'CALLE');
+    expect(s1.cardinal, 'SUR');
+    expect(s1.cardinalPosicion, 'via');
+  });
+
   test('setDirection persists per face', () async {
     final db = await _memoryDb();
     if (db == null) return markTestSkipped('native sqlite3 not available');
@@ -133,7 +162,8 @@ void main() {
     final db = await _memoryDb();
     if (db == null) return markTestSkipped('native sqlite3 not available');
     addTearDown(db.close);
-    final api = _FakeStopsApi(_stops(routeId, [_stop('s1', 1), _stop('s2', 2)]));
+    final api =
+        _FakeStopsApi(_stops(routeId, [_stop('s1', 1), _stop('s2', 2)]));
     final repo = ParadaRepository(db, api);
     await repo.refreshStops(routeId);
     expect((await repo.stopsForRoute(routeId)).length, 2);

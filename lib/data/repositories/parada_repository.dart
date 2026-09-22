@@ -55,6 +55,9 @@ class ParadaRepository {
             tipoVia: Value(s.tipoVia),
             numVia: Value(s.numVia),
             numCruce: Value(s.numCruce),
+            // address-profiles AP.1–AP.5: the terna's cardinal zone suffix.
+            cardinal: Value(s.cardinal),
+            cardinalPosicion: Value(s.cardinalPosicion),
             faceIndex: Value(s.faceIndex),
             manzana: Value(s.manzanaCatastral),
             orientation: Value(s.orientation),

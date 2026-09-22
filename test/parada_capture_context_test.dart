@@ -179,4 +179,42 @@ void main() {
     final ctx = await c.read(paradaCaptureContextProvider(routeId).future);
     expect(ctx, isNull);
   });
+
+  group('previewFor (address-profiles AP.1–AP.5: cardinal)', () {
+    Parada parada({String? cardinal, String? cardinalPosicion}) => Parada(
+          stopId: 's1',
+          routeId: routeId,
+          faceSequence: 1,
+          tipoVia: 'CALLE',
+          numVia: '11',
+          numCruce: '3A',
+          cardinal: cardinal,
+          cardinalPosicion: cardinalPosicion,
+          swept: false,
+          sweptSynced: true,
+          updatedAt: DateTime.now(),
+        );
+
+    test('no cardinal: preview unchanged', () {
+      final ctx = ParadaCaptureContext(parada: parada(), capturedOnStop: 0);
+      expect(ctx.previewFor('15'), 'CALLE 11 # 3A-15');
+      expect(ctx.previewFor(''), 'CALLE 11 # 3A-__');
+    });
+
+    test("cardinal_posicion 'via': sits after num_via, before the #", () {
+      final ctx = ParadaCaptureContext(
+        parada: parada(cardinal: 'SUR', cardinalPosicion: 'via'),
+        capturedOnStop: 0,
+      );
+      expect(ctx.previewFor('15'), 'CALLE 11 SUR # 3A-15');
+    });
+
+    test("cardinal_posicion 'placa': sits at the very end", () {
+      final ctx = ParadaCaptureContext(
+        parada: parada(cardinal: 'SUR', cardinalPosicion: 'placa'),
+        capturedOnStop: 0,
+      );
+      expect(ctx.previewFor('15'), 'CALLE 11 # 3A-15 SUR');
+    });
+  });
 }

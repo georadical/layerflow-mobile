@@ -281,6 +281,16 @@ class Paradas extends Table {
   TextColumn get numVia => text().nullable()();
   TextColumn get numCruce => text().nullable()();
 
+  /// Cardinal zone suffix (NORTE/SUR/ESTE/OESTE) of the official nomenclature
+  /// (address-profiles AP.1–AP.5) — from the face, never typed. Null on a
+  /// face without one, or on a rural parada.
+  TextColumn get cardinal => text().nullable()();
+
+  /// Where [cardinal] sits in the composed address: 'via' (after num_via,
+  /// before the '#') or 'placa' (after the distance, at the very end).
+  /// Meaningless when [cardinal] is null.
+  TextColumn get cardinalPosicion => text().nullable()();
+
   /// Effective swept state (local truth). Set optimistically offline so the
   /// next parada unlocks without waiting on the server (Decision Q1).
   BoolColumn get swept => boolean().withDefault(const Constant(false))();
@@ -307,7 +317,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 16;
+  int get schemaVersion => 17;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -416,6 +426,14 @@ class AppDatabase extends _$AppDatabase {
               newColumns: [paradas.tipoVia, paradas.numVia, paradas.numCruce],
             ));
             await m.addColumn(captures, captures.stopId);
+          }
+          if (from < 17) {
+            // address-profiles AP.1–AP.5: the parada's terna gains the
+            // official nomenclature's cardinal zone suffix (NORTE/SUR/ESTE/
+            // OESTE) + where it sits in the composed address. Pure additions,
+            // null until the next /stops refresh backfills them.
+            await m.addColumn(paradas, paradas.cardinal);
+            await m.addColumn(paradas, paradas.cardinalPosicion);
           }
         },
       );

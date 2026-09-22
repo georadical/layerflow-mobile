@@ -612,10 +612,23 @@ class ParadaCaptureContext {
   /// The live preview of the composed address on a guided parada — e.g.
   /// `CALLE 13 # 3A-__` — filled in as the worker types the distance
   /// (Decisions v2 §4: the dash and the vía are never typed, only shown).
+  ///
+  /// address-profiles AP.1–AP.5: a face may carry a `cardinal` zone suffix
+  /// (NORTE/SUR/ESTE/OESTE), placed by [Parada.cardinalPosicion] — 'via'
+  /// (`CALLE 11 SUR # 3A-15`) or 'placa' (`CALLE 11 # 3A-15 SUR`). Never
+  /// typed; omitted entirely when the face has none.
   String previewFor(String typedDistance) {
     final d = typedDistance.trim();
-    return '${parada.tipoVia} ${parada.numVia} # ${parada.numCruce}-'
-        '${d.isEmpty ? '__' : d}';
+    final distance = d.isEmpty ? '__' : d;
+    final cardinal = parada.cardinal;
+    final viaCardinal = cardinal != null && parada.cardinalPosicion == 'via'
+        ? ' $cardinal'
+        : '';
+    final placaCardinal = cardinal != null && parada.cardinalPosicion == 'placa'
+        ? ' $cardinal'
+        : '';
+    return '${parada.tipoVia} ${parada.numVia}$viaCardinal # '
+        '${parada.numCruce}-$distance$placaCardinal';
   }
 }
 
