@@ -61,6 +61,7 @@ final syncServiceProvider = Provider<SyncService>(
     ref.watch(captureRepositoryProvider),
     evidence: ref.watch(evidenceRepositoryProvider),
     survey: ref.watch(surveyRepositoryProvider),
+    parada: ref.watch(paradaRepositoryProvider),
   ),
 );
 
@@ -419,6 +420,10 @@ class PushNotifier extends FamilyNotifier<bool, String> {
             wifiAvailable: ref.read(isOnWifiProvider),
           );
 
+      // Spec 10 PC.5: the sweep leg, right after evidence — a route with no
+      // paradas simply has nothing pending (0/0/0), a harmless no-op.
+      final sweep = await ref.read(syncServiceProvider).pushSweeps(arg);
+
       // CL-E5: the survey leg, last in the chain. Only when the route is
       // unlocked for this worker (else the visit-create would be refused and
       // the surveys would needlessly show as errored) — locked, they stay
@@ -439,6 +444,9 @@ class PushNotifier extends FamilyNotifier<bool, String> {
           'fotos: ${evidence.uploaded} subidas'
               '${evidence.failed > 0 ? ', ${evidence.failed} rechazadas' : ''}'
               '${evidence.held > 0 ? ', ${evidence.held} en espera' : ''}',
+        if (sweep.synced > 0 || sweep.failed > 0)
+          'paradas: ${sweep.synced} cerradas'
+              '${sweep.failed > 0 ? ', ${sweep.failed} pendientes de resolver' : ''}',
         if (survey != null && (survey.synced > 0 || survey.failed > 0))
           'encuestas: ${survey.synced} enviadas'
               '${survey.failed > 0 ? ', ${survey.failed} rechazadas' : ''}'

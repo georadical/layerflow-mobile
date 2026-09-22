@@ -65,6 +65,9 @@ class ParadaRepository {
             swept: Value(pendingSweep ? true : s.swept),
             sweptSynced: Value(!pendingSweep),
             direction: Value(local?.direction),
+            // A prior push rejection is unrelated to this refresh; preserve
+            // it (PC.5) same as direction — only a fresh mark clears it.
+            sweepError: Value(local?.sweepError),
             updatedAt: now,
           );
         }(),
@@ -74,13 +77,15 @@ class ParadaRepository {
 
   /// Marks a face swept locally and optimistically (Decision Q1): the next
   /// parada unlocks at once; `sweptSynced=false` queues it for the push (PC.5).
-  /// `reopen` (swept=false) is the correction path.
+  /// `reopen` (swept=false) is the correction path. Clears any previous
+  /// rejection reason — this fresh attempt supersedes it.
   Future<void> markSwept(String stopId, {bool swept = true}) =>
       _db.updateParadaRow(
         stopId,
         ParadasCompanion(
           swept: Value(swept),
           sweptSynced: const Value(false),
+          sweepError: const Value(null),
           updatedAt: Value(DateTime.now()),
         ),
       );
@@ -99,4 +104,30 @@ class ParadaRepository {
   /// Sweeps whose local mark has not reached the server yet (PC.5 pushes them).
   Future<List<Parada>> pendingSweeps(String routeId) =>
       _db.pendingSweeps(routeId);
+
+  /// The push confirmed this sweep (PC.5) — including a redundant re-push of
+  /// an already-swept parada, which the backend treats as success too
+  /// (verified idempotent: the order gate only looks at EARLIER paradas,
+  /// never the target's own state, so it cannot self-block).
+  Future<void> markSweepSynced(String stopId) => _db.updateParadaRow(
+        stopId,
+        ParadasCompanion(
+          sweptSynced: const Value(true),
+          sweepError: const Value(null),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+
+  /// The push was REJECTED on its merits (barrido_fuera_de_orden /
+  /// foto_obligatoria_pendiente). `sweptSynced` stays false so the row keeps
+  /// retrying on the next Enviar — it may well succeed once an earlier
+  /// parada's sweep lands, or the missing photos sync.
+  Future<void> markSweepError(String stopId, String error) =>
+      _db.updateParadaRow(
+        stopId,
+        ParadasCompanion(
+          sweepError: Value(error),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
 }

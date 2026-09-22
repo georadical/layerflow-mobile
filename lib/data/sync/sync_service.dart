@@ -6,6 +6,7 @@ import '../api/dtos.dart';
 import '../api/sync_dtos.dart';
 import '../repositories/capture_repository.dart';
 import '../repositories/evidence_repository.dart';
+import '../repositories/parada_repository.dart';
 import '../repositories/survey_repository.dart';
 import 'survey_operations.dart';
 
@@ -65,6 +66,25 @@ class SurveyResult {
   final int failed;
 }
 
+/// Result of the sweep leg of a send (Spec 10, PC.5).
+class SweepResult {
+  const SweepResult({
+    required this.synced,
+    required this.held,
+    required this.failed,
+  });
+
+  final int synced;
+
+  /// Transport died mid-chain: no verdict reached, kept pending untouched.
+  final int held;
+
+  /// The server rejected the sweep on its merits (barrido_fuera_de_orden /
+  /// foto_obligatoria_pendiente): recorded per parada (never blocks the
+  /// walk, Decision 1); it keeps retrying on the next Enviar.
+  final int failed;
+}
+
 /// Orchestrates pull (frame to resume) and push (pending queue → backend).
 class SyncService {
   SyncService(
@@ -73,14 +93,17 @@ class SyncService {
     Uuid? uuid,
     EvidenceRepository? evidence,
     SurveyRepository? survey,
+    ParadaRepository? parada,
   })  : _evidence = evidence,
         _survey = survey,
+        _parada = parada,
         _uuid = uuid ?? const Uuid();
 
   final ApiClient _api;
   final CaptureRepository _repo;
   final EvidenceRepository? _evidence;
   final SurveyRepository? _survey;
+  final ParadaRepository? _parada;
   final Uuid _uuid;
 
   /// CL-R5 — the evidence leg of the SAME Enviar gesture, chained after
@@ -195,6 +218,54 @@ class SyncService {
       }
     }
     return SurveyResult(synced: synced, held: held, failed: failed);
+  }
+
+  /// Spec 10, PC.5 — the sweep leg of the SAME Enviar gesture, chained after
+  /// the evidence leg so a genuinely-complete face has its best chance of
+  /// passing the server's foto_obligatoria check on THIS attempt (the photos
+  /// just landed). One POST .../swept per pending parada (Decision 1:
+  /// optimistic-local, never blocks the walk).
+  ///
+  /// A merit rejection (barrido_fuera_de_orden / foto_obligatoria_pendiente)
+  /// is recorded on the row and left pending — it keeps retrying on the next
+  /// Enviar, same as a rejected capture/survey. Re-confirmed with the backend
+  /// (2026-09-22): a redundant re-push of an already-swept parada — this
+  /// device retrying a lost response, or a paired device having swept it
+  /// first — is idempotent and answers 200, never a rejection, because the
+  /// order gate only looks at EARLIER paradas, never the target's own state.
+  /// A transport failure stops the chain, everything else left pending.
+  Future<SweepResult> pushSweeps(String routeId) async {
+    final paradaRepo = _parada;
+    if (paradaRepo == null) {
+      return const SweepResult(synced: 0, held: 0, failed: 0);
+    }
+    final rows = await paradaRepo.pendingSweeps(routeId);
+    var synced = 0, held = 0, failed = 0;
+
+    for (final p in rows) {
+      try {
+        await _api.markSwept(routeId, p.stopId, swept: p.swept);
+        await paradaRepo.markSweepSynced(p.stopId);
+        synced++;
+      } on ApiException catch (e) {
+        if (e.codigo == AppConfig.codeBarridoFueraDeOrden ||
+            e.codigo == AppConfig.codeFotoObligatoriaPendiente) {
+          await paradaRepo.markSweepError(
+            p.stopId,
+            e.message.isNotEmpty
+                ? e.message
+                : 'El servidor rechazó el barrido.',
+          );
+          failed++;
+        } else {
+          // Transport died mid-chain: no verdict reached, so it and the
+          // rest wait for the next attempt.
+          held++;
+          break;
+        }
+      }
+    }
+    return SweepResult(synced: synced, held: held, failed: failed);
   }
 
   /// Fetches the route frame and merges it locally (resume).

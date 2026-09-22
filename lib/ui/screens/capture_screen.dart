@@ -609,6 +609,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   const SizedBox(height: 16),
                   const _DiscoveryBanner(),
                 ],
+                if (assisted && paradaCtx.parada.sweepError != null) ...[
+                  const SizedBox(height: 16),
+                  _SweepErrorBanner(reason: paradaCtx.parada.sweepError!),
+                ],
                 if (assisted) ...[
                   const SizedBox(height: 16),
                   // Decision 9: closing is available whenever a parada is
@@ -1161,6 +1165,43 @@ class _ExpectedPlacaCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Spec 10, PC.5 — the server rejected the last sweep push on its merits
+/// (barrido_fuera_de_orden / foto_obligatoria_pendiente). Reconciliation, not
+/// a blocker: the walk already moved on (Decision 1), and the row keeps
+/// retrying on its own at the next Enviar — this just tells the worker why it
+/// has not closed on the server yet, so a repeated attempt is not a mystery.
+class _SweepErrorBanner extends StatelessWidget {
+  const _SweepErrorBanner({required this.reason});
+
+  final String reason;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.sync_problem, color: theme.colorScheme.onErrorContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Esta parada no cerró en el servidor: $reason '
+                'Se reintenta solo en el próximo Enviar.',
+                style: TextStyle(color: theme.colorScheme.onErrorContainer),
+              ),
             ),
           ],
         ),

@@ -304,6 +304,13 @@ class Paradas extends Table {
   /// at the face end. Null until anchored.
   TextColumn get direction => text().nullable()();
 
+  /// The server's reason when the swept push was REJECTED on its merits
+  /// (barrido_fuera_de_orden / foto_obligatoria_pendiente, PC.5). [sweptSynced]
+  /// stays false so the row keeps retrying on the next Enviar — same "no
+  /// verdict, no stuck state" retry philosophy as captures/evidence/surveys.
+  /// Cleared on a fresh local mark (a new attempt supersedes the old verdict).
+  TextColumn get sweepError => text().nullable()();
+
   DateTimeColumn get updatedAt => dateTime()();
 
   @override
@@ -317,7 +324,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 17;
+  int get schemaVersion => 18;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -434,6 +441,12 @@ class AppDatabase extends _$AppDatabase {
             // null until the next /stops refresh backfills them.
             await m.addColumn(paradas, paradas.cardinal);
             await m.addColumn(paradas, paradas.cardinalPosicion);
+          }
+          if (from < 18) {
+            // PC.5: the sweep push's rejection reason, so a merit-rejected
+            // sweep (barrido_fuera_de_orden / foto_obligatoria_pendiente)
+            // surfaces to the worker instead of retrying silently forever.
+            await m.addColumn(paradas, paradas.sweepError);
           }
         },
       );

@@ -146,6 +146,60 @@ void main() {
     expect(s1.cardinalPosicion, 'via');
   });
 
+  test(
+      'markSweepSynced confirms; markSweepError records and keeps pending '
+      '(PC.5)', () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+    final api = _FakeStopsApi(_stops(routeId, [_stop('s1', 1)]));
+    final repo = ParadaRepository(db, api);
+    await repo.refreshStops(routeId);
+    await repo.markSwept('s1'); // optimistic-local, queues the push
+
+    await repo.markSweepError('s1', 'Hay una parada anterior sin barrer.');
+    var s1 = await db.getParada('s1');
+    expect(s1!.sweptSynced, isFalse, reason: 'kept pending — retries itself');
+    expect(s1.sweepError, 'Hay una parada anterior sin barrer.');
+    expect((await repo.pendingSweeps(routeId)).map((p) => p.stopId), ['s1']);
+
+    await repo.markSweepSynced('s1');
+    s1 = await db.getParada('s1');
+    expect(s1!.sweptSynced, isTrue);
+    expect(s1.sweepError, isNull);
+    expect(await repo.pendingSweeps(routeId), isEmpty);
+  });
+
+  test(
+      'a fresh markSwept clears a stale sweepError (a new attempt '
+      'supersedes the old verdict)', () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+    final api = _FakeStopsApi(_stops(routeId, [_stop('s1', 1)]));
+    final repo = ParadaRepository(db, api);
+    await repo.refreshStops(routeId);
+    await repo.markSweepError('s1', 'Faltan fotos por sincronizar.');
+
+    await repo.markSwept('s1');
+    expect((await db.getParada('s1'))!.sweepError, isNull);
+  });
+
+  test('refreshStops preserves a sweepError untouched by the refresh',
+      () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+    final api = _FakeStopsApi(_stops(routeId, [_stop('s1', 1)]));
+    final repo = ParadaRepository(db, api);
+    await repo.refreshStops(routeId);
+    await repo.markSweepError('s1', 'Faltan fotos por sincronizar.');
+
+    await repo.refreshStops(routeId); // an unrelated re-pull of the route
+    expect((await db.getParada('s1'))!.sweepError,
+        'Faltan fotos por sincronizar.');
+  });
+
   test('setDirection persists per face', () async {
     final db = await _memoryDb();
     if (db == null) return markTestSkipped('native sqlite3 not available');
