@@ -389,7 +389,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       // CL-R3 v1.1 — graduated photo obligation, decided AT save:
       // divergence demands the aimed shot; routine draws the 1/N lottery;
       // a CTA shot already taken satisfies both; a dead camera skips all
-      // (the ABSENT expected photo is itself the QA signal).
+      // (the ABSENT expected photo is itself the QA signal). Spec 10 PC.4
+      // adds a per-route floor: under foto_obligatoria EVERY placa demands
+      // the shot too, no lottery escape (Decision 3) — same valve either way.
       XFile? shot = _deliberateShot;
       final lotteryRoll = Random().nextInt(AppConfig.evidenceLotteryOneIn);
       // cameraReady:true — we always ATTEMPT on demand; the hardware valve is
@@ -399,6 +401,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         cameraReady: true,
         alreadyDeliberate: shot != null,
         lotteryRoll: lotteryRoll,
+        fotoObligatoria: ref.read(fotoObligatoriaProvider(widget.routeId)),
       );
       if (needsAimed) {
         final outcome = await _takeDeliberateShot(required: true);
@@ -476,6 +479,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   Widget build(BuildContext context) {
     final capturesAsync = ref.watch(capturesProvider(widget.routeId));
     final pending = ref.watch(pendingCountProvider(widget.routeId));
+    // Spec 10 PC.4: every placa on this route requires its photo — the CTA
+    // label reflects it (PC.2 wireframe) so the mandatory shot at save is
+    // never a surprise.
+    final fotoObligatoria = ref.watch(fotoObligatoriaProvider(widget.routeId));
     // Spec 10: the guided-sweep context. Null = unassisted route → the classic
     // flow renders unchanged.
     final paradaCtx =
@@ -594,7 +601,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                           : Icons.photo_camera),
                   label: Text(_deliberateShot != null
                       ? 'Foto de placa lista'
-                      : 'Tomar foto de placa'),
+                      : fotoObligatoria
+                          ? 'Tomar foto de placa (requerida)'
+                          : 'Tomar foto de placa'),
                 ),
                 if (_manzanaExhausted) ...[
                   const SizedBox(height: 16),

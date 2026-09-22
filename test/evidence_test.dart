@@ -138,6 +138,7 @@ void main() {
             cameraReady: true,
             alreadyDeliberate: false,
             lotteryRoll: roll,
+            fotoObligatoria: false,
           ),
           isTrue,
           reason: 'the photo IS the product there — no lottery escape',
@@ -152,6 +153,7 @@ void main() {
           cameraReady: true,
           alreadyDeliberate: false,
           lotteryRoll: 0,
+          fotoObligatoria: false,
         ),
         isTrue,
       );
@@ -161,6 +163,7 @@ void main() {
           cameraReady: true,
           alreadyDeliberate: false,
           lotteryRoll: 7,
+          fotoObligatoria: false,
         ),
         isFalse,
       );
@@ -173,6 +176,7 @@ void main() {
           cameraReady: true,
           alreadyDeliberate: true,
           lotteryRoll: 0,
+          fotoObligatoria: false,
         ),
         isFalse,
       );
@@ -185,9 +189,55 @@ void main() {
           cameraReady: false,
           alreadyDeliberate: false,
           lotteryRoll: 0,
+          fotoObligatoria: false,
         ),
         isFalse,
         reason: 'the ABSENT expected photo is itself the QA signal',
+      );
+    });
+
+    test(
+        'Spec 10 PC.4: foto_obligatoria demands the aimed shot, no lottery '
+        'escape', () {
+      for (var roll = 0; roll < 10; roll++) {
+        expect(
+          EvidenceRepository.needsDeliberateShot(
+            soporte: AppConfig.soporteRutina,
+            cameraReady: true,
+            alreadyDeliberate: false,
+            lotteryRoll: roll,
+            fotoObligatoria: true,
+          ),
+          isTrue,
+          reason: 'every placa on the route requires its photo',
+        );
+      }
+    });
+
+    test(
+        'foto_obligatoria: the valve and an already-deliberate shot still '
+        'apply', () {
+      expect(
+        EvidenceRepository.needsDeliberateShot(
+          soporte: AppConfig.soporteRutina,
+          cameraReady: false,
+          alreadyDeliberate: false,
+          lotteryRoll: 0,
+          fotoObligatoria: true,
+        ),
+        isFalse,
+        reason: 'Decision 3: the hardware valve never blocks the capture',
+      );
+      expect(
+        EvidenceRepository.needsDeliberateShot(
+          soporte: AppConfig.soporteRutina,
+          cameraReady: true,
+          alreadyDeliberate: true,
+          lotteryRoll: 0,
+          fotoObligatoria: true,
+        ),
+        isFalse,
+        reason: 'a CTA shot already taken satisfies it',
       );
     });
   });
@@ -292,7 +342,8 @@ void main() {
       expect(files, isEmpty, reason: 'confirmed photos purge their files');
     });
 
-    test('placa and totalizador photos of one unit coexist and both travel '
+    test(
+        'placa and totalizador photos of one unit coexist and both travel '
         '(CL-E4)', () async {
       final db = await memoryDb();
       if (db == null) {
