@@ -403,41 +403,29 @@ class PushNotifier extends FamilyNotifier<bool, String> {
     final repo = ref.read(captureRepositoryProvider);
     try {
       final owner = ref.read(queueOwnerProvider);
-      final result =
-          await ref.read(syncServiceProvider).pushPending(arg, owner: owner);
+      final workerId =
+          ref.read(sessionProvider).valueOrNull?.activeEsp?.fieldWorkerId;
+      // Spec 10 PC.6: ONE ordered gesture — per parada (placas → fotos →
+      // barrido) in walk order, then unassigned captures, then surveys. The
+      // service sequences it so a later parada's placa never outruns an
+      // earlier parada's sweep.
+      final r = await ref.read(syncServiceProvider).pushRoute(
+            arg,
+            owner: owner,
+            wifiAvailable: ref.read(isOnWifiProvider),
+            fieldWorkerId: workerId,
+            surveyUnlocked: ref.read(surveyUnlockedProvider(arg)),
+          );
+      final result = r.placas;
       if (!result.isNoop) {
         await repo.recordPushAttempt(
           routeId: arg,
           outcome: result.isOk ? AppConfig.pushOk : AppConfig.pushPartial,
         );
       }
-      // CL-R5: the evidence leg rides the SAME gesture, after the placa
-      // push so the census_codes exist. Its transport failures are silent
-      // here (held rows just wait); verdicts are recorded per row.
-      final evidence = await ref.read(syncServiceProvider).pushEvidence(
-            arg,
-            owner: owner,
-            wifiAvailable: ref.read(isOnWifiProvider),
-          );
-
-      // Spec 10 PC.5: the sweep leg, right after evidence — a route with no
-      // paradas simply has nothing pending (0/0/0), a harmless no-op.
-      final sweep = await ref.read(syncServiceProvider).pushSweeps(arg);
-
-      // CL-E5: the survey leg, last in the chain. Only when the route is
-      // unlocked for this worker (else the visit-create would be refused and
-      // the surveys would needlessly show as errored) — locked, they stay
-      // pending, held until the office opens the route.
-      SurveyResult? survey;
-      final workerId =
-          ref.read(sessionProvider).valueOrNull?.activeEsp?.fieldWorkerId;
-      if (ref.read(surveyUnlockedProvider(arg)) && workerId != null) {
-        survey = await ref.read(syncServiceProvider).pushSurveys(
-              arg,
-              owner: owner,
-              fieldWorkerId: workerId,
-            );
-      }
+      final evidence = r.evidence;
+      final sweep = r.sweep;
+      final survey = r.survey;
 
       final extras = <String>[
         if (evidence.uploaded > 0 || evidence.failed > 0)
@@ -560,6 +548,30 @@ final routeStopsProvider =
     StreamProvider.autoDispose.family<List<Parada>, String>(
   (ref, routeId) => ref.watch(paradaRepositoryProvider).watchStops(routeId),
 );
+
+/// Swept paradas whose mark has not reached the server yet (Spec 10, PC.5).
+/// The send bar counts these too — a face closed offline with every capture
+/// already synced would otherwise leave the sweep pending with no "Enviar" to
+/// push it (found in the PC.6 E2E).
+final pendingSweepCountProvider =
+    Provider.autoDispose.family<int, String>((ref, routeId) {
+  final stops = ref.watch(routeStopsProvider(routeId)).valueOrNull ?? const [];
+  return stops.where((p) => !p.sweptSynced).length;
+});
+
+/// Paradas whose LAST sweep push was rejected on its merits (Spec 10, PC.5):
+/// they carry a [Parada.sweepError]. Surfaced on the resume so the worker sees
+/// WHY a face has not closed on the server and can reopen it to fix — the
+/// optimistic-local walk has already moved past it, so the capture screen for
+/// that face is no longer showing.
+final sweepRejectionsProvider =
+    Provider.autoDispose.family<List<Parada>, String>((ref, routeId) {
+  final stops = ref.watch(routeStopsProvider(routeId)).valueOrNull ?? const [];
+  return [
+    for (final p in stops)
+      if (p.sweepError != null) p
+  ];
+});
 
 /// The current workable parada — the lowest face_sequence not swept. Recomputes
 /// when the cached stops change.

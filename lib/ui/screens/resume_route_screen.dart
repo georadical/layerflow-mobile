@@ -261,6 +261,11 @@ class _UnitList extends StatelessWidget {
               // a routine one waits for WiFi and outlives its queue row,
               // and without this the bar vanished with it (E2E finding).
               _QueueBar(routeId: rows.first.routeId),
+              // Spec 10 PC.5: a sweep the server rejected surfaces HERE, not on
+              // the capture screen — the optimistic walk already moved past the
+              // face, so this is where the worker can see why it did not close
+              // and reopen it to fix (E2E finding).
+              _SweepRejectedBanner(routeId: rows.first.routeId),
             ],
           );
         }
@@ -296,6 +301,85 @@ class _FrameSummary extends StatelessWidget {
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Spec 10 PC.5: the reconciliation surface for a sweep the server rejected.
+/// Because the sweep is optimistic-local, by the time the 409 lands the worker
+/// has walked on to the next parada, so the capture screen for the rejected
+/// face is no longer showing — this names the face, the reason (with the locs
+/// missing a photo, from `detail.localizaciones`), and offers to REOPEN it
+/// (`swept:false`, the ungated correction path) so the worker can fix and
+/// re-sweep. Nothing when no sweep was rejected.
+class _SweepRejectedBanner extends ConsumerWidget {
+  const _SweepRejectedBanner({required this.routeId});
+
+  final String routeId;
+
+  Future<void> _reopen(
+    BuildContext context,
+    WidgetRef ref,
+    String stopId,
+  ) async {
+    // Ungated correction path: reopen makes the parada current again (lowest
+    // unswept), clears its rejection, and queues the swept:false for the next
+    // Enviar. Then jump straight into it so the worker fixes it now.
+    await ref.read(paradaRepositoryProvider).markSwept(stopId, swept: false);
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => CaptureScreen(routeId: routeId)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rejected = ref.watch(sweepRejectionsProvider(routeId));
+    if (rejected.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Container(
+      color: theme.colorScheme.errorContainer,
+      padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final p in rejected)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.sync_problem,
+                      size: 20, color: theme.colorScheme.onErrorContainer),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Cara ${p.faceSequence} no cerró en el servidor',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: theme.colorScheme.onErrorContainer,
+                          ),
+                        ),
+                        Text(
+                          p.sweepError ?? 'El servidor rechazó el barrido.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onErrorContainer,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.tonal(
+                    onPressed: () => _reopen(context, ref, p.stopId),
+                    child: const Text('Reabrir'),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -360,7 +444,10 @@ class _QueueBar extends ConsumerWidget {
         ref.watch(pendingEvidenceCountProvider(routeId)).valueOrNull ?? 0;
     final surveys =
         ref.watch(pendingSurveyCountProvider(routeId)).valueOrNull ?? 0;
-    if (waiting == 0 && photos == 0 && surveys == 0) {
+    // Spec 10 PC.5: a face closed offline queues a sweep to push; count it, or
+    // a sweep with everything else synced would have no "Enviar" to ride.
+    final sweeps = ref.watch(pendingSweepCountProvider(routeId));
+    if (waiting == 0 && photos == 0 && surveys == 0 && sweeps == 0) {
       return const SizedBox.shrink();
     }
     final sending = ref.watch(pushProvider(routeId));
@@ -394,6 +481,8 @@ class _QueueBar extends ConsumerWidget {
                     if (photos > 0) '$photos ${photos == 1 ? 'foto' : 'fotos'}',
                     if (surveys > 0)
                       '$surveys ${surveys == 1 ? 'encuesta' : 'encuestas'}',
+                    if (sweeps > 0)
+                      '$sweeps ${sweeps == 1 ? 'parada por cerrar' : 'paradas por cerrar'}',
                     if (!online) 'sin conexión',
                   ].join(' · '),
                   style: theme.textTheme.titleSmall?.copyWith(

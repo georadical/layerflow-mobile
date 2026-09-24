@@ -4,6 +4,7 @@ import '../../core/config/app_config.dart';
 import '../api/api_client.dart';
 import '../api/dtos.dart';
 import '../api/sync_dtos.dart';
+import '../db/database.dart' show Capture, Parada;
 import '../repositories/capture_repository.dart';
 import '../repositories/evidence_repository.dart';
 import '../repositories/parada_repository.dart';
@@ -85,6 +86,24 @@ class SweepResult {
   final int failed;
 }
 
+enum _SweepOutcome { synced, failed, held }
+
+/// The four legs of one Enviar (Spec 10, PC.6): placas, photos, sweeps,
+/// surveys — returned together so the send bar can report the whole gesture.
+class RouteSyncResult {
+  const RouteSyncResult({
+    required this.placas,
+    required this.evidence,
+    required this.sweep,
+    this.survey,
+  });
+
+  final SyncResult placas;
+  final EvidenceResult evidence;
+  final SweepResult sweep;
+  final SurveyResult? survey;
+}
+
 /// Orchestrates pull (frame to resume) and push (pending queue → backend).
 class SyncService {
   SyncService(
@@ -116,6 +135,7 @@ class SyncService {
     String routeId, {
     String? owner,
     required bool wifiAvailable,
+    Set<String>? onlyClientIds,
   }) async {
     final evidenceRepo = _evidence;
     if (evidenceRepo == null) {
@@ -125,6 +145,11 @@ class SyncService {
     var uploaded = 0, held = 0, failed = 0;
 
     for (final row in rows) {
+      // PC.6 per-parada order: a caller staging one parada at a time pushes
+      // only that parada's photos (before its sweep runs the foto gate).
+      if (onlyClientIds != null && !onlyClientIds.contains(row.clientId)) {
+        continue;
+      }
       if (row.soporte == AppConfig.soporteRutina && !wifiAvailable) {
         held++;
         continue;
@@ -243,29 +268,157 @@ class SyncService {
     var synced = 0, held = 0, failed = 0;
 
     for (final p in rows) {
-      try {
-        await _api.markSwept(routeId, p.stopId, swept: p.swept);
-        await paradaRepo.markSweepSynced(p.stopId);
-        synced++;
-      } on ApiException catch (e) {
-        if (e.codigo == AppConfig.codeBarridoFueraDeOrden ||
-            e.codigo == AppConfig.codeFotoObligatoriaPendiente) {
-          await paradaRepo.markSweepError(
-            p.stopId,
-            e.message.isNotEmpty
-                ? e.message
-                : 'El servidor rechazó el barrido.',
-          );
+      final outcome = await _pushSweepRow(routeId, p);
+      switch (outcome) {
+        case _SweepOutcome.synced:
+          synced++;
+        case _SweepOutcome.failed:
           failed++;
-        } else {
+        case _SweepOutcome.held:
           // Transport died mid-chain: no verdict reached, so it and the
           // rest wait for the next attempt.
           held++;
-          break;
-        }
+          return SweepResult(synced: synced, held: held, failed: failed);
       }
     }
     return SweepResult(synced: synced, held: held, failed: failed);
+  }
+
+  /// Pushes one parada's sweep, recording a merit rejection on the row (kept
+  /// pending to retry) and telling transport-held apart so the caller can stop
+  /// the chain. Shared by [pushSweeps] and the per-parada [pushRoute].
+  Future<_SweepOutcome> _pushSweepRow(String routeId, Parada p) async {
+    final paradaRepo = _parada!;
+    try {
+      await _api.markSwept(routeId, p.stopId, swept: p.swept);
+      await paradaRepo.markSweepSynced(p.stopId);
+      return _SweepOutcome.synced;
+    } on ApiException catch (e) {
+      if (e.codigo == AppConfig.codeBarridoFueraDeOrden ||
+          e.codigo == AppConfig.codeFotoObligatoriaPendiente) {
+        await paradaRepo.markSweepError(p.stopId, _sweepRejectionText(e));
+        return _SweepOutcome.failed;
+      }
+      return _SweepOutcome.held;
+    }
+  }
+
+  /// PC.6 — one Enviar, in WALK ORDER. For each parada by face_sequence:
+  /// push its placas, then its photos, then (if pending) its sweep — before
+  /// moving to the next parada. Then any unassigned captures (rural/classic,
+  /// no stop_id), then surveys.
+  ///
+  /// Why per-parada and not "all placas then all sweeps": the backend gates a
+  /// placa on parada N by requiring every earlier parada swept, and rejects a
+  /// placa onto an already-swept parada (`parada_ya_barrida`). Pushing all
+  /// placas first would reject later paradas' placas until a second Enviar, and
+  /// could sweep a parada before its own late placas landed — bypassing its
+  /// foto_obligatoria gate (found in the PC.6 E2E). Interleaving keeps every
+  /// parada whole and in order, so the backend guard never fires in normal flow.
+  ///
+  /// A placa transport/auth failure propagates (as [pushPending] does) so the
+  /// caller records the attempt; a sweep transport-held stops the chain, the
+  /// rest staying pending for the next Enviar.
+  Future<RouteSyncResult> pushRoute(
+    String routeId, {
+    String? owner,
+    required bool wifiAvailable,
+    String? fieldWorkerId,
+    bool surveyUnlocked = false,
+  }) async {
+    final stops = _parada == null
+        ? const <Parada>[]
+        : await _parada.stopsForRoute(routeId);
+    final pending = await _repo.pending(routeId, owner: owner);
+    final byStop = <String?, List<Capture>>{};
+    for (final c in pending) {
+      (byStop[c.stopId] ??= []).add(c);
+    }
+
+    var pAtt = 0, pSyn = 0, pFail = 0;
+    var eUp = 0, eHeld = 0, eFail = 0;
+    var sSyn = 0, sHeld = 0, sFail = 0;
+
+    Future<void> stagePlacas(List<Capture> group) async {
+      if (group.isEmpty) return;
+      final r = await _pushPlacas(routeId, group);
+      pAtt += r.attempted;
+      pSyn += r.synced;
+      pFail += r.failed;
+    }
+
+    Future<void> stageEvidence(Set<String> ids) async {
+      if (ids.isEmpty) return;
+      final r = await pushEvidence(routeId,
+          owner: owner, wifiAvailable: wifiAvailable, onlyClientIds: ids);
+      eUp += r.uploaded;
+      eHeld += r.held;
+      eFail += r.failed;
+    }
+
+    var chainBroken = false;
+    for (final stop in stops) {
+      final group = byStop[stop.stopId] ?? const <Capture>[];
+      await stagePlacas(group);
+      await stageEvidence({for (final c in group) c.clientId});
+      if (!stop.sweptSynced) {
+        final outcome = await _pushSweepRow(routeId, stop);
+        switch (outcome) {
+          case _SweepOutcome.synced:
+            sSyn++;
+          case _SweepOutcome.failed:
+            sFail++;
+          case _SweepOutcome.held:
+            // Transport died: stop here, the rest waits for the next Enviar
+            // (never sweep a later parada before an earlier one lands).
+            sHeld++;
+            chainBroken = true;
+        }
+      }
+      if (chainBroken) break;
+    }
+
+    // Unassigned captures (no parada: classic routes, or rural before the
+    // parada model) ride after the ordered paradas — nothing gates them.
+    if (!chainBroken) {
+      final loose = byStop[null] ?? const <Capture>[];
+      await stagePlacas(loose);
+      await stageEvidence({for (final c in loose) c.clientId});
+    }
+
+    SurveyResult? survey;
+    if (!chainBroken && surveyUnlocked && fieldWorkerId != null) {
+      survey = await pushSurveys(routeId,
+          owner: owner, fieldWorkerId: fieldWorkerId);
+    }
+
+    return RouteSyncResult(
+      placas: SyncResult(
+        attempted: pAtt,
+        synced: pSyn,
+        failed: pFail,
+        message: pFail == 0
+            ? 'Enviadas $pSyn.'
+            : '$pSyn enviadas, $pFail con error.',
+      ),
+      evidence: EvidenceResult(uploaded: eUp, held: eHeld, failed: eFail),
+      sweep: SweepResult(synced: sSyn, held: sHeld, failed: sFail),
+      survey: survey,
+    );
+  }
+
+  /// A worker-readable reason for a rejected sweep. foto_obligatoria_pendiente
+  /// names the offending locs from `detail.localizaciones` so the worker knows
+  /// exactly where to re-shoot; barrido_fuera_de_orden (or anything else) uses
+  /// the server's own message.
+  static String _sweepRejectionText(ApiException e) {
+    if (e.codigo == AppConfig.codeFotoObligatoriaPendiente &&
+        e.localizaciones.isNotEmpty) {
+      final locs = e.localizaciones.join(', ');
+      final plural = e.localizaciones.length > 1;
+      return 'Faltan fotos en ${plural ? 'loc' : 'la loc'} $locs.';
+    }
+    return e.message.isNotEmpty ? e.message : 'El servidor rechazó el barrido.';
   }
 
   /// Fetches the route frame and merges it locally (resume).
@@ -281,6 +434,18 @@ class SyncService {
   /// rows never travel under someone else's token (CL4).
   Future<SyncResult> pushPending(String routeId, {String? owner}) async {
     final pending = await _repo.pending(routeId, owner: owner);
+    return _pushPlacas(routeId, pending);
+  }
+
+  /// Pushes a specific list of pending captures as one idempotent batch and
+  /// marks each by its per-item result. The per-parada orchestrator
+  /// ([pushRoute]) calls this with one parada's captures at a time so the walk
+  /// order is preserved on the wire; [pushPending] calls it with the whole
+  /// queue.
+  Future<SyncResult> _pushPlacas(
+    String routeId,
+    List<Capture> pending,
+  ) async {
     if (pending.isEmpty) {
       return const SyncResult(attempted: 0, synced: 0, failed: 0);
     }
@@ -336,10 +501,7 @@ class SyncService {
       } else {
         // Includes the case where the response simply omits the item: it is
         // treated as failed and stays queued, never silently marked synced.
-        await _repo.markError(
-          c.clientId,
-          r?.error ?? 'El servidor no confirmó este item.',
-        );
+        await _repo.markError(c.clientId, _placaRejectionText(r));
         failed++;
       }
     }
@@ -352,5 +514,17 @@ class SyncService {
           ? 'Enviadas $synced.'
           : '$synced enviadas, $failed con error.',
     );
+  }
+
+  /// A worker-readable reason for a rejected placa. The PC.6 backend guard
+  /// `parada_ya_barrida` gets an actionable line (the per-parada send order
+  /// makes it a multi-device rarity, but if it lands the worker needs to know
+  /// to reopen); everything else uses the server's own message.
+  static String _placaRejectionText(PlacaItemResult? r) {
+    if (r?.codigo == AppConfig.codeParadaYaBarrida) {
+      return 'Esa parada ya se cerró en el servidor; reábrela para agregar '
+          'esta dirección.';
+    }
+    return r?.error ?? 'El servidor no confirmó este item.';
   }
 }
