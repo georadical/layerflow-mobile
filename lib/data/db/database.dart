@@ -173,6 +173,11 @@ class R1Directory extends Table {
   TextColumn get placa => text().nullable()();
   BoolColumn get parseOk => boolean().withDefault(const Constant(false))();
 
+  /// Best-effort geographic reference (Spec 10, PC.6): corregimiento/vereda
+  /// name scraped from the raw address ("SALTO DE BORDONES"), null on clean
+  /// urban rows. Free text, shown only as an approximate hint.
+  TextColumn get refGeografica => text().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {tenantId, npn};
 }
@@ -324,7 +329,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 18;
+  int get schemaVersion => 19;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -447,6 +452,11 @@ class AppDatabase extends _$AppDatabase {
             // sweep (barrido_fuera_de_orden / foto_obligatoria_pendiente)
             // surfaces to the worker instead of retrying silently forever.
             await m.addColumn(paradas, paradas.sweepError);
+          }
+          if (from < 19) {
+            // PC.6: best-effort geographic reference on R1 rows (corregimiento/
+            // vereda), null until the next R1 refresh backfills it.
+            await m.addColumn(r1Directory, r1Directory.refGeografica);
           }
         },
       );

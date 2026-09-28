@@ -51,6 +51,19 @@ final activeTenantIdProvider = Provider<int?>(
   (ref) => ref.watch(sessionProvider).valueOrNull?.activeTenantId,
 );
 
+/// Best-effort geographic reference (Spec 10, PC.6) for an R1-linked capture,
+/// looked up by its npn — the corregimiento/vereda hint ("SALTO DE BORDONES").
+/// Null when the row is unknown locally or clean-urban. autoDispose.family so
+/// each npn is cached while its tile is on screen.
+final r1RefGeograficaProvider =
+    FutureProvider.autoDispose.family<String?, String>((ref, npn) async {
+  final tenantId = ref.watch(activeTenantIdProvider);
+  if (tenantId == null) return null;
+  final row =
+      await ref.watch(r1DirectoryRepositoryProvider).byNpn(tenantId, npn);
+  return row?.refGeografica;
+});
+
 final evidenceRepositoryProvider = Provider<EvidenceRepository>(
   (ref) => EvidenceRepository(ref.watch(databaseProvider)),
 );

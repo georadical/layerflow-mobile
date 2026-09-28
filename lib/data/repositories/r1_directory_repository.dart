@@ -51,6 +51,7 @@ class R1DirectoryRepository {
           numCruce: Value(item.numCruce),
           placa: Value(item.placa),
           parseOk: Value(item.parseOk),
+          refGeografica: Value(item.refGeografica),
         ),
     ]);
     await _settings.setR1Version(tenantId, res.version);

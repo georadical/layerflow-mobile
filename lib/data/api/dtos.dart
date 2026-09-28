@@ -440,6 +440,7 @@ class R1DirectoryItem {
     this.numCruce,
     this.placa,
     this.parseOk = false,
+    this.refGeografica,
   });
 
   final String npn;
@@ -456,6 +457,12 @@ class R1DirectoryItem {
   final String? numCruce;
   final String? placa;
   final bool parseOk;
+
+  /// Best-effort geographic reference (Spec 10): the corregimiento/vereda name
+  /// scraped from the raw address (e.g. "SALTO DE BORDONES"), or null on a
+  /// clean urban row. Free text, NOT a catalog — shown only as an approximate
+  /// hint, never as an official/structured field.
+  final String? refGeografica;
 
   /// CL-R6: `{loc, ruta}` when this R1 row is ALREADY linked to a captured
   /// unit — computed server-side on purpose, because a local count cannot
@@ -484,6 +491,7 @@ class R1DirectoryItem {
       numCruce: json['num_cruce']?.toString(),
       placa: json['placa']?.toString(),
       parseOk: json['parse_ok'] as bool? ?? false,
+      refGeografica: json['ref_geografica']?.toString(),
     );
   }
 }

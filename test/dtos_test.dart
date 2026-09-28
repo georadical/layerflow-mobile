@@ -506,4 +506,23 @@ void main() {
       expect(item.stopId, 's1');
     });
   });
+
+  group('R1DirectoryItem.fromJson (Spec 10)', () {
+    test('parses ref_geografica when present; null on a clean urban row', () {
+      final rural = R1DirectoryItem.fromJson({
+        'npn': 'n1',
+        'direccion': 'CARRERA 2 # 3-09',
+        'direccion_norm': 'CARRERA 2 # 3-09',
+        'ref_geografica': 'SALTO DE BORDONES',
+      });
+      expect(rural.refGeografica, 'SALTO DE BORDONES');
+
+      final urban = R1DirectoryItem.fromJson({
+        'npn': 'n2',
+        'direccion': 'CALLE 6 # 4-17',
+        'direccion_norm': 'CALLE 6 # 4-17',
+      });
+      expect(urban.refGeografica, isNull);
+    });
+  });
 }

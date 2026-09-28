@@ -600,6 +600,11 @@ class _UnitTile extends ConsumerWidget {
       if (row.manzanaCatastral != null) manzanaLabel(row.manzanaCatastral!),
     ].join(' · ');
 
+    // PC.6: the geographic-reference hint, for an R1-linked row that has one.
+    final geoRef = row.npn == null
+        ? null
+        : ref.watch(r1RefGeograficaProvider(row.npn!)).valueOrNull;
+
     // Spec 1.1: this row is the only way into the editor. There is no second
     // list of the same route to hunt for.
     return InkWell(
@@ -635,6 +640,20 @@ class _UnitTile extends ConsumerWidget {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  // PC.6: best-effort geographic reference (corregimiento/
+                  // vereda) — an approximate hint, only for an R1-linked row
+                  // that carries one. Gives context to a "Rural con calles"
+                  // (Mz 50, Zona Rural · 📍 ref: Salto de Bordones).
+                  if (geoRef != null && geoRef.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '📍 ref: $geoRef',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
                   // Pending relocation, naming the anchor (Spec 2.1). A line
                   // rather than a pill: the point is *which* unit it goes
                   // after, and that needs words.
