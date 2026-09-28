@@ -14,17 +14,30 @@
 /// fields are what give uniqueness where the manzana number alone would collide
 /// — meaning, not decoration.
 ///
-/// The zona is shown by NAME rather than its code (worker preference): 00 →
-/// Urbana, 01 → Rural (the IGAC convention — note a rural-zona predio can still
-/// carry a vía address near the casco, e.g. CARRERA 11 # 5 in zona 01). Pending
-/// backend confirmation of the full code→name map; an unknown code falls back to
-/// "Zona NN" rather than mislabelling.
+/// The zona is shown by NAME rather than its code (worker preference), mapping
+/// pinned by the backend against 6.8M rows (Huila+Valle): `00` → Rural, `01` →
+/// Urbana (cabecera), `02`+ → "Centro poblado NN" (numbered corregimientos /
+/// centros poblados, up to 44 distinct in Bolívar). The zona is the CATASTRAL
+/// class, not a guarantee of address style — a rural zona (00) can still carry
+/// "CARRERA 2 # 3" addresses (e.g. Salto de Bordones, a rural corregimiento
+/// with calles). The código does not carry the corregimiento's proper name
+/// (that lives in the address suffix), so we show the number, never invent one.
 ///
 /// Anything not a clean 17-digit código is returned verbatim (defensive: never
 /// hide a value we do not understand).
 library;
 
-const _zonaNames = <String, String>{'00': 'Urbana', '01': 'Rural'};
+String _zonaLabel(String code) {
+  switch (code) {
+    case '00':
+      return 'Zona: Rural';
+    case '01':
+      return 'Zona: Urbana';
+    default:
+      final n = code.replaceFirst(RegExp(r'^0+'), '');
+      return 'Centro poblado ${n.isEmpty ? '0' : n}';
+  }
+}
 
 String manzanaLabel(String codigo) {
   final c = codigo.trim();
@@ -33,14 +46,12 @@ String manzanaLabel(String codigo) {
   String field(int start, int end) =>
       c.substring(start, end).replaceFirst(RegExp(r'^0+'), '');
 
-  final zonaCode = c.substring(5, 7);
   final sector = field(7, 9);
   final barrio = field(9, 13);
   final manzana = field(13, 17);
 
-  final zona = _zonaNames[zonaCode] ?? 'Zona $zonaCode';
   return [
-    _zonaNames.containsKey(zonaCode) ? 'Zona: $zona' : zona,
+    _zonaLabel(c.substring(5, 7)),
     if (sector.isNotEmpty) 'S$sector',
     if (barrio.isNotEmpty) 'B$barrio',
     'Mz ${manzana.isEmpty ? '0' : manzana}',
