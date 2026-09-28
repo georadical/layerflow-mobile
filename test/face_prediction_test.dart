@@ -189,4 +189,48 @@ void main() {
           isNull);
     });
   });
+
+  group('composeParadaAddress (compose-on-read display mirror)', () {
+    test('composes terna + distance', () {
+      expect(
+        composeParadaAddress(
+            tipoVia: 'CARRERA', numVia: '2', numCruce: '3', distance: '09'),
+        'CARRERA 2 # 3-09',
+      );
+    });
+
+    test("cardinal 'via' sits after num_via; 'placa' at the end", () {
+      expect(
+        composeParadaAddress(
+            tipoVia: 'CALLE',
+            numVia: '11',
+            numCruce: '5',
+            cardinal: 'SUR',
+            cardinalPosicion: 'via',
+            distance: '04'),
+        'CALLE 11 SUR # 5-04',
+      );
+      expect(
+        composeParadaAddress(
+            tipoVia: 'CALLE',
+            numVia: '11',
+            numCruce: '5',
+            cardinal: 'SUR',
+            cardinalPosicion: 'placa',
+            distance: '04'),
+        'CALLE 11 # 5-04 SUR',
+      );
+    });
+
+    test('no terna (rural/classic) returns the stored text verbatim', () {
+      expect(
+        composeParadaAddress(
+            tipoVia: null,
+            numVia: null,
+            numCruce: null,
+            distance: 'FINCA LA ESPERANZA'),
+        'FINCA LA ESPERANZA',
+      );
+    });
+  });
 }

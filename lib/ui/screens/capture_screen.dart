@@ -3,7 +3,6 @@ import 'dart:math';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/address/address_normalizer.dart';
@@ -46,11 +45,9 @@ class CaptureScreen extends ConsumerStatefulWidget {
 class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   final _placaCtrl = TextEditingController();
   final _obsCtrl = TextEditingController();
-  final _manzanaCtrl = TextEditingController();
   final _placaFocus = FocusNode();
   String? _tipoAcceso;
   bool _saving = false;
-  bool _showAdvanced = false;
 
   // R1-assisted capture (Spec 7). The typeahead only exists where a
   // directory exists; rural / paste-flow capture stays classic.
@@ -60,12 +57,6 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   int? _duplicateOfPosicion;
   bool _directoryAvailable = false;
   int _searchSeq = 0;
-
-  /// CL-R6: the manzana's R1 rows are all linked already. Named in the
-  /// POSITIVE — an empty panel reads as "broken / wrong manzana" and the
-  /// worker either forces another block (poisons the data) or skips the
-  /// doors (loses exactly what the census is for).
-  bool _manzanaExhausted = false;
 
   /// Spec 10 PC.3: the worker tapped "No coincide" on the predicted placa —
   /// hide the prediction for THIS capture so they enter what they see. Reset
@@ -77,26 +68,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   ParadaCaptureContext? get _paradaCtx =>
       ref.read(paradaCaptureContextProvider(widget.routeId)).valueOrNull;
 
-  /// The manzana scoping the R1 typeahead: authoritative from the parada on an
-  /// assisted route, the manual field otherwise.
-  String get _activeManzana =>
-      _paradaCtx?.parada.manzana ?? _manzanaCtrl.text.trim();
-
-  Future<void> _refreshManzanaState() async {
-    final tenantId = ref.read(activeTenantIdProvider);
-    final mz = _manzanaCtrl.text.trim();
-    if (tenantId == null || mz.isEmpty) {
-      if (mounted && _manzanaExhausted) {
-        setState(() => _manzanaExhausted = false);
-      }
-      return;
-    }
-    final stats = await ref
-        .read(r1DirectoryRepositoryProvider)
-        .manzanaStats(tenantId, mz);
-    if (!mounted) return;
-    setState(() => _manzanaExhausted = stats.total > 0 && stats.free == 0);
-  }
+  /// The manzana scoping the R1 typeahead: authoritative from the parada.
+  /// Empty on an unassisted route now that the manual manzana field is gone —
+  /// the classic typeahead searches the whole directory.
+  String get _activeManzana => _paradaCtx?.parada.manzana ?? '';
 
   // Camera per SHOT, on demand (CL-R3): there is NO live preview and NO
   // persistent camera across the walk — a streaming viewfinder open at every
@@ -147,7 +122,6 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       final count =
           await ref.read(r1DirectoryRepositoryProvider).countFor(tenantId);
       if (mounted) setState(() => _directoryAvailable = count > 0);
-      await _refreshManzanaState();
     });
   }
 
@@ -366,7 +340,6 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   void dispose() {
     _placaCtrl.dispose();
     _obsCtrl.dispose();
-    _manzanaCtrl.dispose();
     _placaFocus.dispose();
     unawaited(_camera.dispose());
     unawaited(_ocr.dispose());
@@ -429,15 +402,15 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       }
       // Spec 10 / Decisions v2: on an assisted route the parada fixes the
       // manzana and binds by stop_id (§6, both urban and rural); block_face_id
-      // rides too when the parada has one, for compatibility. Unassisted, the
-      // manual manzana holds and there is no parada binding at all. In RURAL
-      // mode (§8, no terna) there is no R1 concept: npn/sinR1 never apply.
+      // rides too when the parada has one, for compatibility. Unassisted there
+      // is no parada binding and no manzana (the manual field is gone). In
+      // RURAL mode (§8, no terna) there is no R1 concept: npn/sinR1 never apply.
       final paradaCtx = _paradaCtx;
       final rural = paradaCtx != null && !paradaCtx.hasTerna;
       final clientId = await repo.appendCapture(
         routeId: widget.routeId,
         placa: _placaCtrl.text,
-        manzanaCatastral: paradaCtx?.parada.manzana ?? _manzanaCtrl.text,
+        manzanaCatastral: paradaCtx?.parada.manzana,
         tipoAcceso: _tipoAcceso,
         observacion: _obsCtrl.text,
         stopId: paradaCtx?.parada.stopId,
@@ -605,10 +578,6 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                           ? 'Tomar foto de placa (requerida)'
                           : 'Tomar foto de placa'),
                 ),
-                if (_manzanaExhausted) ...[
-                  const SizedBox(height: 16),
-                  const _DiscoveryBanner(),
-                ],
                 if (assisted) ...[
                   const SizedBox(height: 16),
                   // Decision 9: closing is available whenever a parada is
@@ -706,37 +675,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   minLines: 1,
                   maxLines: 3,
                 ),
-                // The manual manzana field only on an UNASSISTED route: inside a
-                // parada the manzana is authoritative from the face (Spec 10) —
-                // shown in the face context card, never typed.
-                if (!assisted) ...[
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      icon: Icon(_showAdvanced
-                          ? Icons.expand_less
-                          : Icons.expand_more),
-                      label: const Text('Manzana catastral (opcional)'),
-                      onPressed: () =>
-                          setState(() => _showAdvanced = !_showAdvanced),
-                    ),
-                  ),
-                  if (_showAdvanced)
-                    TextField(
-                      controller: _manzanaCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Manzana catastral',
-                        helperText:
-                            'Se conserva entre capturas del mismo bloque.',
-                      ),
-                      autocorrect: false,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.deny(RegExp(r'\n')),
-                      ],
-                      onChanged: (_) => _refreshManzanaState(),
-                    ),
-                ],
+                // The manual manzana field is gone: with the parada model every
+                // point is a parada and the manzana is authoritative from the
+                // face (Spec 10) — never typed.
                 const SizedBox(height: 24),
                 FilledButton.icon(
                   onPressed: _saving ? null : _saveAndNext,
@@ -1237,41 +1178,6 @@ class _FinCaraCard extends StatelessWidget {
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSecondaryContainer,
                 )),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// CL-R6 discovery mode: every R1 address of this manzana is already
-/// linked. Three different realities share that symptom (faces without
-/// plates, doors the R1 never knew, bad earlier links) and the app must
-/// not presume which — but the second one is the most valuable thing the
-/// census produces, so the state is named in the positive and capture is
-/// never discouraged.
-class _DiscoveryBanner extends StatelessWidget {
-  const _DiscoveryBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      color: theme.colorScheme.tertiaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Icon(Icons.explore, color: theme.colorScheme.onTertiaryContainer),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Todas las direcciones del R1 de esta manzana ya están '
-                'enlazadas. Lo que encuentres aquí es nuevo — captúralo.',
-                style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
-              ),
-            ),
           ],
         ),
       ),

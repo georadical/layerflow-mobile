@@ -97,6 +97,29 @@ class FaceAddress {
   }
 }
 
+/// Composes the full address the backend builds on read (Spec 10): the face's
+/// terna + the typed/stored distance + the cardinal zone suffix in its place
+/// ('via' after num_via, 'placa' at the end). Returns [distance] unchanged when
+/// the terna is absent — a rural/classic capture's stored text IS the address
+/// (a topónimo), with nothing to prepend. Pure: the app's display mirror of the
+/// server composition, used by both the live preview and the resume list so
+/// they never diverge.
+String composeParadaAddress({
+  required String? tipoVia,
+  required String? numVia,
+  required String? numCruce,
+  String? cardinal,
+  String? cardinalPosicion,
+  required String distance,
+}) {
+  if (tipoVia == null || numVia == null || numCruce == null) return distance;
+  final viaCardinal =
+      cardinal != null && cardinalPosicion == 'via' ? ' $cardinal' : '';
+  final placaCardinal =
+      cardinal != null && cardinalPosicion == 'placa' ? ' $cardinal' : '';
+  return '$tipoVia $numVia$viaCardinal # $numCruce-$distance$placaCardinal';
+}
+
 /// Parses a normalized address into its face components, or null when it is
 /// not a structured "VIA n # c-p" address (rural / unparseable → no
 /// prediction, the unassisted flow).

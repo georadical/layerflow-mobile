@@ -639,16 +639,14 @@ class ParadaCaptureContext {
   /// typed; omitted entirely when the face has none.
   String previewFor(String typedDistance) {
     final d = typedDistance.trim();
-    final distance = d.isEmpty ? '__' : d;
-    final cardinal = parada.cardinal;
-    final viaCardinal = cardinal != null && parada.cardinalPosicion == 'via'
-        ? ' $cardinal'
-        : '';
-    final placaCardinal = cardinal != null && parada.cardinalPosicion == 'placa'
-        ? ' $cardinal'
-        : '';
-    return '${parada.tipoVia} ${parada.numVia}$viaCardinal # '
-        '${parada.numCruce}-$distance$placaCardinal';
+    return composeParadaAddress(
+      tipoVia: parada.tipoVia,
+      numVia: parada.numVia,
+      numCruce: parada.numCruce,
+      cardinal: parada.cardinal,
+      cardinalPosicion: parada.cardinalPosicion,
+      distance: d.isEmpty ? '__' : d,
+    );
   }
 }
 

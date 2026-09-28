@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/address/manzana_label.dart';
 import '../../core/config/app_config.dart';
+import '../../core/parada/face_prediction.dart' show composeParadaAddress;
 import '../../data/api/api_client.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/survey_repository.dart';
@@ -547,7 +549,32 @@ class _UnitTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final placa = row.placa?.trim();
+    // Spec 10: the stored placa is the DISTANCE only on a guided parada; show
+    // the full composed address (vía + generadora + distancia + cardinal),
+    // mirroring the backend's compose-on-read, so the list is readable — not a
+    // column of bare numbers. Rural/classic captures have no terna and show
+    // their stored text verbatim (a topónimo or a full typed address).
+    final rawPlaca = row.placa?.trim();
+    final stops = ref.watch(routeStopsProvider(row.routeId)).valueOrNull;
+    Parada? parada;
+    if (row.stopId != null && stops != null) {
+      for (final p in stops) {
+        if (p.stopId == row.stopId) {
+          parada = p;
+          break;
+        }
+      }
+    }
+    final placa = (rawPlaca == null || rawPlaca.isEmpty || parada == null)
+        ? rawPlaca
+        : composeParadaAddress(
+            tipoVia: parada.tipoVia,
+            numVia: parada.numVia,
+            numCruce: parada.numCruce,
+            cardinal: parada.cardinal,
+            cardinalPosicion: parada.cardinalPosicion,
+            distance: rawPlaca,
+          );
     final hasAddress = placa != null && placa.isNotEmpty;
     // Three distinct states, not two: a row the server refused is not a row
     // waiting its turn (Spec 3, BR3).
@@ -567,7 +594,10 @@ class _UnitTile extends ConsumerWidget {
     final meta = <String>[
       'posición ${row.posicion}',
       if (row.loc != null) 'loc ${row.loc}',
-      if (row.manzanaCatastral != null) 'mz ${row.manzanaCatastral}',
+      // The full 17-digit LADM_COL código collapses to a readable label
+      // (Mz50 / Z1·Mz88), keeping the intermediate fields that give it
+      // uniqueness in a big city (PC.6, backend-pinned).
+      if (row.manzanaCatastral != null) manzanaLabel(row.manzanaCatastral!),
     ].join(' · ');
 
     // Spec 1.1: this row is the only way into the editor. There is no second
