@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/address/address_normalizer.dart';
+import '../../core/address/manzana_label.dart';
 import '../../core/config/app_config.dart';
 import '../../core/camera/plate_camera.dart';
 import '../../core/ocr/plate_ocr.dart';
@@ -994,7 +995,8 @@ class _ParadaBar extends StatelessWidget implements PreferredSizeWidget {
       // "Cara" only means something with a face; a rural point is just the
       // next parada in the sequence (Decisions v2 §5/§8).
       rural ? 'Parada ${parada.faceSequence}' : 'Cara ${parada.faceSequence}',
-      if (parada.manzana != null) 'Manzana ${parada.manzana}',
+      // The manzana lives on the readable face card below (Zona · Mz · ref),
+      // so the pinned strip drops it — no raw 17-digit código, no duplication.
       if (orient != null) orient,
       if (parada.direction != null) parada.direction!,
     ];
@@ -1012,13 +1014,13 @@ class _ParadaBar extends StatelessWidget implements PreferredSizeWidget {
 /// Spec 10: the face's manzana, authoritative and read-only — never a field
 /// inside a parada. A RURAL parada (Decisions v2 §8) has no manzana/cara at
 /// all — it is just the next point in the walk.
-class _FaceContextCard extends StatelessWidget {
+class _FaceContextCard extends ConsumerWidget {
   const _FaceContextCard({required this.parada});
 
   final Parada parada;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     if (!_paradaHasTerna(parada)) {
       return Card(
@@ -1035,15 +1037,31 @@ class _FaceContextCard extends StatelessWidget {
       );
     }
     final orient = _orientationLabel(parada.orientation);
+    final manzana = parada.manzana;
+    // PC.6: readable manzana (Zona: X · Mz N) instead of the raw 17-digit
+    // código, + the manzana's best-effort geographic reference if any.
+    final label = manzana == null ? '—' : manzanaLabel(manzana);
+    final geoRef = manzana == null
+        ? null
+        : ref.watch(manzanaRefGeograficaProvider(manzana)).valueOrNull;
     return Card(
       margin: EdgeInsets.zero,
       color: theme.colorScheme.surfaceContainerLow,
       child: ListTile(
         leading: const Icon(Icons.grid_4x4),
-        title: Text('Manzana ${parada.manzana ?? '—'} · cara '
-            '${parada.faceSequence}${orient == null ? '' : ' ($orient)'}'),
-        subtitle: Text('La manzana la fija la parada — no se escribe.',
-            style: theme.textTheme.bodySmall),
+        title: Text(
+          '$label · cara ${parada.faceSequence}'
+          '${orient == null ? '' : ' ($orient)'}',
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (geoRef != null && geoRef.isNotEmpty)
+              Text('📍 ref: $geoRef', style: theme.textTheme.bodySmall),
+            Text('La manzana la fija la parada — no se escribe.',
+                style: theme.textTheme.bodySmall),
+          ],
+        ),
       ),
     );
   }

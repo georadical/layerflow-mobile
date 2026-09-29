@@ -114,6 +114,11 @@ class R1DirectoryRepository {
   Future<List<R1DirectoryData>> rowsForManzana(int tenantId, String manzana) =>
       _db.r1RowsForManzana(tenantId, manzana);
 
+  /// A representative geographic reference for a manzana (Spec 10, PC.6) —
+  /// best-effort context for the face card. Null when none carry one.
+  Future<String?> refGeograficaForManzana(int tenantId, String manzana) =>
+      _db.r1RefForManzana(tenantId, manzana);
+
   /// PC.3b: distance-only lookup on a parada WITH a terna — the worker types
   /// only the distance, scoped to the EXACT `(tipo_via, num_via, num_cruce)`
   /// of the parada's face (known upfront from the parada, Decisions v2 §7).

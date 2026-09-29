@@ -64,6 +64,18 @@ final r1RefGeograficaProvider =
   return row?.refGeografica;
 });
 
+/// Best-effort geographic reference at the MANZANA level (Spec 10, PC.6) —
+/// context for the capture-form face card, where there is no single npn.
+/// Returns the first non-null ref among the manzana's R1 rows, or null.
+final manzanaRefGeograficaProvider =
+    FutureProvider.autoDispose.family<String?, String>((ref, manzana) async {
+  final tenantId = ref.watch(activeTenantIdProvider);
+  if (tenantId == null || manzana.isEmpty) return null;
+  return ref
+      .watch(r1DirectoryRepositoryProvider)
+      .refGeograficaForManzana(tenantId, manzana);
+});
+
 final evidenceRepositoryProvider = Provider<EvidenceRepository>(
   (ref) => EvidenceRepository(ref.watch(databaseProvider)),
 );

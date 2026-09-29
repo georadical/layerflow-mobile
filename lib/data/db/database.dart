@@ -721,6 +721,21 @@ class AppDatabase extends _$AppDatabase {
         .get();
   }
 
+  /// A representative geographic reference for a manzana (Spec 10, PC.6): the
+  /// first non-null `ref_geografica` among the manzana's R1 rows — best-effort
+  /// context for the face card. Null when none of the rows carry one.
+  Future<String?> r1RefForManzana(int tenantId, String manzana) async {
+    final mz = manzana.trim();
+    final row = await (select(r1Directory)
+          ..where((r) =>
+              r.tenantId.equals(tenantId) &
+              r.manzana.like('%$mz') &
+              r.refGeografica.isNotNull())
+          ..limit(1))
+        .getSingleOrNull();
+    return row?.refGeografica;
+  }
+
   /// PC.3b (Decisions v2 §4/§7): distance-only lookup for a parada WITH a
   /// terna — the worker types only the distance, so the search narrows to the
   /// EXACT `(tipo_via, num_via, num_cruce)` of the parada's face (known
