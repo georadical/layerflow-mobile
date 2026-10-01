@@ -162,8 +162,13 @@ marked provisional before sync; never send it.
 - **Response without the field (old backend).** If a response/frame omits
   `secuencia_parada`, the app keeps the capture at NULL and shows the provisional
   (if countable) or `predio —` — never crashes, never invents a number.
-- **"Siguiente" chip.** The former "Siguiente posición: N" becomes a per-parada,
-  provisional hint (e.g. "Siguiente predio: ~N"); exact copy pinned at wireframe.
+- **"Siguiente" chip removed.** The former "Siguiente posición: N" chip is
+  **removed, not renamed**: the expected-address prediction card (Spec 10,
+  "Siguiente esperada" + Coincide) already guides what comes next, and a
+  provisional counter would add little. The **queue-status chip** ("Todo
+  enviado" / "N sin enviar") **stays** as a non-actionable status pill — it never
+  showed `posicion`, and the single send control remains in the resume view
+  (Spec 3, BR2).
 
 ## Acceptance criteria
 - **AC1.** No surveyor-facing screen shows the route-global `posicion` anymore.
@@ -251,9 +256,9 @@ Feature: Per-parada sequence ("predio M") replaces the route-global posicion
   capture `predio M`), plus `predio —` fallback. Gate: the screen renders.
 - **SP.4 — Remove `posicion` from the surveyor's view.** Replace every
   surveyor-facing `posicion` with the per-parada number (resume list, capture
-  header, "Siguiente" chip, "primera será la posición 1", duplicate message,
-  edit-unit, survey). Keep `loc` and "total N". Gate: no `posicion` on screen;
-  tests updated.
+  header, "primera será la posición 1", duplicate message, edit-unit, survey);
+  **remove** the "Siguiente posición" chip entirely (keep the queue-status chip).
+  Keep `loc` and "total N". Gate: no `posicion` on screen; tests updated.
 - **SP.5 — Provisional count (derived).** Compute the on-the-fly provisional per
   parada (BR9/BR10). Gate: unit tests for restart-at-1 and +1 ordering.
 - **SP.6 — Design pass.** Apply the theme tokens: medium gray + tilde + pending
