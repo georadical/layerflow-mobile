@@ -48,14 +48,14 @@ class SecuenciaParadaWireframe extends StatelessWidget {
 /// APPROXIMATION of the Design intent (gray provisional / green definitive).
 class _PredioNumber extends StatelessWidget {
   const _PredioNumber({
-    required this.numero,
+    required this.number,
     required this.provisional,
     this.legacy = false,
-    this.withParada,
+    this.faceSequence,
   });
 
   /// The predio's per-parada number (ignored when [legacy]).
-  final int numero;
+  final int number;
 
   /// Pre-sync local count (tilde + gray + pending symbol) vs the synced value.
   final bool provisional;
@@ -64,14 +64,14 @@ class _PredioNumber extends StatelessWidget {
   final bool legacy;
 
   /// When set, prefixes "Parada N · " (resume list); null omits it (capture).
-  final int? withParada;
+  final int? faceSequence;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final gray = theme.colorScheme.onSurfaceVariant;
     final base = theme.textTheme.bodyMedium;
-    final prefix = withParada == null ? '' : 'Parada $withParada · ';
+    final prefix = faceSequence == null ? '' : 'Parada $faceSequence · ';
 
     if (legacy) {
       return Text('${prefix}predio —', style: base?.copyWith(color: gray));
@@ -87,7 +87,7 @@ class _PredioNumber extends StatelessWidget {
             Text(prefix, style: base?.copyWith(color: gray)),
           Icon(Icons.cloud_upload, size: 15, color: gray),
           const SizedBox(width: 3),
-          Text('predio ~$numero', style: base?.copyWith(color: gray)),
+          Text('predio ~$number', style: base?.copyWith(color: gray)),
         ],
       );
     }
@@ -99,9 +99,9 @@ class _PredioNumber extends StatelessWidget {
         if (prefix.isNotEmpty)
           TextSpan(text: prefix, style: base?.copyWith(color: gray)),
         TextSpan(
-          text: 'predio $numero',
+          text: 'predio $number',
           style: base?.copyWith(
-            color: kPredioDefinitivo,
+            color: kPredioDefinitiveColor,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -120,7 +120,7 @@ class _ResumeList extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    // (parada, numero, provisional, legacy, loc, direccion)
+    // (parada, number, provisional, legacy, loc, direccion)
     const rows = <(int, int, bool, bool, int, String)>[
       (1, 1, false, false, 5, 'CARRERA 4 # 2-03'),
       (1, 2, false, false, 10, 'CARRERA 4 # 2-09'),
@@ -145,7 +145,7 @@ class _ResumeList extends StatelessWidget {
                   style: theme.textTheme.titleSmall),
             );
           }
-          final (parada, numero, prov, legacy, loc, dir) = rows[i - 1];
+          final (parada, number, prov, legacy, loc, dir) = rows[i - 1];
           return Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             child: Column(
@@ -157,10 +157,10 @@ class _ResumeList extends StatelessWidget {
                   children: [
                     // Per-parada number — replaces the old "posición N".
                     _PredioNumber(
-                      numero: numero,
+                      number: number,
                       provisional: prov,
                       legacy: legacy,
-                      withParada: legacy ? null : parada,
+                      faceSequence: legacy ? null : parada,
                     ),
                     const SizedBox(width: 8),
                     // loc STAYS (normativa) and the manzana context remains.
@@ -228,7 +228,7 @@ class _CaptureForm extends StatelessWidget {
                           style: theme.textTheme.labelMedium?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           )),
-                      _PredioNumber(numero: 2, provisional: provisional),
+                      _PredioNumber(number: 2, provisional: provisional),
                       Text(' · total 2',
                           style: theme.textTheme.labelMedium?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,

@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/address/manzana_label.dart';
 import '../../core/config/app_config.dart';
 import '../../core/parada/face_prediction.dart' show composeParadaAddress;
+import '../../core/parada/predio_sequence.dart';
 import '../../data/api/api_client.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/survey_repository.dart';
 import '../providers.dart';
+import '../widgets/predio_number.dart';
 import 'capture_screen.dart';
 import 'edit_unit_screen.dart';
 import 'settings_screen.dart';
@@ -591,8 +593,10 @@ class _UnitTile extends ConsumerWidget {
     final surveyUnlocked = ref.watch(surveyUnlockedProvider(row.routeId));
     final canSurvey = ref.watch(canSurveyProvider);
 
-    final meta = <String>[
-      'posición ${row.posicion}',
+    // Spec 11: the surveyor-global posicion is gone; the row leads with the
+    // per-parada number ("Parada N · predio M"), rendered with its state.
+    final predio = predioDisplayFor(row, allRows);
+    final metaRest = <String>[
       if (row.loc != null) 'loc ${row.loc}',
       // The full 17-digit LADM_COL código collapses to a readable label
       // (Mz50 / Z1·Mz88), keeping the intermediate fields that give it
@@ -634,11 +638,22 @@ class _UnitTile extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    meta,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 4,
+                    children: [
+                      PredioNumber(
+                        display: predio,
+                        faceSequence: parada?.faceSequence,
+                      ),
+                      if (metaRest.isNotEmpty)
+                        Text(
+                          '· $metaRest',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                    ],
                   ),
                   // PC.6: best-effort geographic reference (corregimiento/
                   // vereda) — an approximate hint, only for an R1-linked row
@@ -699,7 +714,14 @@ class _UnitTile extends ConsumerWidget {
                       estado: estado,
                       locked: !surveyUnlocked,
                       onTap: surveyUnlocked
-                          ? () => _survey(context)
+                          ? () => _survey(
+                                context,
+                                predioPlainLabel(predio,
+                                    faceSequence: parada?.faceSequence),
+                                // The COMPOSED address (same as this row shows),
+                                // not the raw stored distance.
+                                hasAddress ? placa : null,
+                              )
                           : () => _explainLock(context, canSurvey),
                     ),
                   ),
@@ -731,14 +753,17 @@ class _UnitTile extends ConsumerWidget {
   ///
   /// (The CL-E8 lock gate rides here once the backend's TJ.5 flags land; for
   /// now the entry is always open — enforcement is server-side at push.)
-  Future<void> _survey(BuildContext context) {
+  Future<void> _survey(
+      BuildContext context, String predioLabel, String? address) {
     return Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SurveyScreen(
           anchorClientId: row.clientId,
           routeId: row.routeId,
-          posicion: row.posicion,
-          placa: row.placa,
+          predioLabel: predioLabel,
+          // The composed address, so the survey header reads like the list
+          // ("CARRERA 4 # 2-85"), not the raw stored distance ("85").
+          address: address,
         ),
       ),
     );

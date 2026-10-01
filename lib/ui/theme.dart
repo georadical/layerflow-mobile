@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 /// and darker still against the bold weight. A PROVISIONAL (pre-sync) number
 /// instead uses `colorScheme.onSurfaceVariant` (medium gray) + a tilde + a
 /// pending glyph — never this green.
-const Color kPredioDefinitivo = Color(0xFF2E7D32);
+const Color kPredioDefinitiveColor = Color(0xFF2E7D32);
 
 /// The app theme, shared by the real app and the wireframe gallery so the
 /// design phase reviews exactly what ships.
