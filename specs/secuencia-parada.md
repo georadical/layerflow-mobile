@@ -50,6 +50,11 @@ marked provisional before sync; never send it.
   display + local storage only.
 - Grouping/collapsing the resume list by parada (possible later; out of scope
   here — rows stay flat and carry their own `Parada N ·` anchor).
+- A backend-composed `display_parada` in the field endpoints, or the
+  `abre_parada` / `cierra_parada` markers (office-only; the app composes its own
+  label from the raw value — BR16).
+- Omitting "predio 1" on a single-predio parada (backend's optional suggestion) —
+  deferred; see Open items.
 
 ## Actors and permissions
 - **Field worker (titular or pareja)** — the only actor. Read-only consumer of
@@ -112,7 +117,9 @@ marked provisional before sync; never send it.
 - **BR2 — Per-parada, restarts at 1.** It is the predio's position **within its
   parada** (Mz 50 cara sur → 1, 2, 3; next parada → 1 again). Independent of
   `posicion`/`loc`, which do not change.
-- **BR3 — Frozen.** Once assigned it does not change; a re-carry preserves it.
+- **BR3 — Frozen.** Once assigned it does not change; a re-carry preserves it. A
+  re-push of the same unit returns `status:"updated"` with the SAME frozen value
+  (never recalculated); an `ok:false` item carries no `secuencia_parada` at all.
 - **BR4 — Gaps are real.** A deleted predio's number is **not reused**; the app
   shows gaps verbatim and never renumbers (the recenso depends on it).
 - **BR5 — NULL for legacy / no `stop_id`.** Such captures have no sequence; the
@@ -149,6 +156,13 @@ marked provisional before sync; never send it.
   topónimo) with a `stop_id` still gets `predio M`.
 - **BR15 — Push unchanged.** Nothing about the push, `posicion`, `loc`,
   `stop_id`/`block_face_id`, the sweep gate, or photos changes.
+- **BR16 — The app composes the label from the raw value.** The field endpoints
+  return the raw integer `secuencia_parada` only; the app builds the display text
+  ("predio M" / "Parada N · predio M"). The composed `display_parada` and the
+  `abre_parada` / `cierra_parada` markers are OFFICE-only (`/consult/census-codes`)
+  and are NOT requested for the field (confirmed with the backend 2026-09-30):
+  a single fixed string cannot carry our context-aware label, the provisional
+  state, or the "predio" wording.
 
 ## Edge cases and error handling
 - **Partial batch.** A push returns `ok` for some items and `errores` for others;
@@ -268,9 +282,14 @@ Feature: Per-parada sequence ("predio M") replaces the route-global posicion
   values turn definitive from the server; restart-at-1 across two paradas.
   (Definitive path is verified once the backend ships its side and we sync.)
 
-## Open items to pin before / during implementation
-- Exact **theme tokens** for medium gray and green (+ green contrast check) and
-  the **pending glyph** — Design phase (SP.6).
-- Exact **copy for the "Siguiente" chip** — wireframe (SP.3).
-- Confirm with the backend the **field name and JSON shape** (`secuencia_parada`)
-  in both the response and the frame before wiring SP.1 (report, do not guess).
+## Open items
+- **Theme tokens — RESOLVED (Design):** provisional = `colorScheme.onSurfaceVariant`
+  (medium gray) + `~` + `Icons.cloud_upload` (matches the app's pending-sync icon);
+  definitive = `kPredioDefinitivo` (`#2E7D32`, Green 800, ~4.9:1 on the light
+  surface) + bold. Only the number carries the color; "Parada N ·" stays neutral.
+- **Contract shape — RESOLVED (backend 2026-09-30):** raw `secuencia_parada`
+  (int ≥ 1 or null) in the capture response (`ok:true` items) and the resume
+  frame; `status:"updated"` carries the frozen value; the app composes the label
+  (BR16).
+- **Deferred (future):** omit "predio 1" on a single-predio parada — only safe
+  post-sweep in the resume list; minor noise, not worth the edge cases now.

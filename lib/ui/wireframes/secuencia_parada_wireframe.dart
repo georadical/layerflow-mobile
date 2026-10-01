@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
+
 /// WIREFRAME — Spec 11, SP.3 "Per-parada sequence (predio M)".
 ///
 /// Layout only, dummy data, no wiring (specs/secuencia-parada.md). Reviews WHERE
@@ -67,37 +69,44 @@ class _PredioNumber extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final gray = theme.colorScheme.onSurfaceVariant;
+    final base = theme.textTheme.bodyMedium;
     final prefix = withParada == null ? '' : 'Parada $withParada · ';
 
     if (legacy) {
-      return Text('${prefix}predio —',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ));
+      return Text('${prefix}predio —', style: base?.copyWith(color: gray));
     }
 
     if (provisional) {
-      // DESIGN pins the token: here onSurfaceVariant stands in for "gris medio",
-      // and cloud_queue stands in for the pending glyph.
-      final gray = theme.colorScheme.onSurfaceVariant;
+      // Provisional: medium gray + the pending glyph (right before "predio",
+      // never before "Parada N ·") + the tilde — all three cues (Spec 11, BR8).
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.cloud_queue, size: 15, color: gray),
-          const SizedBox(width: 4),
-          Text('${prefix}predio ~$numero',
-              style: theme.textTheme.bodyMedium?.copyWith(color: gray)),
+          if (prefix.isNotEmpty)
+            Text(prefix, style: base?.copyWith(color: gray)),
+          Icon(Icons.cloud_upload, size: 15, color: gray),
+          const SizedBox(width: 3),
+          Text('predio ~$numero', style: base?.copyWith(color: gray)),
         ],
       );
     }
 
-    // Definitive: no tilde, bold, green. DESIGN pins the exact green token.
-    const green = Color(0xFF2E7D32); // placeholder — Design replaces this
-    return Text('${prefix}predio $numero',
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: green,
-          fontWeight: FontWeight.bold,
-        ));
+    // Definitive: only the NUMBER carries the state color (bold + green token);
+    // the "Parada N ·" anchor stays neutral so the confirmed number pops.
+    return Text.rich(
+      TextSpan(children: [
+        if (prefix.isNotEmpty)
+          TextSpan(text: prefix, style: base?.copyWith(color: gray)),
+        TextSpan(
+          text: 'predio $numero',
+          style: base?.copyWith(
+            color: kPredioDefinitivo,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ]),
+    );
   }
 }
 
@@ -232,7 +241,7 @@ class _CaptureForm extends StatelessWidget {
                   Row(
                     children: [
                       Icon(
-                        provisional ? Icons.cloud_queue : Icons.cloud_done,
+                        provisional ? Icons.cloud_upload : Icons.cloud_done,
                         size: 16,
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
