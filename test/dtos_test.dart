@@ -507,6 +507,64 @@ void main() {
     });
   });
 
+  group('secuencia_parada (Spec 11)', () {
+    test('PlacaItemResult parses secuencia_parada on an ok item', () {
+      final r = PlacaItemResult.fromJson({
+        'client_id': 'a',
+        'ok': true,
+        'id': 'uuid-1',
+        'loc': 15,
+        'secuencia_parada': 3,
+        'status': 'created',
+      });
+      expect(r.secuenciaParada, 3);
+    });
+
+    test('PlacaItemResult: an updated item carries the frozen value', () {
+      final r = PlacaItemResult.fromJson({
+        'client_id': 'a',
+        'ok': true,
+        'id': 'uuid-1',
+        'loc': 15,
+        'secuencia_parada': 3,
+        'status': 'updated',
+      });
+      expect(r.status, 'updated');
+      expect(r.secuenciaParada, 3);
+    });
+
+    test('PlacaItemResult: absent secuencia_parada stays null (e.g. ok:false)',
+        () {
+      final r = PlacaItemResult.fromJson({
+        'client_id': 'a',
+        'ok': false,
+        'codigo': 'barrido_fuera_de_orden',
+      });
+      expect(r.secuenciaParada, isNull);
+    });
+
+    test('RouteFrameItem parses secuencia_parada', () {
+      final item = RouteFrameItem.fromJson({
+        'client_id': 'a',
+        'posicion': 3,
+        'loc': 15,
+        'secuencia_parada': 3,
+        'stop_id': 's1',
+      });
+      expect(item.secuenciaParada, 3);
+    });
+
+    test('RouteFrameItem: absent secuencia_parada is null (legacy/no stop_id)',
+        () {
+      final item = RouteFrameItem.fromJson({
+        'client_id': 'a',
+        'posicion': 3,
+        'loc': 15,
+      });
+      expect(item.secuenciaParada, isNull);
+    });
+  });
+
   group('R1DirectoryItem.fromJson (Spec 10)', () {
     test('parses ref_geografica when present; null on a clean urban row', () {
       final rural = R1DirectoryItem.fromJson({

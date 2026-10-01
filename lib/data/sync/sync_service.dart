@@ -495,6 +495,7 @@ class SyncService {
         await _repo.markSynced(
           clientId: c.clientId,
           loc: r.loc,
+          secuenciaParada: r.secuenciaParada,
           remoteId: r.id,
         );
         synced++;

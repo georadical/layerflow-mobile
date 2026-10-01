@@ -77,6 +77,12 @@ class Captures extends Table {
   /// loc assigned by the server (posicion × 5). Null until synced.
   IntColumn get loc => integer().nullable()();
 
+  /// secuencia_parada (Spec 11): the predio's position WITHIN its parada,
+  /// restarting at 1 per parada. Assigned and FROZEN by the server; null until
+  /// synced (the app shows a provisional local count meanwhile) or for
+  /// legacy/no-stop_id rows. Pure display — the app NEVER sends it.
+  IntColumn get secuenciaParada => integer().nullable()();
+
   /// Pending relocation: the loc of the unit this one goes after (0 = start
   /// of route). Null = no mark. The contract is full-replacement, so this
   /// must ride on every push of the row or the backend clears it (Spec 2.1).
@@ -329,7 +335,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 19;
+  int get schemaVersion => 20;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -457,6 +463,12 @@ class AppDatabase extends _$AppDatabase {
             // PC.6: best-effort geographic reference on R1 rows (corregimiento/
             // vereda), null until the next R1 refresh backfills it.
             await m.addColumn(r1Directory, r1Directory.refGeografica);
+          }
+          if (from < 20) {
+            // Spec 11: the per-parada sequence number on a capture, assigned by
+            // the server. Null until the next sync/frame backfills it; the app
+            // shows a provisional local count meanwhile.
+            await m.addColumn(captures, captures.secuenciaParada);
           }
         },
       );

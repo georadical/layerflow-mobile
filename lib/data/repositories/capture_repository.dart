@@ -228,12 +228,15 @@ class CaptureRepository {
   Future<void> markSynced({
     required String clientId,
     int? loc,
+    int? secuenciaParada,
     String? remoteId,
   }) async {
     await _db.updateCaptureRow(
       clientId,
       CapturesCompanion(
         loc: Value(loc),
+        // Spec 11: the server's per-parada number, frozen once assigned.
+        secuenciaParada: Value(secuenciaParada),
         remoteId: Value(remoteId),
         syncStatus: const Value(AppConfig.syncSynced),
         syncError: const Value(null),
@@ -285,6 +288,7 @@ class CaptureRepository {
             placa: Value(item.placa),
             manzanaCatastral: Value(item.manzanaCatastral),
             loc: Value(item.loc),
+            secuenciaParada: Value(item.secuenciaParada),
             insAfter: Value(item.insAfter),
             npn: Value(item.npn),
             npnMatchMethod: Value(item.npnMatchMethod),
@@ -305,6 +309,8 @@ class CaptureRepository {
             placa: Value(item.placa),
             manzanaCatastral: Value(item.manzanaCatastral),
             loc: Value(item.loc),
+            // Re-carried from the frame (server-assigned, frozen), like loc.
+            secuenciaParada: Value(item.secuenciaParada),
             // Written unconditionally, nulls included: once the office applies
             // the shift the frame comes back clean and the local mark must
             // follow it (Spec 2.1, BR5). The npn link follows the same rule
@@ -337,6 +343,8 @@ class CaptureRepository {
           CapturesCompanion(
             posicion: Value(item.posicion),
             loc: Value(item.loc),
+            // Server-assigned and frozen, same rule as posicion/loc here.
+            secuenciaParada: Value(item.secuenciaParada),
             updatedAt: Value(now),
           ),
         );
