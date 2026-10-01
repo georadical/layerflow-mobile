@@ -32,6 +32,11 @@ class Routes extends Table {
   TextColumn get surveyEstado =>
       text().withDefault(const Constant(AppConfig.surveyBloqueada))();
 
+  /// Parada photo policy (Spec 10): when true, a face cannot close until every
+  /// placa on it has a photo. Persisted from the frame / assigned routes.
+  BoolColumn get fotoObligatoria =>
+      boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column<Object>> get primaryKey => {routeId};
 }
@@ -103,6 +108,16 @@ class Captures extends Table {
   /// another device's finding (send-always).
   BoolColumn get sinR1 => boolean().nullable()();
 
+  /// Parada binding (Spec 10). Rides on EVERY push like npn (full-replacement,
+  /// omit → keep). Null = unassisted capture. The worker never types it — it
+  /// comes from the parada.
+  ///
+  /// [stopId] is the correct binding from Decisions v2 (§6) on — it exists
+  /// for BOTH urban and rural paradas, unlike [blockFaceId] which a rural
+  /// parada has none of. [blockFaceId] keeps riding too, for compatibility.
+  TextColumn get stopId => text().nullable()();
+  TextColumn get blockFaceId => text().nullable()();
+
   /// Person who owns this row's UNSENT content (normalized login email,
   /// CL4). Null = unowned: legacy rows and the CL1 paste flow, visible to
   /// any session. Ownership only gates queue rows — synced rows are the
@@ -146,6 +161,22 @@ class R1Directory extends Table {
   /// null when free. Server-computed: local counts cannot see links made
   /// by another device, worker or campaign. Marked, never hidden.
   TextColumn get enlazadoLoc => text().nullable()();
+
+  /// Server-parsed address components (Spec 10). The face prediction groups
+  /// by these authoritative values instead of re-parsing direccionNorm, so
+  /// vías with letters/suffixes ("10AS") are used as sent — never synthesised.
+  /// [parseOk] false ⇒ the components are unreliable and the row is skipped
+  /// for prediction.
+  TextColumn get tipoVia => text().nullable()();
+  TextColumn get numVia => text().nullable()();
+  TextColumn get numCruce => text().nullable()();
+  TextColumn get placa => text().nullable()();
+  BoolColumn get parseOk => boolean().withDefault(const Constant(false))();
+
+  /// Best-effort geographic reference (Spec 10, PC.6): corregimiento/vereda
+  /// name scraped from the raw address ("SALTO DE BORDONES"), null on clean
+  /// urban rows. Free text, shown only as an approximate hint.
+  TextColumn get refGeografica => text().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {tenantId, npn};
@@ -226,13 +257,79 @@ class Surveys extends Table {
   Set<Column<Object>> get primaryKey => {anchorClientId};
 }
 
-@DriftDatabase(tables: [Routes, Captures, R1Directory, Evidence, Surveys])
+/// A route's paradas (Spec 10, PC.1b) — the cache of GET .../stops, so the
+/// face-by-face navigation and the sweep work offline with the last-known
+/// state. The app navigates by [faceSequence]; [faceIndex] is identity/QC.
+class Paradas extends Table {
+  /// Unique id of the route_block_face (the parada).
+  TextColumn get stopId => text()();
+
+  TextColumn get routeId => text()();
+  IntColumn get faceSequence => integer()();
+
+  /// The route_block_face, when this parada has one. NULLABLE (Decision v2,
+  /// §6): a RURAL parada — a point of the route with no manzana face — has
+  /// none. The capture binds by [stopId] from here on; this rides along only
+  /// for compatibility / local reference.
+  TextColumn get blockFaceId => text().nullable()();
+
+  IntColumn get faceIndex => integer().nullable()();
+  TextColumn get manzana => text().nullable()();
+  TextColumn get orientation => text().nullable()();
+
+  /// The terna that fixes this face's vía + generadora (Decision v2, §7) —
+  /// lives on the PARADA (not the block_face): it is what the worker visits
+  /// and what the backend composes against, and a rural parada legitimately
+  /// has none. All three null together = rural (§8): the worker types the
+  /// predio's name (topónimo) instead of a distance.
+  TextColumn get tipoVia => text().nullable()();
+  TextColumn get numVia => text().nullable()();
+  TextColumn get numCruce => text().nullable()();
+
+  /// Cardinal zone suffix (NORTE/SUR/ESTE/OESTE) of the official nomenclature
+  /// (address-profiles AP.1–AP.5) — from the face, never typed. Null on a
+  /// face without one, or on a rural parada.
+  TextColumn get cardinal => text().nullable()();
+
+  /// Where [cardinal] sits in the composed address: 'via' (after num_via,
+  /// before the '#') or 'placa' (after the distance, at the very end).
+  /// Meaningless when [cardinal] is null.
+  TextColumn get cardinalPosicion => text().nullable()();
+
+  /// Effective swept state (local truth). Set optimistically offline so the
+  /// next parada unlocks without waiting on the server (Decision Q1).
+  BoolColumn get swept => boolean().withDefault(const Constant(false))();
+
+  /// Whether [swept] is confirmed by the server. A local mark sets it false;
+  /// a refresh preserves a still-pending local sweep rather than downgrading
+  /// it. The push (PC.5) flips it true.
+  BoolColumn get sweptSynced => boolean().withDefault(const Constant(true))();
+
+  /// The face's inferred sweep direction (PC.3), stored so it does not re-flip
+  /// at the face end. Null until anchored.
+  TextColumn get direction => text().nullable()();
+
+  /// The server's reason when the swept push was REJECTED on its merits
+  /// (barrido_fuera_de_orden / foto_obligatoria_pendiente, PC.5). [sweptSynced]
+  /// stays false so the row keeps retrying on the next Enviar — same "no
+  /// verdict, no stuck state" retry philosophy as captures/evidence/surveys.
+  /// Cleared on a fresh local mark (a new attempt supersedes the old verdict).
+  TextColumn get sweepError => text().nullable()();
+
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {stopId};
+}
+
+@DriftDatabase(
+    tables: [Routes, Captures, R1Directory, Evidence, Surveys, Paradas])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 19;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -305,6 +402,61 @@ class AppDatabase extends _$AppDatabase {
             // them.
             await m.addColumn(routes, routes.placasEstado);
             await m.addColumn(routes, routes.surveyEstado);
+          }
+          if (from < 13) {
+            // Parada-scoped capture (Spec 10): the face binding on a capture
+            // and the per-route photo policy.
+            await m.addColumn(captures, captures.blockFaceId);
+            await m.addColumn(routes, routes.fotoObligatoria);
+          }
+          if (from < 14) {
+            // Paradas cache (PC.1b): offline face-by-face navigation + sweep.
+            await m.createTable(paradas);
+          }
+          if (from < 15) {
+            // Server-parsed R1 address columns (Spec 10): the prediction uses
+            // them verbatim instead of re-parsing direccionNorm. Null until the
+            // next R1 refresh backfills them; parseOk defaults false so a stale
+            // row is skipped for prediction, never mis-grouped.
+            await m.addColumn(r1Directory, r1Directory.tipoVia);
+            await m.addColumn(r1Directory, r1Directory.numVia);
+            await m.addColumn(r1Directory, r1Directory.numCruce);
+            await m.addColumn(r1Directory, r1Directory.placa);
+            await m.addColumn(r1Directory, r1Directory.parseOk);
+          }
+          if (from < 16) {
+            // Decisions v2 (2026-09-22): every point of the route is a
+            // parada, and a rural one has no face — block_face_id relaxes to
+            // nullable and the parada gains its own optional terna (used to
+            // compose/preview the address; all-null = rural). The capture
+            // binds by stop_id from here on (block_face_id keeps riding for
+            // compatibility). TableMigration recreates `paradas` for the
+            // nullability change; existing values carry over unchanged.
+            // ignore: experimental_member_use
+            await m.alterTable(TableMigration(
+              paradas,
+              newColumns: [paradas.tipoVia, paradas.numVia, paradas.numCruce],
+            ));
+            await m.addColumn(captures, captures.stopId);
+          }
+          if (from < 17) {
+            // address-profiles AP.1–AP.5: the parada's terna gains the
+            // official nomenclature's cardinal zone suffix (NORTE/SUR/ESTE/
+            // OESTE) + where it sits in the composed address. Pure additions,
+            // null until the next /stops refresh backfills them.
+            await m.addColumn(paradas, paradas.cardinal);
+            await m.addColumn(paradas, paradas.cardinalPosicion);
+          }
+          if (from < 18) {
+            // PC.5: the sweep push's rejection reason, so a merit-rejected
+            // sweep (barrido_fuera_de_orden / foto_obligatoria_pendiente)
+            // surfaces to the worker instead of retrying silently forever.
+            await m.addColumn(paradas, paradas.sweepError);
+          }
+          if (from < 19) {
+            // PC.6: best-effort geographic reference on R1 rows (corregimiento/
+            // vereda), null until the next R1 refresh backfills it.
+            await m.addColumn(r1Directory, r1Directory.refGeografica);
           }
         },
       );
@@ -552,6 +704,71 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// All R1 rows of a manzana whose server parse succeeded (Spec 10) — the
+  /// candidate faces the local prediction groups over. Filtered to
+  /// `parse_ok`, because a row without reliable components would be
+  /// mis-grouped; the manzana match is the same suffix rule as everywhere.
+  Future<List<R1DirectoryData>> r1RowsForManzana(
+    int tenantId,
+    String manzana,
+  ) {
+    final mz = manzana.trim();
+    return (select(r1Directory)
+          ..where((r) =>
+              r.tenantId.equals(tenantId) &
+              r.parseOk.equals(true) &
+              r.manzana.like('%$mz')))
+        .get();
+  }
+
+  /// A representative geographic reference for a manzana (Spec 10, PC.6): the
+  /// first non-null `ref_geografica` among the manzana's R1 rows — best-effort
+  /// context for the face card. Null when none of the rows carry one.
+  Future<String?> r1RefForManzana(int tenantId, String manzana) async {
+    final mz = manzana.trim();
+    final row = await (select(r1Directory)
+          ..where((r) =>
+              r.tenantId.equals(tenantId) &
+              r.manzana.like('%$mz') &
+              r.refGeografica.isNotNull())
+          ..limit(1))
+        .getSingleOrNull();
+    return row?.refGeografica;
+  }
+
+  /// PC.3b (Decisions v2 §4/§7): distance-only lookup for a parada WITH a
+  /// terna — the worker types only the distance, so the search narrows to the
+  /// EXACT `(tipo_via, num_via, num_cruce)` of the parada's face (known
+  /// upfront, not derived from an anchor) instead of a free-text fragment.
+  /// [manzana] is an extra safety scope, skipped when the parada carries none.
+  Future<List<R1DirectoryData>> r1SearchByDistance(
+    int tenantId, {
+    required String tipoVia,
+    required String numVia,
+    required String numCruce,
+    required String distancePrefix,
+    String? manzana,
+    int limit = 8,
+  }) {
+    return (select(r1Directory)
+          ..where((r) {
+            var cond = r.tenantId.equals(tenantId) &
+                r.parseOk.equals(true) &
+                r.tipoVia.equals(tipoVia) &
+                r.numVia.equals(numVia) &
+                r.numCruce.equals(numCruce) &
+                r.placa.like('$distancePrefix%');
+            final mz = manzana?.trim();
+            if (mz != null && mz.isNotEmpty) {
+              cond = cond & r.manzana.like('%$mz');
+            }
+            return cond;
+          })
+          ..orderBy([(r) => OrderingTerm.asc(r.placa)])
+          ..limit(limit))
+        .get();
+  }
+
   /// The directory row behind an npn, to NAME an existing link in the
   /// editor (the worker sees the address, never the npn).
   Future<R1DirectoryData?> r1ByNpn(int tenantId, String npn) =>
@@ -593,7 +810,8 @@ class AppDatabase extends _$AppDatabase {
   /// to hang a per-unit survey-state chip (CL-E1).
   Stream<List<Survey>> watchSurveysForRoute(String routeId, {String? owner}) {
     return (select(surveys)
-          ..where((s) => s.routeId.equals(routeId) & _surveyVisibleTo(s, owner)))
+          ..where(
+              (s) => s.routeId.equals(routeId) & _surveyVisibleTo(s, owner)))
         .watch();
   }
 
@@ -621,7 +839,8 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<bool> updateSurveyRow(String anchorClientId, SurveysCompanion patch) {
-    return (update(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
+    return (update(surveys)
+          ..where((s) => s.anchorClientId.equals(anchorClientId)))
         .write(patch)
         .then((rows) => rows > 0);
   }
@@ -629,4 +848,47 @@ class AppDatabase extends _$AppDatabase {
   Future<void> deleteSurvey(String anchorClientId) =>
       (delete(surveys)..where((s) => s.anchorClientId.equals(anchorClientId)))
           .go();
+
+  // ---- Paradas (Spec 10, PC.1b) ----
+
+  Stream<List<Parada>> watchStops(String routeId) => (select(paradas)
+        ..where((p) => p.routeId.equals(routeId))
+        ..orderBy([(p) => OrderingTerm.asc(p.faceSequence)]))
+      .watch();
+
+  Future<List<Parada>> stopsForRoute(String routeId) => (select(paradas)
+        ..where((p) => p.routeId.equals(routeId))
+        ..orderBy([(p) => OrderingTerm.asc(p.faceSequence)]))
+      .get();
+
+  Future<Parada?> getParada(String stopId) =>
+      (select(paradas)..where((p) => p.stopId.equals(stopId)))
+          .getSingleOrNull();
+
+  Future<void> upsertParada(ParadasCompanion parada) =>
+      into(paradas).insertOnConflictUpdate(parada);
+
+  Future<void> deleteStopsForRoute(String routeId) =>
+      (delete(paradas)..where((p) => p.routeId.equals(routeId))).go();
+
+  /// Replaces a route's paradas atomically (the repository computes the merge
+  /// with local state first; a re-planned route drops stops no longer sent).
+  Future<void> replaceRouteStops(String routeId, List<ParadasCompanion> rows) {
+    return transaction(() async {
+      await (delete(paradas)..where((p) => p.routeId.equals(routeId))).go();
+      for (final r in rows) {
+        await into(paradas).insert(r);
+      }
+    });
+  }
+
+  Future<bool> updateParadaRow(String stopId, ParadasCompanion patch) =>
+      (update(paradas)..where((p) => p.stopId.equals(stopId)))
+          .write(patch)
+          .then((rows) => rows > 0);
+
+  /// Paradas whose local sweep has not been pushed yet (PC.5 pushes these).
+  Future<List<Parada>> pendingSweeps(String routeId) => (select(paradas)
+        ..where((p) => p.routeId.equals(routeId) & p.sweptSynced.equals(false)))
+      .get();
 }

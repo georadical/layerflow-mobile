@@ -17,8 +17,9 @@ with a verifiable gate, a commit and explicit approval.
 | 7 | R1-assisted capture | [r1-assisted-capture.md](r1-assisted-capture.md) (shared) | Done — full version E2E-verified both sides (2026-09-15) |
 | 8 | Extended survey PH/PV | [extended-survey-phpv.md](extended-survey-phpv.md) (shared) | Done @ d2bb861 — T8.1–T8.6 complete; E2E 9/9 aplicada both sides (Isnos/Ruta 10, 2026-09-17) |
 | 9 | Route-state locks (capture + survey gating) | [route-state-locks.md](route-state-locks.md) | Done — L.1 foundation, L.2 survey gate, L.3 placa gate; survey gate verified live (unlock on open route) |
+| 10 | Parada-scoped capture (app side) | [parada-capture-app.md](parada-capture-app.md) | Draft — face-by-face sweep, expected-placa, block_face_id binding, foto_obligatoria; branch `feature/parada-scoped-capture` |
 | — | Road to production (backlog) | [road-to-production.md](road-to-production.md) | Backlog — deployment infra, rich census, pilot (run first); not scheduled |
-| — | BlockFace & Paradas (reference) | [paradas-blockface.md](paradas-blockface.md) | Reference — backend model pinned; app consumes read-only (TP.4/TP.5) later, changes nothing today |
+| — | Paradas — backend mirrors (reference) | [parada-scoped-capture.md](parada-scoped-capture.md), [block-faces.md](block-faces.md), [contract](../docs/mobile-parada-capture-contract.md) | Reference (read-only) — backend contract the app builds against; also the early note [paradas-blockface.md](paradas-blockface.md) |
 
 ## Spec 7 — R1-assisted capture (shared spec, frozen 2026-09-12)
 

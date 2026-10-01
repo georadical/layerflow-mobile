@@ -7,13 +7,19 @@ import 'sync_dtos.dart';
 
 /// Network/server error that the UI can display.
 class ApiException implements Exception {
-  ApiException(this.message, {this.statusCode, this.codigo});
+  ApiException(this.message,
+      {this.statusCode, this.codigo, this.localizaciones = const []});
   final String message;
   final int? statusCode;
 
   /// Stable machine code from the server's `detail.codigo` when present
   /// (e.g. 'ruta_placas_cerrada'), so callers map the cause, not the prose.
   final String? codigo;
+
+  /// The offending locs from `detail.localizaciones` when the server names
+  /// them (Spec 10: a foto_obligatoria_pendiente rejection lists which locs
+  /// still lack a photo), so the app can tell the worker exactly where.
+  final List<int> localizaciones;
 
   @override
   String toString() => 'ApiException($statusCode/$codigo): $message';
@@ -79,6 +85,40 @@ class ApiClient {
         data: req.ordered().toJson(),
       );
       return SyncPushResponse.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// GET /field/routes/{id}/stops — the route's paradas (Spec 10), ordered by
+  /// face_sequence, with the current one flagged (es_actual).
+  Future<RouteStops> getRouteStops(String routeId) async {
+    final base = await _baseUrl();
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '$base${AppConfig.routeStopsPath(routeId)}',
+      );
+      return RouteStops.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// POST /field/routes/{id}/stops/{stop_id}/swept — mark a face swept
+  /// (gated) or reopen it (`swept:false`, ungated). A gated rejection throws
+  /// ApiException with `codigo` (barrido_fuera_de_orden /
+  /// foto_obligatoria_pendiente).
+  Future<void> markSwept(
+    String routeId,
+    String stopId, {
+    required bool swept,
+  }) async {
+    final base = await _baseUrl();
+    try {
+      await _dio.post<void>(
+        '$base${AppConfig.stopSweptPath(routeId, stopId)}',
+        data: {'swept': swept},
+      );
     } on DioException catch (e) {
       throw _mapError(e);
     }
@@ -204,15 +244,24 @@ class ApiClient {
     final rawDetail = data is Map ? data['detail'] : null;
     String detail;
     String? codigo;
+    var localizaciones = const <int>[];
     if (rawDetail is Map) {
       // Structured detail (e.g. 409 {detail:{codigo, motivo}}): keep the
       // machine code apart from the human message.
       codigo = rawDetail['codigo']?.toString();
       detail = (rawDetail['motivo'] ??
               rawDetail['mensaje'] ??
+              rawDetail['error'] ??
               codigo ??
               'Error del servidor.')
           .toString();
+      final locs = rawDetail['localizaciones'];
+      if (locs is List) {
+        localizaciones = [
+          for (final l in locs)
+            if (l is num) l.toInt() else int.tryParse(l.toString()) ?? -1,
+        ].where((l) => l >= 0).toList();
+      }
     } else if (rawDetail != null) {
       detail = rawDetail.toString();
     } else if (e.type == DioExceptionType.connectionTimeout ||
@@ -221,6 +270,7 @@ class ApiClient {
     } else {
       detail = e.message ?? 'Error de red.';
     }
-    return ApiException(detail, statusCode: code, codigo: codigo);
+    return ApiException(detail,
+        statusCode: code, codigo: codigo, localizaciones: localizaciones);
   }
 }

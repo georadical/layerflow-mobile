@@ -81,12 +81,35 @@ class AppConfig {
   /// absent means abierta, so routes predating the flag keep capturing).
   static const String placasAbierta = 'abierta';
   static const String placasCerrada = 'cerrada';
+
   /// Survey pass: fail-CLOSED — absent means bloqueada.
   static const String surveyBloqueada = 'bloqueada';
   static const String surveyAbierta = 'abierta';
 
   /// 409 code when a placa push races a route close (backend da98366).
   static const String codeRutaPlacasCerrada = 'ruta_placas_cerrada';
+
+  /// Parada-scoped capture (Spec 10). Per-item on the placa push when a
+  /// capture/sweep runs ahead of an unswept earlier parada; and the 409 when
+  /// closing a face still missing photos (carries `localizaciones`).
+  static const String codeBarridoFueraDeOrden = 'barrido_fuera_de_orden';
+  static const String codeFotoObligatoriaPendiente =
+      'foto_obligatoria_pendiente';
+
+  /// Backend guard (PC.6): a NEW placa pushed onto an already-swept parada is
+  /// rejected with this code — the face must be reopened (swept:false) before
+  /// adding, so the foto_obligatoria gate runs again on re-close. A re-carry of
+  /// an EXISTING placa (same client_id) is idempotent and never hits this. With
+  /// the per-parada send order it should never fire in normal flow — it is the
+  /// multi-device safety belt.
+  static const String codeParadaYaBarrida = 'parada_ya_barrida';
+
+  /// Field endpoints for the sweep (Spec 10). `{route_id}` / `{stop_id}` fill
+  /// the paths.
+  static String routeStopsPath(String routeId) =>
+      '/field/routes/$routeId/stops';
+  static String stopSweptPath(String routeId, String stopId) =>
+      '/field/routes/$routeId/stops/$stopId/swept';
 
   /// Local sync states.
   static const String syncPending = 'pending';

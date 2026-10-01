@@ -345,4 +345,184 @@ void main() {
       expect(LoginEsp.fromJson(on.toJson()).canSurvey, isTrue);
     });
   });
+
+  group('parada-scoped capture DTOs (Spec 10)', () {
+    test('RouteStops parses paradas with es_actual / swept', () {
+      final s = RouteStops.fromJson({
+        'route_id': 'r1',
+        'items': [
+          {
+            'stop_id': 's1',
+            'face_sequence': 1,
+            'block_face_id': 'bf1',
+            'face_index': 1,
+            'manzana_catastral': '001',
+            'orientation': 'N',
+            'swept': true,
+          },
+          {
+            'stop_id': 's2',
+            'face_sequence': 2,
+            'block_face_id': 'bf2',
+            'es_actual': true,
+          },
+        ],
+      });
+      expect(s.items.length, 2);
+      expect(s.items[0].swept, isTrue);
+      expect(s.items[0].faceIndex, 1);
+      expect(s.items[1].esActual, isTrue);
+      expect(s.items[1].swept, isFalse);
+    });
+
+    test(
+        'RouteStop: a rural parada has no block_face_id and no terna '
+        '(Decisions v2 §6/§8)', () {
+      final s = RouteStops.fromJson({
+        'route_id': 'r1',
+        'items': [
+          {'stop_id': 's-rural', 'face_sequence': 4},
+          {
+            'stop_id': 's-urban',
+            'face_sequence': 1,
+            'block_face_id': 'bf1',
+            'tipo_via': 'CALLE',
+            'num_via': '13',
+            'num_cruce': '3A',
+          },
+        ],
+      });
+      final rural = s.items[0];
+      expect(rural.blockFaceId, isNull);
+      expect(rural.tipoVia, isNull);
+      expect(rural.numVia, isNull);
+      expect(rural.numCruce, isNull);
+
+      final urban = s.items[1];
+      expect(urban.blockFaceId, 'bf1');
+      expect(urban.tipoVia, 'CALLE');
+      expect(urban.numVia, '13');
+      expect(urban.numCruce, '3A');
+      expect(urban.cardinal, isNull);
+      expect(urban.cardinalPosicion, isNull);
+    });
+
+    test(
+        'RouteStop parses the cardinal zone suffix (address-profiles '
+        'AP.1–AP.5)', () {
+      final s = RouteStops.fromJson({
+        'route_id': 'r1',
+        'items': [
+          {
+            'stop_id': 's1',
+            'face_sequence': 1,
+            'tipo_via': 'CALLE',
+            'num_via': '11',
+            'num_cruce': '3A',
+            'cardinal': 'SUR',
+            'cardinal_posicion': 'via',
+          },
+        ],
+      });
+      expect(s.items.single.cardinal, 'SUR');
+      expect(s.items.single.cardinalPosicion, 'via');
+    });
+
+    test('PlacaItemRequest carries block_face_id only when present', () {
+      expect(
+        const PlacaItemRequest(clientId: 'a', posicion: 1, blockFaceId: 'bf1')
+            .toJson()['block_face_id'],
+        'bf1',
+      );
+      expect(
+        const PlacaItemRequest(clientId: 'a', posicion: 1)
+            .toJson()
+            .containsKey('block_face_id'),
+        isFalse,
+      );
+    });
+
+    test('PlacaItemRequest carries stop_id only when present (Decisions v2 §6)',
+        () {
+      expect(
+        const PlacaItemRequest(clientId: 'a', posicion: 1, stopId: 's1')
+            .toJson()['stop_id'],
+        's1',
+      );
+      expect(
+        const PlacaItemRequest(clientId: 'a', posicion: 1)
+            .toJson()
+            .containsKey('stop_id'),
+        isFalse,
+      );
+    });
+
+    test('PlacaItemResult reads the per-item codigo', () {
+      final r = PlacaItemResult.fromJson({
+        'client_id': 'a',
+        'ok': false,
+        'codigo': 'barrido_fuera_de_orden',
+      });
+      expect(r.ok, isFalse);
+      expect(r.codigo, 'barrido_fuera_de_orden');
+    });
+
+    test('foto_obligatoria: absent → false, explicit true; round-trips', () {
+      final def = RouteSummary.fromJson(
+          {'route_id': 'r', 'codigo': '10', 'estado': 'verificada'});
+      expect(def.fotoObligatoria, isFalse);
+
+      final on = RouteSummary.fromJson({
+        'route_id': 'r',
+        'codigo': '10',
+        'estado': 'verificada',
+        'foto_obligatoria': true,
+      });
+      expect(on.fotoObligatoria, isTrue);
+      expect(RouteSummary.fromJson(on.toJson()).fotoObligatoria, isTrue);
+
+      final frame = RouteFrame.fromJson(
+          {'route_id': 'r', 'items': [], 'foto_obligatoria': true});
+      expect(frame.fotoObligatoria, isTrue);
+    });
+
+    test('RouteFrameItem carries block_face_id', () {
+      final item = RouteFrameItem.fromJson({
+        'client_id': 'a',
+        'posicion': 1,
+        'loc': 5,
+        'block_face_id': 'bf1',
+      });
+      expect(item.blockFaceId, 'bf1');
+    });
+
+    test('RouteFrameItem carries stop_id (Decisions v2 §6)', () {
+      final item = RouteFrameItem.fromJson({
+        'client_id': 'a',
+        'posicion': 1,
+        'loc': 5,
+        'stop_id': 's1',
+      });
+      expect(item.stopId, 's1');
+    });
+  });
+
+  group('R1DirectoryItem.fromJson (Spec 10)', () {
+    test('parses ref_geografica when present; null on a clean urban row', () {
+      final rural = R1DirectoryItem.fromJson({
+        'npn': 'n1',
+        'direccion': 'CARRERA 2 # 3-09',
+        'direccion_norm': 'CARRERA 2 # 3-09',
+        'ref_geografica': 'SALTO DE BORDONES',
+      });
+      expect(rural.refGeografica, 'SALTO DE BORDONES');
+
+      final urban = R1DirectoryItem.fromJson({
+        'npn': 'n2',
+        'direccion': 'CALLE 6 # 4-17',
+        'direccion_norm': 'CALLE 6 # 4-17',
+      });
+      expect(urban.refGeografica, isNull);
+    });
+  });
 }

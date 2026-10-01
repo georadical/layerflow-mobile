@@ -45,6 +45,8 @@ class CaptureRepository {
     String? owner,
     String? npn,
     bool? sinR1,
+    String? blockFaceId,
+    String? stopId,
   }) async {
     final now = DateTime.now();
     final clientId = _uuid.v4();
@@ -62,6 +64,8 @@ class CaptureRepository {
         ownerEmail: Value(owner),
         npn: Value(npn),
         sinR1: Value(sinR1),
+        blockFaceId: Value(blockFaceId),
+        stopId: Value(stopId),
         syncStatus: const Value(AppConfig.syncPending),
         createdAt: now,
         updatedAt: now,
@@ -265,6 +269,8 @@ class CaptureRepository {
         // Spec 9: the frame is the freshest source of the route-state locks.
         placasEstado: Value(frame.placasEstado),
         surveyEstado: Value(frame.surveyEstado),
+        // Spec 10: the per-route photo policy rides on the frame too.
+        fotoObligatoria: Value(frame.fotoObligatoria),
       ),
     );
 
@@ -284,6 +290,8 @@ class CaptureRepository {
             npnMatchMethod: Value(item.npnMatchMethod),
             sinR1: Value(
                 item.npnMatchMethod == AppConfig.methodSinMatch ? true : null),
+            blockFaceId: Value(item.blockFaceId),
+            stopId: Value(item.stopId),
             syncStatus: const Value(AppConfig.syncSynced),
             createdAt: now,
             updatedAt: now,
@@ -310,6 +318,9 @@ class CaptureRepository {
             // the server preserves its own state on the next push.
             sinR1: Value(
                 item.npnMatchMethod == AppConfig.methodSinMatch ? true : null),
+            // Re-carried from the frame (source of truth on resume), like npn.
+            blockFaceId: Value(item.blockFaceId),
+            stopId: Value(item.stopId),
             updatedAt: Value(now),
           ),
         );

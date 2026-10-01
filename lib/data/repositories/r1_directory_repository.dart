@@ -46,6 +46,12 @@ class R1DirectoryRepository {
           direccionNorm: item.direccionNorm,
           manzana: Value(item.manzana),
           enlazadoLoc: Value(item.enlazadoLoc),
+          tipoVia: Value(item.tipoVia),
+          numVia: Value(item.numVia),
+          numCruce: Value(item.numCruce),
+          placa: Value(item.placa),
+          parseOk: Value(item.parseOk),
+          refGeografica: Value(item.refGeografica),
         ),
     ]);
     await _settings.setR1Version(tenantId, res.version);
@@ -102,6 +108,36 @@ class R1DirectoryRepository {
   /// local slice does not carry it (linked elsewhere / directory reloaded).
   Future<R1DirectoryData?> byNpn(int tenantId, String npn) =>
       _db.r1ByNpn(tenantId, npn);
+
+  /// All parse_ok R1 rows of a manzana (Spec 10) — the candidate faces the
+  /// local prediction groups over.
+  Future<List<R1DirectoryData>> rowsForManzana(int tenantId, String manzana) =>
+      _db.r1RowsForManzana(tenantId, manzana);
+
+  /// A representative geographic reference for a manzana (Spec 10, PC.6) —
+  /// best-effort context for the face card. Null when none carry one.
+  Future<String?> refGeograficaForManzana(int tenantId, String manzana) =>
+      _db.r1RefForManzana(tenantId, manzana);
+
+  /// PC.3b: distance-only lookup on a parada WITH a terna — the worker types
+  /// only the distance, scoped to the EXACT `(tipo_via, num_via, num_cruce)`
+  /// of the parada's face (known upfront from the parada, Decisions v2 §7).
+  Future<List<R1DirectoryData>> searchByDistance(
+    int tenantId, {
+    required String tipoVia,
+    required String numVia,
+    required String numCruce,
+    required String distancePrefix,
+    String? manzana,
+  }) =>
+      _db.r1SearchByDistance(
+        tenantId,
+        tipoVia: tipoVia,
+        numVia: numVia,
+        numCruce: numCruce,
+        distancePrefix: distancePrefix,
+        manzana: manzana,
+      );
 
   /// Builds the progressive normalized prefix, or null when the text does
   /// not (yet) look like a street address. Exposed for tests.

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/address/manzana_label.dart';
 import '../../core/config/app_config.dart';
+import '../../core/parada/face_prediction.dart' show composeParadaAddress;
 import '../../data/api/api_client.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/survey_repository.dart';
@@ -261,6 +263,11 @@ class _UnitList extends StatelessWidget {
               // a routine one waits for WiFi and outlives its queue row,
               // and without this the bar vanished with it (E2E finding).
               _QueueBar(routeId: rows.first.routeId),
+              // Spec 10 PC.5: a sweep the server rejected surfaces HERE, not on
+              // the capture screen — the optimistic walk already moved past the
+              // face, so this is where the worker can see why it did not close
+              // and reopen it to fix (E2E finding).
+              _SweepRejectedBanner(routeId: rows.first.routeId),
             ],
           );
         }
@@ -296,6 +303,85 @@ class _FrameSummary extends StatelessWidget {
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Spec 10 PC.5: the reconciliation surface for a sweep the server rejected.
+/// Because the sweep is optimistic-local, by the time the 409 lands the worker
+/// has walked on to the next parada, so the capture screen for the rejected
+/// face is no longer showing — this names the face, the reason (with the locs
+/// missing a photo, from `detail.localizaciones`), and offers to REOPEN it
+/// (`swept:false`, the ungated correction path) so the worker can fix and
+/// re-sweep. Nothing when no sweep was rejected.
+class _SweepRejectedBanner extends ConsumerWidget {
+  const _SweepRejectedBanner({required this.routeId});
+
+  final String routeId;
+
+  Future<void> _reopen(
+    BuildContext context,
+    WidgetRef ref,
+    String stopId,
+  ) async {
+    // Ungated correction path: reopen makes the parada current again (lowest
+    // unswept), clears its rejection, and queues the swept:false for the next
+    // Enviar. Then jump straight into it so the worker fixes it now.
+    await ref.read(paradaRepositoryProvider).markSwept(stopId, swept: false);
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => CaptureScreen(routeId: routeId)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rejected = ref.watch(sweepRejectionsProvider(routeId));
+    if (rejected.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Container(
+      color: theme.colorScheme.errorContainer,
+      padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final p in rejected)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.sync_problem,
+                      size: 20, color: theme.colorScheme.onErrorContainer),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Cara ${p.faceSequence} no cerró en el servidor',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: theme.colorScheme.onErrorContainer,
+                          ),
+                        ),
+                        Text(
+                          p.sweepError ?? 'El servidor rechazó el barrido.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onErrorContainer,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.tonal(
+                    onPressed: () => _reopen(context, ref, p.stopId),
+                    child: const Text('Reabrir'),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -360,7 +446,10 @@ class _QueueBar extends ConsumerWidget {
         ref.watch(pendingEvidenceCountProvider(routeId)).valueOrNull ?? 0;
     final surveys =
         ref.watch(pendingSurveyCountProvider(routeId)).valueOrNull ?? 0;
-    if (waiting == 0 && photos == 0 && surveys == 0) {
+    // Spec 10 PC.5: a face closed offline queues a sweep to push; count it, or
+    // a sweep with everything else synced would have no "Enviar" to ride.
+    final sweeps = ref.watch(pendingSweepCountProvider(routeId));
+    if (waiting == 0 && photos == 0 && surveys == 0 && sweeps == 0) {
       return const SizedBox.shrink();
     }
     final sending = ref.watch(pushProvider(routeId));
@@ -394,6 +483,8 @@ class _QueueBar extends ConsumerWidget {
                     if (photos > 0) '$photos ${photos == 1 ? 'foto' : 'fotos'}',
                     if (surveys > 0)
                       '$surveys ${surveys == 1 ? 'encuesta' : 'encuestas'}',
+                    if (sweeps > 0)
+                      '$sweeps ${sweeps == 1 ? 'parada por cerrar' : 'paradas por cerrar'}',
                     if (!online) 'sin conexión',
                   ].join(' · '),
                   style: theme.textTheme.titleSmall?.copyWith(
@@ -458,7 +549,32 @@ class _UnitTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final placa = row.placa?.trim();
+    // Spec 10: the stored placa is the DISTANCE only on a guided parada; show
+    // the full composed address (vía + generadora + distancia + cardinal),
+    // mirroring the backend's compose-on-read, so the list is readable — not a
+    // column of bare numbers. Rural/classic captures have no terna and show
+    // their stored text verbatim (a topónimo or a full typed address).
+    final rawPlaca = row.placa?.trim();
+    final stops = ref.watch(routeStopsProvider(row.routeId)).valueOrNull;
+    Parada? parada;
+    if (row.stopId != null && stops != null) {
+      for (final p in stops) {
+        if (p.stopId == row.stopId) {
+          parada = p;
+          break;
+        }
+      }
+    }
+    final placa = (rawPlaca == null || rawPlaca.isEmpty || parada == null)
+        ? rawPlaca
+        : composeParadaAddress(
+            tipoVia: parada.tipoVia,
+            numVia: parada.numVia,
+            numCruce: parada.numCruce,
+            cardinal: parada.cardinal,
+            cardinalPosicion: parada.cardinalPosicion,
+            distance: rawPlaca,
+          );
     final hasAddress = placa != null && placa.isNotEmpty;
     // Three distinct states, not two: a row the server refused is not a row
     // waiting its turn (Spec 3, BR3).
@@ -478,8 +594,16 @@ class _UnitTile extends ConsumerWidget {
     final meta = <String>[
       'posición ${row.posicion}',
       if (row.loc != null) 'loc ${row.loc}',
-      if (row.manzanaCatastral != null) 'mz ${row.manzanaCatastral}',
+      // The full 17-digit LADM_COL código collapses to a readable label
+      // (Mz50 / Z1·Mz88), keeping the intermediate fields that give it
+      // uniqueness in a big city (PC.6, backend-pinned).
+      if (row.manzanaCatastral != null) manzanaLabel(row.manzanaCatastral!),
     ].join(' · ');
+
+    // PC.6: the geographic-reference hint, for an R1-linked row that has one.
+    final geoRef = row.npn == null
+        ? null
+        : ref.watch(r1RefGeograficaProvider(row.npn!)).valueOrNull;
 
     // Spec 1.1: this row is the only way into the editor. There is no second
     // list of the same route to hunt for.
@@ -516,6 +640,20 @@ class _UnitTile extends ConsumerWidget {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  // PC.6: best-effort geographic reference (corregimiento/
+                  // vereda) — an approximate hint, only for an R1-linked row
+                  // that carries one. Gives context to a "Rural con calles"
+                  // (Mz 50, Zona Rural · 📍 ref: Salto de Bordones).
+                  if (geoRef != null && geoRef.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '📍 ref: $geoRef',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
                   // Pending relocation, naming the anchor (Spec 2.1). A line
                   // rather than a pill: the point is *which* unit it goes
                   // after, and that needs words.

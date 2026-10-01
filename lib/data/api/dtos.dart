@@ -21,6 +21,8 @@ class PlacaItemRequest {
     this.insAfter,
     this.npn,
     this.sinR1,
+    this.blockFaceId,
+    this.stopId,
   });
 
   final String clientId;
@@ -29,6 +31,15 @@ class PlacaItemRequest {
   final String? manzanaCatastral;
   final String? tipoAcceso;
   final String? observacion;
+
+  /// Parada binding (Decisions v2 §6) — the correct one from here on: it
+  /// exists for both urban AND rural paradas. Same full-replacement rule as
+  /// npn/ins_after; null means an unassisted (no-parada) route.
+  final String? stopId;
+
+  /// Parada binding, legacy/compatibility form (Spec 10 PC.1a): the face a
+  /// rural parada does not have. Kept riding alongside [stopId].
+  final String? blockFaceId;
 
   /// Pending relocation: the loc this unit goes after (0 = start of route).
   /// The contract is full-replacement, so omitting it clears the mark on the
@@ -61,6 +72,8 @@ class PlacaItemRequest {
         // Tri-state: the key travels only when there is something to say
         // (assert or retract). Sending it beside npn is a per-item error.
         if (sinR1 != null && npn == null) 'sin_r1': sinR1,
+        if (stopId != null) 'stop_id': stopId,
+        if (blockFaceId != null) 'block_face_id': blockFaceId,
       };
 }
 
@@ -92,6 +105,7 @@ class PlacaItemResult {
     this.loc,
     this.status,
     this.error,
+    this.codigo,
   });
 
   final String clientId;
@@ -103,6 +117,10 @@ class PlacaItemResult {
   final String? status;
   final String? error;
 
+  /// Stable per-item machine code when refused (Spec 10, e.g.
+  /// 'barrido_fuera_de_orden'); null otherwise.
+  final String? codigo;
+
   factory PlacaItemResult.fromJson(Map<String, dynamic> json) {
     return PlacaItemResult(
       clientId: json['client_id'] as String,
@@ -111,6 +129,7 @@ class PlacaItemResult {
       loc: (json['loc'] as num?)?.toInt(),
       status: json['status'] as String?,
       error: json['error']?.toString(),
+      codigo: json['codigo']?.toString(),
     );
   }
 }
@@ -162,6 +181,7 @@ class RouteSummary {
     this.totalCapturado,
     this.placasEstado = AppConfig.placasAbierta,
     this.surveyEstado = AppConfig.surveyBloqueada,
+    this.fotoObligatoria = false,
   });
 
   /// The same id consumed by `GET /field/capture/route/{route_id}`.
@@ -184,6 +204,10 @@ class RouteSummary {
   /// Survey-pass lock (CL-E8). Fail-CLOSED: absent → bloqueada.
   final String surveyEstado;
 
+  /// Parada photo policy (Spec 10): when true, a face cannot close until every
+  /// placa on it has a photo. Absent → false.
+  final bool fotoObligatoria;
+
   factory RouteSummary.fromJson(Map<String, dynamic> json) {
     return RouteSummary(
       routeId: json['route_id'] as String,
@@ -195,6 +219,7 @@ class RouteSummary {
           json['placas_estado']?.toString() ?? AppConfig.placasAbierta,
       surveyEstado:
           json['survey_estado']?.toString() ?? AppConfig.surveyBloqueada,
+      fotoObligatoria: json['foto_obligatoria'] as bool? ?? false,
     );
   }
 
@@ -209,6 +234,7 @@ class RouteSummary {
         if (totalCapturado != null) 'total_capturado': totalCapturado,
         'placas_estado': placasEstado,
         'survey_estado': surveyEstado,
+        'foto_obligatoria': fotoObligatoria,
       };
 }
 
@@ -409,12 +435,34 @@ class R1DirectoryItem {
     required this.direccionNorm,
     this.manzana,
     this.enlazadoLoc,
+    this.tipoVia,
+    this.numVia,
+    this.numCruce,
+    this.placa,
+    this.parseOk = false,
+    this.refGeografica,
   });
 
   final String npn;
   final String direccion;
   final String direccionNorm;
   final String? manzana;
+
+  /// Server-parsed address components (Spec 10, backend adds them to
+  /// /field/r1-directory). The local face prediction groups by these
+  /// authoritative values — never re-parsing direccion_norm, so vías with
+  /// letters/suffixes ("10AS") are used as sent, not synthesised.
+  final String? tipoVia;
+  final String? numVia;
+  final String? numCruce;
+  final String? placa;
+  final bool parseOk;
+
+  /// Best-effort geographic reference (Spec 10): the corregimiento/vereda name
+  /// scraped from the raw address (e.g. "SALTO DE BORDONES"), or null on a
+  /// clean urban row. Free text, NOT a catalog — shown only as an approximate
+  /// hint, never as an official/structured field.
+  final String? refGeografica;
 
   /// CL-R6: `{loc, ruta}` when this R1 row is ALREADY linked to a captured
   /// unit — computed server-side on purpose, because a local count cannot
@@ -438,6 +486,12 @@ class R1DirectoryItem {
               if (enlazado['loc'] != null) 'loc ${enlazado['loc']}',
             ].join(' · ')
           : null,
+      tipoVia: json['tipo_via']?.toString(),
+      numVia: json['num_via']?.toString(),
+      numCruce: json['num_cruce']?.toString(),
+      placa: json['placa']?.toString(),
+      parseOk: json['parse_ok'] as bool? ?? false,
+      refGeografica: json['ref_geografica']?.toString(),
     );
   }
 }
@@ -466,6 +520,108 @@ class R1DirectoryResponse {
   }
 }
 
+/// One parada of a route (Spec 10) — from GET /field/routes/{id}/stops.
+/// The app navigates by `faceSequence`; `faceIndex` is identity/QC.
+///
+/// Decisions v2 (§5–§8): EVERY point of the route is a parada, urban or
+/// rural, in one sequence. [blockFaceId] and the terna
+/// (`tipoVia`/`numVia`/`numCruce`) are null on a rural parada — that null-ness
+/// IS the mode signal the app reads (§8): a terna means guided/distance-only,
+/// its absence means free-text (topónimo), never a manual toggle.
+class RouteStop {
+  const RouteStop({
+    required this.stopId,
+    required this.faceSequence,
+    this.blockFaceId,
+    this.tipoVia,
+    this.numVia,
+    this.numCruce,
+    this.cardinal,
+    this.cardinalPosicion,
+    this.faceIndex,
+    this.manzanaCatastral,
+    this.orientation,
+    this.swept = false,
+    this.esActual = false,
+  });
+
+  final String stopId;
+  final int faceSequence;
+  final String? blockFaceId;
+
+  /// The terna that fixes this face's vía + generadora (§7) — lives on the
+  /// parada; the backend composes/normalizes against it. Null on a rural
+  /// parada (§8): all three null together means free-text/topónimo mode.
+  final String? tipoVia;
+  final String? numVia;
+  final String? numCruce;
+
+  /// Cardinal zone suffix (NORTE/SUR/ESTE/OESTE, address-profiles AP.1–AP.5)
+  /// — from the face, never typed. [cardinalPosicion] is 'via' (after
+  /// num_via) or 'placa' (after the distance); meaningless when null.
+  final String? cardinal;
+  final String? cardinalPosicion;
+
+  final int? faceIndex;
+  final String? manzanaCatastral;
+  final String? orientation;
+  final bool swept;
+
+  /// The workable parada: the lowest `faceSequence` not yet swept.
+  final bool esActual;
+
+  factory RouteStop.fromJson(Map<String, dynamic> json) {
+    return RouteStop(
+      stopId: json['stop_id'].toString(),
+      faceSequence: (json['face_sequence'] as num?)?.toInt() ?? 0,
+      blockFaceId: json['block_face_id'] as String?,
+      tipoVia: json['tipo_via'] as String?,
+      numVia: json['num_via'] as String?,
+      numCruce: json['num_cruce'] as String?,
+      cardinal: json['cardinal'] as String?,
+      cardinalPosicion: json['cardinal_posicion'] as String?,
+      faceIndex: (json['face_index'] as num?)?.toInt(),
+      manzanaCatastral: json['manzana_catastral'] as String?,
+      orientation: json['orientation'] as String?,
+      swept: json['swept'] as bool? ?? false,
+      esActual: json['es_actual'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'stop_id': stopId,
+        'face_sequence': faceSequence,
+        if (blockFaceId != null) 'block_face_id': blockFaceId,
+        if (tipoVia != null) 'tipo_via': tipoVia,
+        if (numVia != null) 'num_via': numVia,
+        if (numCruce != null) 'num_cruce': numCruce,
+        if (cardinal != null) 'cardinal': cardinal,
+        if (cardinalPosicion != null) 'cardinal_posicion': cardinalPosicion,
+        if (faceIndex != null) 'face_index': faceIndex,
+        if (manzanaCatastral != null) 'manzana_catastral': manzanaCatastral,
+        if (orientation != null) 'orientation': orientation,
+        'swept': swept,
+        'es_actual': esActual,
+      };
+}
+
+/// Response of GET /field/routes/{id}/stops.
+class RouteStops {
+  const RouteStops({required this.routeId, required this.items});
+
+  final String routeId;
+  final List<RouteStop> items;
+
+  factory RouteStops.fromJson(Map<String, dynamic> json) {
+    return RouteStops(
+      routeId: json['route_id']?.toString() ?? '',
+      items: (json['items'] as List<dynamic>? ?? const [])
+          .map((e) => RouteStop.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
 /// Frame item (GET). What was already captured, used to resume.
 class RouteFrameItem {
   const RouteFrameItem({
@@ -477,6 +633,8 @@ class RouteFrameItem {
     this.insAfter,
     this.npn,
     this.npnMatchMethod,
+    this.blockFaceId,
+    this.stopId,
   });
 
   final String clientId;
@@ -496,6 +654,13 @@ class RouteFrameItem {
   /// Provenance of the link (field_confirmed | manual | ...); informational.
   final String? npnMatchMethod;
 
+  /// Parada binding as the server holds it (Decisions v2 §6 — the correct
+  /// one, urban or rural); re-carried on push.
+  final String? stopId;
+
+  /// Parada binding, legacy/compatibility form (Spec 10 PC.1a).
+  final String? blockFaceId;
+
   factory RouteFrameItem.fromJson(Map<String, dynamic> json) {
     return RouteFrameItem(
       clientId: json['client_id'] as String,
@@ -508,6 +673,8 @@ class RouteFrameItem {
       insAfter: (json['ins_after'] as num?)?.toInt(),
       npn: json['npn'] as String?,
       npnMatchMethod: json['npn_match_method'] as String?,
+      blockFaceId: json['block_face_id'] as String?,
+      stopId: json['stop_id'] as String?,
     );
   }
 }
@@ -520,6 +687,7 @@ class RouteFrame {
     required this.items,
     this.placasEstado = AppConfig.placasAbierta,
     this.surveyEstado = AppConfig.surveyBloqueada,
+    this.fotoObligatoria = false,
   });
 
   final String routeId;
@@ -530,6 +698,9 @@ class RouteFrame {
   /// gates against the freshest value. Same fail-open/closed defaults.
   final String placasEstado;
   final String surveyEstado;
+
+  /// Parada photo policy (Spec 10), carried on the frame too.
+  final bool fotoObligatoria;
 
   factory RouteFrame.fromJson(Map<String, dynamic> json) {
     return RouteFrame(
@@ -542,6 +713,7 @@ class RouteFrame {
           json['placas_estado']?.toString() ?? AppConfig.placasAbierta,
       surveyEstado:
           json['survey_estado']?.toString() ?? AppConfig.surveyBloqueada,
+      fotoObligatoria: json['foto_obligatoria'] as bool? ?? false,
     );
   }
 }

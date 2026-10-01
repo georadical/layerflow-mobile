@@ -67,6 +67,15 @@ class _FakeLoginApi implements ApiClient {
       throw UnimplementedError();
 
   @override
+  Future<RouteStops> getRouteStops(String routeId) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> markSwept(String routeId, String stopId,
+          {required bool swept}) =>
+      throw UnimplementedError();
+
+  @override
   Future<PlacaBatchResponse> postPlacas(PlacaBatchRequest batch) =>
       throw UnimplementedError();
 }

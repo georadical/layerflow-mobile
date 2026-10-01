@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:layerflow_capture/core/config/app_config.dart';
@@ -6,6 +7,7 @@ import 'package:layerflow_capture/data/api/dtos.dart';
 import 'package:layerflow_capture/data/api/sync_dtos.dart';
 import 'package:layerflow_capture/data/db/database.dart';
 import 'package:layerflow_capture/data/repositories/capture_repository.dart';
+import 'package:layerflow_capture/data/repositories/parada_repository.dart';
 import 'package:layerflow_capture/data/sync/sync_service.dart';
 
 import 'support/sqlite3.dart';
@@ -22,10 +24,15 @@ class _FakeApi implements ApiClient {
   PlacaBatchRequest? lastBatch;
   int calls = 0;
 
+  /// Ordered log of wire calls across placas + sweeps, so a test can assert
+  /// the per-parada interleave (PC.6): "placa:<ids>" and "sweep:<stopId>".
+  final List<String> callLog = [];
+
   @override
   Future<PlacaBatchResponse> postPlacas(PlacaBatchRequest batch) async {
     calls++;
     lastBatch = batch;
+    callLog.add('placa:${batch.items.map((i) => i.clientId).join(",")}');
     if (throwing != null) throw throwing!;
     return respond!(batch);
   }
@@ -53,6 +60,25 @@ class _FakeApi implements ApiClient {
   @override
   Future<SyncPushResponse> pushSync(SyncPushRequest req) =>
       throw UnimplementedError();
+
+  @override
+  Future<RouteStops> getRouteStops(String routeId) =>
+      throw UnimplementedError();
+
+  /// stopId → what the wire does for THIS parada's swept push. Absent =
+  /// UnimplementedError (tests that never touch the sweep leg).
+  final Map<String, Future<void> Function()> sweptBehavior = {};
+  final List<String> sweptCalls = [];
+
+  @override
+  Future<void> markSwept(String routeId, String stopId,
+      {required bool swept}) async {
+    sweptCalls.add(stopId);
+    callLog.add('sweep:$stopId');
+    final behavior = sweptBehavior[stopId];
+    if (behavior == null) throw UnimplementedError();
+    return behavior();
+  }
 
   @override
   Future<LoginResponse> login({
@@ -223,7 +249,8 @@ void main() {
     expect(rows.map((r) => r.syncError), everyElement(isNull));
   });
 
-  test('a closed-route 409 leaves the queue untouched and carries its codigo '
+  test(
+      'a closed-route 409 leaves the queue untouched and carries its codigo '
       '(Spec 9)', () async {
     final db = await memoryDb();
     if (db == null) {
@@ -383,5 +410,330 @@ void main() {
     expect(items.first.toJson().containsKey('npn'), isFalse);
     // Linked row: the link rides along, like the mark.
     expect(items.last.toJson()['npn'], 'npn-1');
+  });
+
+  test('the block_face_id binding travels on every push (Spec 10)', () async {
+    final db = await memoryDb();
+    if (db == null) {
+      markTestSkipped('native sqlite3 not available on the host');
+      return;
+    }
+    addTearDown(db.close);
+    final repo = CaptureRepository(db);
+    await repo.appendCapture(routeId: routeId, placa: 'A', blockFaceId: 'bf-9');
+    await repo.appendCapture(routeId: routeId, placa: 'B'); // unbound
+
+    final api = _FakeApi(
+      respond: (b) => _response([
+        for (final i in b.items) _ok(i.clientId, i.posicion * 5),
+      ]),
+    );
+    await SyncService(api, repo).pushPending(routeId);
+
+    final items = api.lastBatch!.items;
+    expect(items.first.toJson()['block_face_id'], 'bf-9');
+    // Unbound row: no key at all (omitting keeps, by contract).
+    expect(items.last.toJson().containsKey('block_face_id'), isFalse);
+  });
+
+  group('pushSweeps (Spec 10, PC.5)', () {
+    Future<void> seedParada(
+      AppDatabase db,
+      String stopId, {
+      bool swept = true,
+    }) =>
+        db.upsertParada(ParadasCompanion.insert(
+          stopId: stopId,
+          routeId: routeId,
+          faceSequence: 1,
+          swept: Value(swept),
+          sweptSynced: const Value(false),
+          updatedAt: DateTime.now(),
+        ));
+
+    test('no pending sweeps: a no-op, the wire is never touched', () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      final api = _FakeApi();
+      final service = SyncService(api, CaptureRepository(db),
+          parada: ParadaRepository(db, api));
+
+      final result = await service.pushSweeps(routeId);
+      expect(result.synced, 0);
+      expect(result.held, 0);
+      expect(result.failed, 0);
+      expect(api.sweptCalls, isEmpty);
+    });
+
+    test('a confirmed sweep marks the row synced', () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      await seedParada(db, 's1');
+      final api = _FakeApi()..sweptBehavior['s1'] = () async {};
+      final service = SyncService(api, CaptureRepository(db),
+          parada: ParadaRepository(db, api));
+
+      final result = await service.pushSweeps(routeId);
+      expect(result.synced, 1);
+      expect((await db.getParada('s1'))!.sweptSynced, isTrue);
+    });
+
+    test(
+        'a merit rejection (barrido_fuera_de_orden) records the reason and '
+        'stays pending for the next Enviar', () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      await seedParada(db, 's1');
+      final api = _FakeApi()
+        ..sweptBehavior['s1'] = () async => throw ApiException(
+              'Hay una parada anterior sin barrer.',
+              statusCode: 409,
+              codigo: AppConfig.codeBarridoFueraDeOrden,
+            );
+      final service = SyncService(api, CaptureRepository(db),
+          parada: ParadaRepository(db, api));
+
+      final result = await service.pushSweeps(routeId);
+      expect(result.failed, 1);
+      final s1 = await db.getParada('s1');
+      expect(s1!.sweptSynced, isFalse,
+          reason: 'kept pending — it retries on the next Enviar');
+      expect(s1.sweepError, 'Hay una parada anterior sin barrer.');
+      // Decision 1: the local walk is untouched either way.
+      expect(s1.swept, isTrue);
+    });
+
+    test(
+        'foto_obligatoria_pendiente names the offending locs from '
+        'detail.localizaciones', () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      await seedParada(db, 's1');
+      final api = _FakeApi()
+        ..sweptBehavior['s1'] = () async => throw ApiException(
+              'hay placas sin foto',
+              statusCode: 409,
+              codigo: AppConfig.codeFotoObligatoriaPendiente,
+              localizaciones: [30],
+            );
+      final service = SyncService(api, CaptureRepository(db),
+          parada: ParadaRepository(db, api));
+
+      final result = await service.pushSweeps(routeId);
+      expect(result.failed, 1);
+      // The worker sees exactly where to re-shoot, not just the raw code.
+      expect(
+          (await db.getParada('s1'))!.sweepError, 'Faltan fotos en la loc 30.');
+    });
+
+    test('foto_obligatoria_pendiente with several locs pluralises', () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      await seedParada(db, 's1');
+      final api = _FakeApi()
+        ..sweptBehavior['s1'] = () async => throw ApiException(
+              'hay placas sin foto',
+              statusCode: 409,
+              codigo: AppConfig.codeFotoObligatoriaPendiente,
+              localizaciones: [30, 45],
+            );
+      final service = SyncService(api, CaptureRepository(db),
+          parada: ParadaRepository(db, api));
+
+      await service.pushSweeps(routeId);
+      expect((await db.getParada('s1'))!.sweepError,
+          'Faltan fotos en loc 30, 45.');
+    });
+
+    test('a reopen (swept:false) clears the rejection and requeues', () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      await seedParada(db, 's1');
+      final repo = ParadaRepository(db, _FakeApi());
+      await repo.markSweepError('s1', 'Faltan fotos en la loc 30.');
+
+      // The correction path: reopen makes it unswept, clears the error, and
+      // queues the swept:false push.
+      await repo.markSwept('s1', swept: false);
+      final s1 = await db.getParada('s1');
+      expect(s1!.swept, isFalse);
+      expect(s1.sweepError, isNull);
+      expect(s1.sweptSynced, isFalse);
+    });
+
+    test(
+        'a transport failure holds the chain — no verdict, no change, the '
+        'rest wait too', () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      await seedParada(db, 's1');
+      await seedParada(db, 's2');
+      final api = _FakeApi()
+        ..sweptBehavior['s1'] = () async => throw ApiException('sin conexión');
+      final service = SyncService(api, CaptureRepository(db),
+          parada: ParadaRepository(db, api));
+
+      final result = await service.pushSweeps(routeId);
+      expect(result.held, 1);
+      expect(result.synced, 0);
+      expect(result.failed, 0);
+      expect(api.sweptCalls, ['s1'], reason: 's2 never attempted');
+      final s1 = await db.getParada('s1');
+      expect(s1!.sweptSynced, isFalse);
+      expect(s1.sweepError, isNull,
+          reason: 'a transport failure is not a verdict — nothing recorded');
+    });
+
+    test(
+        'idempotency (confirmed live with the backend 2026-09-22): a '
+        'redundant re-push of an already-swept parada answers 200 and '
+        'clears any prior error', () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      await seedParada(db, 's1');
+      await ParadaRepository(db, _FakeApi()).markSweepError(
+          's1', 'Hay una parada anterior sin barrer.'); // a stale rejection
+      final api = _FakeApi()..sweptBehavior['s1'] = () async {};
+      final service = SyncService(api, CaptureRepository(db),
+          parada: ParadaRepository(db, api));
+
+      final result = await service.pushSweeps(routeId);
+      expect(result.synced, 1);
+      final s1 = await db.getParada('s1');
+      expect(s1!.sweptSynced, isTrue);
+      expect(s1.sweepError, isNull);
+    });
+  });
+
+  group('pushRoute — per-parada walk order (PC.6)', () {
+    Future<void> seedParadaWithSweep(AppDatabase db, String id, int seq) =>
+        db.upsertParada(ParadasCompanion.insert(
+          stopId: id,
+          routeId: routeId,
+          faceSequence: seq,
+          swept: const Value(true),
+          sweptSynced: const Value(false),
+          updatedAt: DateTime.now(),
+        ));
+
+    test('interleaves placas → sweep per parada, in face_sequence order',
+        () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      await seedParadaWithSweep(db, 's1', 1);
+      await seedParadaWithSweep(db, 's2', 2);
+      final repo = CaptureRepository(db);
+      final c1 =
+          await repo.appendCapture(routeId: routeId, placa: 'A', stopId: 's1');
+      final c2 =
+          await repo.appendCapture(routeId: routeId, placa: 'B', stopId: 's2');
+      final api = _FakeApi(
+        respond: (b) => _response(
+            [for (final i in b.items) _ok(i.clientId, i.posicion * 5)]),
+      )
+        ..sweptBehavior['s1'] = () async {}
+        ..sweptBehavior['s2'] = () async {};
+      final service = SyncService(api, repo, parada: ParadaRepository(db, api));
+
+      final r = await service.pushRoute(routeId, wifiAvailable: true);
+
+      // The root fix: parada 1 fully lands (placa THEN sweep) before parada 2's
+      // placa is pushed — so the backend never sees a later placa ahead of an
+      // earlier sweep.
+      expect(api.callLog, ['placa:$c1', 'sweep:s1', 'placa:$c2', 'sweep:s2']);
+      expect(r.placas.synced, 2);
+      expect(r.sweep.synced, 2);
+    });
+
+    test(
+        'a sweep transport-held stops the chain; the later parada is untouched',
+        () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      await seedParadaWithSweep(db, 's1', 1);
+      await seedParadaWithSweep(db, 's2', 2);
+      final repo = CaptureRepository(db);
+      await repo.appendCapture(routeId: routeId, placa: 'A', stopId: 's1');
+      await repo.appendCapture(routeId: routeId, placa: 'B', stopId: 's2');
+      final api = _FakeApi(
+        respond: (b) => _response(
+            [for (final i in b.items) _ok(i.clientId, i.posicion * 5)]),
+      )
+        ..sweptBehavior['s1'] = (() async {
+          throw ApiException('sin conexión'); // transport, not a verdict
+        })
+        ..sweptBehavior['s2'] = () async {};
+      final service = SyncService(api, repo, parada: ParadaRepository(db, api));
+
+      final r = await service.pushRoute(routeId, wifiAvailable: true);
+
+      // s1 placa pushed, s1 sweep attempted (held) → stop. s2 never touched.
+      expect(api.callLog, [
+        'placa:${(await repo.capturesForRoute(routeId)).first.clientId}',
+        'sweep:s1'
+      ]);
+      expect(r.sweep.held, 1);
+      // s2's placa stays pending (not attempted).
+      final s2cap = (await repo.capturesForRoute(routeId)).last;
+      expect(s2cap.syncStatus, AppConfig.syncPending);
+    });
+
+    test('unassigned captures (no stop_id) ride after the ordered paradas',
+        () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      await seedParadaWithSweep(db, 's1', 1);
+      final repo = CaptureRepository(db);
+      final onFace =
+          await repo.appendCapture(routeId: routeId, placa: 'A', stopId: 's1');
+      final loose = await repo.appendCapture(routeId: routeId, placa: 'Z');
+      final api = _FakeApi(
+        respond: (b) => _response(
+            [for (final i in b.items) _ok(i.clientId, i.posicion * 5)]),
+      )..sweptBehavior['s1'] = () async {};
+      final service = SyncService(api, repo, parada: ParadaRepository(db, api));
+
+      await service.pushRoute(routeId, wifiAvailable: true);
+
+      expect(api.callLog, ['placa:$onFace', 'sweep:s1', 'placa:$loose']);
+    });
+  });
+
+  group('parada_ya_barrida guard (PC.6)', () {
+    test('a placa rejected onto a swept parada gets the reopen message',
+        () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      final (repo, ids) = await seed(db, 1);
+      final api = _FakeApi(
+        respond: (b) => _response([
+          PlacaItemResult(
+            clientId: b.items[0].clientId,
+            ok: false,
+            codigo: AppConfig.codeParadaYaBarrida,
+            error: 'parada ya barrida',
+          ),
+        ]),
+      );
+
+      await SyncService(api, repo).pushPending(routeId);
+
+      final row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.syncStatus, AppConfig.syncError);
+      expect(row.syncError, contains('reábrela'));
+      expect(ids.length, 1);
+    });
   });
 }
