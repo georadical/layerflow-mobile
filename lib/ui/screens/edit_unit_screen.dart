@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/address/address_normalizer.dart';
 import '../../core/config/app_config.dart';
+import '../../core/parada/predio_sequence.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
@@ -23,8 +24,9 @@ String anchorLabel(List<Capture> rows, String excludeClientId, int target) {
     if (r.clientId == excludeClientId) continue;
     if (CaptureRepository.anchorLoc(r) == target) {
       final placa = r.placa?.trim();
+      // Spec 11: no posición; fall back to the loc (the anchor's own value).
       return (placa == null || placa.isEmpty)
-          ? 'la unidad ${r.posicion}'
+          ? 'la unidad en loc $target'
           : placa;
     }
   }
@@ -40,7 +42,7 @@ String anchorLabel(List<Capture> rows, String excludeClientId, int target) {
 /// fits a dialog that shifts under the keyboard.
 ///
 /// Rules preserved from the dialog, all tested at the repository level:
-/// - `posicion` shown, never editable (BR1); loc shown is anchorLoc.
+/// - per-parada number shown, never editable (BR1); loc shown is anchorLoc.
 /// - `manzana_catastral` preserved untouched (full-replacement trap).
 /// - editCapture leaves ins_after and npn alone; each change is its own
 ///   deliberate step (A3 and the provenance rule: only a CHANGED npn is a
@@ -229,13 +231,27 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Spec 11: identify the unit by its per-parada number (+ loc), not posicion.
+    final stops = ref.watch(routeStopsProvider(widget.row.routeId)).valueOrNull;
+    int? faceSequence;
+    if (widget.row.stopId != null && stops != null) {
+      for (final p in stops) {
+        if (p.stopId == widget.row.stopId) {
+          faceSequence = p.faceSequence;
+          break;
+        }
+      }
+    }
+    final predioLabel = predioPlainLabel(
+      predioDisplayFor(widget.row, widget.allRows),
+      faceSequence: faceSequence,
+    );
     return Scaffold(
       appBar: AppBar(
-        // posicion is shown, never editable (BR1); the loc shown is the
-        // row's effective one (anchorLoc).
+        // The per-parada number identifies the unit, never editable (BR1); the
+        // loc shown is the row's effective one (anchorLoc).
         title: Text(
-          'Posición ${widget.row.posicion} · '
-          'Loc ${CaptureRepository.anchorLoc(widget.row)}',
+          '$predioLabel · loc ${CaptureRepository.anchorLoc(widget.row)}',
         ),
       ),
       body: ListView(
@@ -365,7 +381,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'La posición no se puede cambiar (append-only).',
+            'El orden del recorrido no se puede cambiar (append-only).',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -461,7 +477,7 @@ class _RelocateRow extends StatelessWidget {
   }
 }
 
-/// Anchor picker. The worker points at a unit — placa and posicion on show —
+/// Anchor picker. The worker points at a unit — placa and loc on show —
 /// and the loc that travels as `ins_after` is derived (BR1/BR2). There is no
 /// numeric field anywhere.
 class _AnchorPicker extends StatelessWidget {
@@ -497,9 +513,9 @@ class _AnchorPicker extends StatelessWidget {
                       : const TextStyle(fontStyle: FontStyle.italic),
                 ),
                 // The loc shown is the very value that will travel as
-                // ins_after — never a second, different number.
-                subtitle: Text(
-                    'posición ${r.posicion} · loc ${CaptureRepository.anchorLoc(r)}'),
+                // ins_after — never a second, different number. Spec 11: no
+                // posición here (the placa above identifies the unit).
+                subtitle: Text('loc ${CaptureRepository.anchorLoc(r)}'),
                 onTap: () => Navigator.pop(
                   context,
                   _AnchorChoice(

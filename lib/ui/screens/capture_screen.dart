@@ -10,6 +10,8 @@ import '../../core/address/manzana_label.dart';
 import '../../core/config/app_config.dart';
 import '../../core/camera/plate_camera.dart';
 import '../../core/ocr/plate_ocr.dart';
+import '../../core/parada/predio_sequence.dart';
+import '../widgets/predio_number.dart';
 import '../../data/repositories/evidence_repository.dart';
 import '../widgets/confirm_exact_plate.dart';
 import 'plate_shot_screen.dart';
@@ -511,38 +513,36 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (list) {
           final last = list.isEmpty ? null : list.last;
-          final nextPosicion = (last?.posicion ?? 0) + 1;
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const TokenWarningBanner(),
-                _LastCaptureCard(last: last, total: list.length),
+                _LastCaptureCard(
+                  last: last,
+                  total: list.length,
+                  predio: last == null ? null : predioDisplayFor(last, list),
+                ),
                 if (assisted) ...[
                   const SizedBox(height: 16),
                   _FaceContextCard(parada: paradaCtx.parada),
                 ],
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Chip(
-                      avatar: const Icon(Icons.tag, size: 18),
-                      label: Text('Siguiente posición: $nextPosicion'),
+                // Spec 11: the "Siguiente posición" chip is gone — the prediction
+                // card guides what's next. Only the queue-status chip remains
+                // (visibility; the send control lives in the resume view,
+                // Spec 3, BR2).
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Chip(
+                    avatar: Icon(
+                      pending == 0 ? Icons.cloud_done : Icons.cloud_upload,
+                      size: 18,
                     ),
-                    const SizedBox(width: 8),
-                    // Queue visibility only (Spec 2, T2.1): the single send
-                    // control stays in the resume view (Spec 3, BR2).
-                    Chip(
-                      avatar: Icon(
-                        pending == 0 ? Icons.cloud_done : Icons.cloud_upload,
-                        size: 18,
-                      ),
-                      label: Text(pending == 0
-                          ? 'Todo enviado'
-                          : '$pending sin enviar'),
-                    ),
-                  ],
+                    label: Text(
+                        pending == 0 ? 'Todo enviado' : '$pending sin enviar'),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 // No live viewfinder (battery): a CTA that opens the camera
@@ -629,7 +629,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                 ],
                 if (_duplicateOfPosicion != null) ...[
                   const SizedBox(height: 8),
-                  _DuplicateBanner(posicion: _duplicateOfPosicion!),
+                  const _DuplicateBanner(),
                 ],
                 if (_linked != null) ...[
                   const SizedBox(height: 8),
@@ -706,9 +706,16 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
 /// Card with the last captured placa — the anchor for checking against the
 /// door ("does form N correspond to this house?").
 class _LastCaptureCard extends StatelessWidget {
-  const _LastCaptureCard({required this.last, required this.total});
+  const _LastCaptureCard({
+    required this.last,
+    required this.total,
+    this.predio,
+  });
   final Capture? last;
   final int total;
+
+  /// Spec 11: the per-parada number of [last] (null when there is none yet).
+  final PredioDisplay? predio;
 
   @override
   Widget build(BuildContext context) {
@@ -718,7 +725,7 @@ class _LastCaptureCard extends StatelessWidget {
         child: const Padding(
           padding: EdgeInsets.all(16),
           child: Text('Aún no hay capturas en esta ruta. '
-              'La primera será la posición 1.'),
+              'El primer predio será el 1.'),
         ),
       );
     }
@@ -730,8 +737,17 @@ class _LastCaptureCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Última capturada · posición ${last!.posicion} · total $total',
-                style: Theme.of(context).textTheme.labelMedium),
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 4,
+              children: [
+                Text('Última capturada ·',
+                    style: Theme.of(context).textTheme.labelMedium),
+                if (predio != null) PredioNumber(display: predio!),
+                Text('· total $total',
+                    style: Theme.of(context).textTheme.labelMedium),
+              ],
+            ),
             const SizedBox(height: 4),
             Text(
               (placa == null || placa.isEmpty) ? '(sin placa)' : placa,
@@ -882,9 +898,7 @@ class _NotInListCard extends StatelessWidget {
 
 /// CL-R3 trigger 5: warns, never blocks (PH legitimately share an NPN).
 class _DuplicateBanner extends StatelessWidget {
-  const _DuplicateBanner({required this.posicion});
-
-  final int posicion;
+  const _DuplicateBanner();
 
   @override
   Widget build(BuildContext context) {
@@ -900,7 +914,9 @@ class _DuplicateBanner extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Esa dirección ya se usó en esta ruta (posición $posicion). '
+                // Spec 11: no posición locator; the duplicate is findable in the
+                // resume list. The warning still conveys "already used, can go on".
+                'Esa dirección ya se usó en esta ruta. '
                 'Puedes continuar — varias unidades pueden compartirla (PH).',
                 style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
               ),

@@ -6,6 +6,7 @@ import 'ui/wireframes/login_wireframe.dart';
 import 'ui/wireframes/parada_capture_wireframe.dart';
 import 'ui/wireframes/resume_route_wireframe.dart';
 import 'ui/wireframes/route_selector_wireframe.dart';
+import 'ui/wireframes/secuencia_parada_wireframe.dart';
 import 'ui/wireframes/survey_rail_wireframe.dart';
 
 /// Wireframe gallery — separate entry point, does not touch the real app.
@@ -93,8 +94,45 @@ class WireframeIndex extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const _ParadaHost()),
             ),
           ),
+          const Divider(height: 1),
+          ListTile(
+            title: const Text('Secuencia por parada (predio M)'),
+            subtitle: const Text('Spec 11 · SP.3'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const _SecuenciaHost()),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _SecuenciaHost extends StatefulWidget {
+  const _SecuenciaHost();
+
+  @override
+  State<_SecuenciaHost> createState() => _SecuenciaHostState();
+}
+
+class _SecuenciaHostState extends State<_SecuenciaHost> {
+  int _i = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _StateSwitcher(
+          labels: [for (final s in SecuenciaState.values) s.name],
+          selected: _i,
+          onSelect: (i) => setState(() => _i = i),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: SecuenciaParadaWireframe(state: SecuenciaState.values[_i]),
+        ),
+      ],
     );
   }
 }

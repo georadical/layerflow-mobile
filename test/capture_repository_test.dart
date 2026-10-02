@@ -644,4 +644,54 @@ void main() {
     expect(row.insAfter, 5, reason: 'the mark is unsent content too');
     expect(row.syncStatus, AppConfig.syncPending);
   });
+
+  group('secuencia_parada round-trip (Spec 11, SP.2)', () {
+    test('markSynced persists the server secuencia_parada', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      final id = await repo.appendCapture(routeId: routeId, placa: 'A');
+      // Pre-sync: no server value yet.
+      expect((await repo.capturesForRoute(routeId)).single.secuenciaParada,
+          isNull);
+
+      await repo.markSynced(
+          clientId: id, loc: 15, secuenciaParada: 3, remoteId: 'r1');
+
+      final row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.secuenciaParada, 3);
+      expect(row.loc, 15);
+    });
+
+    test('mergeFrame carries secuencia_parada (and its absence as null)',
+        () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [
+          RouteFrameItem(
+              clientId: 's1', posicion: 1, loc: 5, secuenciaParada: 1),
+          // Legacy / no stop_id → no secuencia_parada.
+          RouteFrameItem(clientId: 's2', posicion: 2, loc: 10),
+        ],
+      ));
+
+      final rows = await repo.capturesForRoute(routeId);
+      expect(rows.firstWhere((c) => c.clientId == 's1').secuenciaParada, 1);
+      expect(
+          rows.firstWhere((c) => c.clientId == 's2').secuenciaParada, isNull);
+    });
+  });
 }

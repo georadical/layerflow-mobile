@@ -22,14 +22,20 @@ class SurveyScreen extends ConsumerWidget {
     super.key,
     required this.anchorClientId,
     required this.routeId,
-    required this.posicion,
-    this.placa,
+    required this.predioLabel,
+    this.address,
   });
 
   final String anchorClientId;
   final String routeId;
-  final int posicion;
-  final String? placa;
+
+  /// Spec 11: the unit's per-parada label ("Parada N · predio M"), composed by
+  /// the caller — the surveyor-global posición is no longer shown.
+  final String predioLabel;
+
+  /// The composed address for the header (e.g. "CARRERA 4 # 2-85"), not the raw
+  /// stored distance.
+  final String? address;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -38,8 +44,8 @@ class SurveyScreen extends ConsumerWidget {
     final survey = ref.watch(surveyControllerProvider(args));
 
     final header = [
-      'Posición $posicion',
-      if (placa != null && placa!.trim().isNotEmpty) placa!.trim(),
+      predioLabel,
+      if (address != null && address!.trim().isNotEmpty) address!.trim(),
     ].join(' · ');
 
     return Scaffold(
@@ -148,7 +154,8 @@ class _SurveyBody extends ConsumerWidget {
           onPressed: () {
             // Auto-saved on every gesture; this only confirms and returns.
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Encuesta guardada en el teléfono.')),
+              const SnackBar(
+                  content: Text('Encuesta guardada en el teléfono.')),
             );
             Navigator.of(context).pop();
           },
@@ -249,8 +256,8 @@ class _FloorSection extends ConsumerWidget {
         Row(
           children: [
             Expanded(
-              child: Text('Piso ${floor + 1}',
-                  style: theme.textTheme.titleMedium),
+              child:
+                  Text('Piso ${floor + 1}', style: theme.textTheme.titleMedium),
             ),
             if (floor > 0)
               TextButton.icon(
@@ -268,7 +275,9 @@ class _FloorSection extends ConsumerWidget {
               initiallyExpanded: !structure.answersAt(floor, u).isComplete,
               title: Text('Unidad ${u + 1}'),
               subtitle: Text(
-                structure.answersAt(floor, u).isComplete ? 'completa' : 'a medias',
+                structure.answersAt(floor, u).isComplete
+                    ? 'completa'
+                    : 'a medias',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -385,7 +394,8 @@ class _ValidationBanner extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            Icon(Icons.error_outline, color: theme.colorScheme.onErrorContainer),
+            Icon(Icons.error_outline,
+                color: theme.colorScheme.onErrorContainer),
             const SizedBox(width: 10),
             Expanded(
               child: Text(

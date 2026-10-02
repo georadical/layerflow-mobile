@@ -103,6 +103,7 @@ class PlacaItemResult {
     required this.ok,
     this.id,
     this.loc,
+    this.secuenciaParada,
     this.status,
     this.error,
     this.codigo,
@@ -112,6 +113,12 @@ class PlacaItemResult {
   final bool ok;
   final String? id;
   final int? loc;
+
+  /// Spec 11: the predio's position WITHIN its parada, assigned by the backend
+  /// (MAX + 1), restarting at 1 per parada. Present only on `ok:true` items;
+  /// an `updated` item carries the SAME frozen value. Null when the backend has
+  /// not assigned one (legacy / no stop_id). The app never sends it.
+  final int? secuenciaParada;
 
   /// 'created' | 'updated' (when ok).
   final String? status;
@@ -127,6 +134,7 @@ class PlacaItemResult {
       ok: json['ok'] as bool? ?? false,
       id: json['id']?.toString(),
       loc: (json['loc'] as num?)?.toInt(),
+      secuenciaParada: (json['secuencia_parada'] as num?)?.toInt(),
       status: json['status'] as String?,
       error: json['error']?.toString(),
       codigo: json['codigo']?.toString(),
@@ -628,6 +636,7 @@ class RouteFrameItem {
     required this.clientId,
     required this.posicion,
     this.loc,
+    this.secuenciaParada,
     this.placa,
     this.manzanaCatastral,
     this.insAfter,
@@ -640,6 +649,12 @@ class RouteFrameItem {
   final String clientId;
   final int posicion;
   final int? loc;
+
+  /// Spec 11: the predio's position WITHIN its parada (restarts at 1 per
+  /// parada), as the server holds it. Null for legacy / no-stop_id rows. The
+  /// authoritative value on resume; the app never sends it.
+  final int? secuenciaParada;
+
   final String? placa;
   final String? manzanaCatastral;
 
@@ -668,6 +683,7 @@ class RouteFrameItem {
       // frames are never cached, so nothing feeds the old key any more.
       posicion: (json['posicion'] as num).toInt(),
       loc: (json['loc'] as num?)?.toInt(),
+      secuenciaParada: (json['secuencia_parada'] as num?)?.toInt(),
       placa: json['placa'] as String?,
       manzanaCatastral: json['manzana_catastral'] as String?,
       insAfter: (json['ins_after'] as num?)?.toInt(),
