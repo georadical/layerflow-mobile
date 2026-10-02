@@ -15,6 +15,17 @@ class AppConfig {
   static const Duration connectTimeout = Duration(seconds: 15);
   static const Duration receiveTimeout = Duration(seconds: 30);
 
+  /// Send phase (request-body upload). Without it a POST over a stale pooled
+  /// connection can hang forever — the "Enviar never returns" bug. Generous for
+  /// photo uploads on slow rural links, but finite so a hang becomes a clear,
+  /// retryable error.
+  static const Duration sendTimeout = Duration(seconds: 60);
+
+  /// Close keep-alive connections idle longer than this, so the next request
+  /// opens a fresh connection instead of reusing a stale pooled one (the root
+  /// cause of the Enviar hang).
+  static const Duration httpIdleTimeout = Duration(seconds: 15);
+
   /// Paths of the capture API contract (LayerFlow backend).
   static const String postPlacasPath = '/field/capture/placas';
   static String routeFramePath(String routeId) =>

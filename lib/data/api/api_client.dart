@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 
 import '../../core/config/app_config.dart';
 import '../settings/settings_store.dart';
@@ -29,10 +32,13 @@ class ApiException implements Exception {
 /// [SettingsStore], so that changing Settings takes effect without rebuilding
 /// the client.
 class ApiClient {
-  ApiClient(this._settings, {Dio? dio}) : _dio = dio ?? Dio() {
+  ApiClient(this._settings, {Dio? dio}) : _dio = dio ?? _defaultDio() {
     _dio.options
       ..connectTimeout = AppConfig.connectTimeout
       ..receiveTimeout = AppConfig.receiveTimeout
+      // Send phase (body upload). Without it a POST over a stale pooled
+      // connection hangs forever — the Enviar-never-returns bug.
+      ..sendTimeout = AppConfig.sendTimeout
       ..headers['Content-Type'] = 'application/json';
 
     _dio.interceptors.add(
@@ -46,6 +52,20 @@ class ApiClient {
         },
       ),
     );
+  }
+
+  /// The production Dio, with an adapter that recycles idle keep-alive
+  /// connections. Root cause of the Enviar hang: a pooled connection goes stale
+  /// after idle and the next POST stalls on it; a short [httpIdleTimeout] drops
+  /// it so a fresh connection is opened instead. Isolated here (not in the body)
+  /// so an injected test Dio keeps its own adapter untouched.
+  static Dio _defaultDio() {
+    final dio = Dio();
+    dio.httpClientAdapter = IOHttpClientAdapter(
+      createHttpClient: () =>
+          HttpClient()..idleTimeout = AppConfig.httpIdleTimeout,
+    );
+    return dio;
   }
 
   final SettingsStore _settings;
@@ -267,6 +287,11 @@ class ApiClient {
     } else if (e.type == DioExceptionType.connectionTimeout ||
         e.type == DioExceptionType.connectionError) {
       detail = 'Sin conexión con el backend.';
+    } else if (e.type == DioExceptionType.sendTimeout ||
+        e.type == DioExceptionType.receiveTimeout) {
+      // A stalled send/receive now fails cleanly instead of hanging forever;
+      // the queued batch stays and the next Enviar retries it.
+      detail = 'La red tardó demasiado — reintenta el envío.';
     } else {
       detail = e.message ?? 'Error de red.';
     }
