@@ -565,6 +565,29 @@ void main() {
     });
   });
 
+  group('es_lote (Spec 12)', () {
+    test('PlacaItemRequest always sends es_lote (full-replacement)', () {
+      expect(
+        const PlacaItemRequest(clientId: 'a', posicion: 1, esLote: true)
+            .toJson()['es_lote'],
+        isTrue,
+      );
+      // Default false is sent EXPLICITLY — omitting it would clear the flag
+      // server-side (backend reverts to false on omit).
+      final json = const PlacaItemRequest(clientId: 'a', posicion: 1).toJson();
+      expect(json.containsKey('es_lote'), isTrue);
+      expect(json['es_lote'], isFalse);
+    });
+
+    test('RouteFrameItem parses es_lote; absent → false', () {
+      final lote = RouteFrameItem.fromJson(
+          {'client_id': 'a', 'posicion': 1, 'es_lote': true});
+      expect(lote.esLote, isTrue);
+      final normal = RouteFrameItem.fromJson({'client_id': 'b', 'posicion': 2});
+      expect(normal.esLote, isFalse);
+    });
+  });
+
   group('R1DirectoryItem.fromJson (Spec 10)', () {
     test('parses ref_geografica when present; null on a clean urban row', () {
       final rural = R1DirectoryItem.fromJson({
