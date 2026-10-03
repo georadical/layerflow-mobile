@@ -134,6 +134,7 @@ class CaptureRepository {
     String? tipoAcceso,
     String? observacion,
     String? owner,
+    bool? esLote,
   }) async {
     await _db.updateCaptureRow(
       clientId,
@@ -142,6 +143,8 @@ class CaptureRepository {
         manzanaCatastral: Value(_nullIfBlank(manzanaCatastral)),
         tipoAcceso: Value(_nullIfBlank(tipoAcceso)),
         observacion: Value(_nullIfBlank(observacion)),
+        // Spec 12: the built state, when the editor changed it (absent = leave).
+        esLote: esLote == null ? const Value.absent() : Value(esLote),
         // Re-queued content belongs to whoever queued it (CL4).
         ownerEmail: Value(owner),
         syncStatus: const Value(AppConfig.syncPending),
