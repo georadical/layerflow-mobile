@@ -976,11 +976,6 @@ class _ParityWarningBanner extends StatelessWidget {
   }
 }
 
-/// Decisions v2 §8: the terna is what tells the parada widgets apart —
-/// all-null together means rural (§6), never a value the UI infers otherwise.
-bool _paradaHasTerna(Parada p) =>
-    p.tipoVia != null && p.numVia != null && p.numCruce != null;
-
 String? _orientationLabel(String? code) {
   if (code == null || code.isEmpty) return null;
   const map = {
@@ -1006,11 +1001,10 @@ class _ParadaBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final orient = _orientationLabel(parada.orientation);
-    final rural = !_paradaHasTerna(parada);
     final parts = <String>[
-      // "Cara" only means something with a face; a rural point is just the
-      // next parada in the sequence (Decisions v2 §5/§8).
-      rural ? 'Parada ${parada.faceSequence}' : 'Cara ${parada.faceSequence}',
+      // Always "Parada" in the worker-facing label — the surveyor walks
+      // "paradas"; "cara" is office/cadastral jargon (Jorge 2026-10-03).
+      'Parada ${parada.faceSequence}',
       // The manzana lives on the readable face card below (Zona · Mz · ref),
       // so the pinned strip drops it — no raw 17-digit código, no duplication.
       if (orient != null) orient,
@@ -1027,9 +1021,10 @@ class _ParadaBar extends StatelessWidget implements PreferredSizeWidget {
   }
 }
 
-/// Spec 10: the face's manzana, authoritative and read-only — never a field
-/// inside a parada. A RURAL parada (Decisions v2 §8) has no manzana/cara at
-/// all — it is just the next point in the walk.
+/// Spec 10/11: the parada's manzana, authoritative and read-only — never a field.
+/// Urban vs rural is read from the manzana's ZONA (the código), not from terna
+/// presence: a parada WITH a manzana shows "Zona: X · Mz N" even if its terna
+/// was not seeded; only a parada with NO manzana shows the topónimo card.
 class _FaceContextCard extends ConsumerWidget {
   const _FaceContextCard({required this.parada});
 
@@ -1038,7 +1033,13 @@ class _FaceContextCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    if (!_paradaHasTerna(parada)) {
+    final manzana = parada.manzana?.trim();
+    // Spec 11 follow-up: the urban/rural signal is the manzana's ZONA
+    // (Urbana/Rural/Centro poblado, read from the código by manzanaLabel), NOT
+    // terna presence — a missing terna is a backend SEED GAP and must not
+    // mislabel an urban predio as rural. The topónimo card is ONLY for a point
+    // with no cadastral manzana at all.
+    if (manzana == null || manzana.isEmpty) {
       return Card(
         margin: EdgeInsets.zero,
         color: theme.colorScheme.surfaceContainerLow,
@@ -1046,27 +1047,26 @@ class _FaceContextCard extends ConsumerWidget {
           leading: const Icon(Icons.cottage_outlined),
           title: Text('Parada ${parada.faceSequence} · predio rural'),
           subtitle: Text(
-            'Sin cara de manzana — escribe el nombre del predio.',
+            'Sin manzana catastral — escribe el nombre del predio.',
             style: theme.textTheme.bodySmall,
           ),
         ),
       );
     }
     final orient = _orientationLabel(parada.orientation);
-    final manzana = parada.manzana;
-    // PC.6: readable manzana (Zona: X · Mz N) instead of the raw 17-digit
-    // código, + the manzana's best-effort geographic reference if any.
-    final label = manzana == null ? '—' : manzanaLabel(manzana);
-    final geoRef = manzana == null
-        ? null
-        : ref.watch(manzanaRefGeograficaProvider(manzana)).valueOrNull;
+    // Always "parada" in the worker-facing label — "cara" is office/cadastral
+    // jargon (Jorge 2026-10-03). The zona (Urbana/Rural) still comes from the
+    // manzana código via manzanaLabel.
+    // PC.6: readable manzana (Zona: X · Mz N) + its best-effort geo reference.
+    final label = manzanaLabel(manzana);
+    final geoRef = ref.watch(manzanaRefGeograficaProvider(manzana)).valueOrNull;
     return Card(
       margin: EdgeInsets.zero,
       color: theme.colorScheme.surfaceContainerLow,
       child: ListTile(
         leading: const Icon(Icons.grid_4x4),
         title: Text(
-          '$label · cara ${parada.faceSequence}'
+          '$label · parada ${parada.faceSequence}'
           '${orient == null ? '' : ' ($orient)'}',
         ),
         subtitle: Column(
