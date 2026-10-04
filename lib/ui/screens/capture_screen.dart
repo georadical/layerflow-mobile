@@ -482,6 +482,21 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     // prediction context — read the manzana from HERE so the field shape is
     // right immediately, not after the context resolves.
     final rawParada = ref.watch(currentParadaProvider(widget.routeId));
+    // Spec 13 robustness: the first keystrokes can land while the parada is
+    // still loading — _onPlacaChanged skips the search until the stops load and
+    // would otherwise never re-fire (it only runs on a keystroke). When the
+    // parada resolves (null → parada), re-run the search for whatever is already
+    // typed, so a fast typer isn't left with an empty dropdown.
+    ref.listen<Parada?>(currentParadaProvider(widget.routeId), (prev, next) {
+      if (prev == null &&
+          next != null &&
+          !_esLote &&
+          _linked == null &&
+          !_notInList &&
+          _placaCtrl.text.trim().isNotEmpty) {
+        _onPlacaChanged(_placaCtrl.text);
+      }
+    });
     final assisted = paradaCtx != null;
     // "rural" (no R1 concept, free text) = a parada with NO manzana; a manzana —
     // with or without a terna — drives the assisted full-placa anchor flow.
