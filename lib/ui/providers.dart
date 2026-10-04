@@ -700,17 +700,15 @@ final paradaCaptureContextProvider = FutureProvider.autoDispose
 
   ParadaCaptureContext bare() =>
       ParadaCaptureContext(parada: parada, capturedOnStop: onStop.length);
-  // Rural (no terna, §8): free text, no R1 concept, nothing to predict.
-  final hasTerna = parada.tipoVia != null &&
-      parada.numVia != null &&
-      parada.numCruce != null;
-  if (!hasTerna) return bare();
 
+  // Spec 13 (AM.4): prediction is gated on the MANZANA + an R1-linked anchor,
+  // NOT on the parada's terna. A parada with a manzana predicts once its first
+  // placa is linked to R1 — the face is derived from the anchor's R1 row below,
+  // so the parada's own terna is no longer read here. A parada with NO manzana
+  // (or no tenant, or no capture yet) falls to bare() just here: a rural
+  // topónimo has nothing to predict.
   final tenantId = ref.watch(activeTenantIdProvider);
   final manzana = parada.manzana;
-  // No anchor yet (first placa of the face), no tenant, or no manzana on the
-  // parada → nothing to predict; the worker's typed distance drives the
-  // exact-match search instead (the terna alone is enough for THAT).
   if (tenantId == null || manzana == null || onStop.isEmpty) return bare();
 
   final r1 = ref.watch(r1DirectoryRepositoryProvider);
