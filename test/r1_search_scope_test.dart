@@ -31,6 +31,22 @@ R1DirectoryCompanion _r1(int tenant, String npn, String manzana, String norm) =>
       parseOk: const Value(true),
     );
 
+/// With the parsed terna columns, for the AM.8 distance search.
+R1DirectoryCompanion _r1d(int tenant, String npn, String manzana, String norm,
+        String via, String numVia, String numCruce, String placa) =>
+    R1DirectoryCompanion.insert(
+      tenantId: tenant,
+      npn: npn,
+      direccion: norm,
+      direccionNorm: norm,
+      manzana: Value(manzana),
+      tipoVia: Value(via),
+      numVia: Value(numVia),
+      numCruce: Value(numCruce),
+      placa: Value(placa),
+      parseOk: const Value(true),
+    );
+
 void main() {
   const tenant = 1;
   const mz327 = '41551010100000327';
@@ -76,5 +92,29 @@ void main() {
 
     final in327 = await db.searchR1Part(tenant, '# 3A-02', manzana: mz327);
     expect(in327.map((r) => r.direccionNorm), contains('CALLE 13 # 3A-02'));
+  });
+
+  test('AM.8: distance search scopes to the anchor face + manzana', () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+    await db.replaceR1Slice(tenant, [
+      _r1d(tenant, 'a', mz327, 'CALLE 13 # 3A-02', 'CALLE', '13', '3A', '02'),
+      _r1d(tenant, 'b', mz327, 'CALLE 13 # 3A-08', 'CALLE', '13', '3A', '08'),
+      _r1d(tenant, 'c', mz327, 'CALLE 14 # 2-104', 'CALLE', '14', '2', '104'),
+    ]);
+
+    // Distance "08" on the CALLE 13 # 3A face → only that door.
+    final d08 = await db.r1SearchByDistance(tenant,
+        tipoVia: 'CALLE', numVia: '13', numCruce: '3A',
+        distancePrefix: '08', manzana: mz327);
+    expect(d08.map((r) => r.direccionNorm), ['CALLE 13 # 3A-08']);
+
+    // Empty distance → both doors of that face, never the other face (CALLE 14).
+    final all = await db.r1SearchByDistance(tenant,
+        tipoVia: 'CALLE', numVia: '13', numCruce: '3A',
+        distancePrefix: '', manzana: mz327);
+    expect(all.map((r) => r.direccionNorm),
+        ['CALLE 13 # 3A-02', 'CALLE 13 # 3A-08']);
   });
 }

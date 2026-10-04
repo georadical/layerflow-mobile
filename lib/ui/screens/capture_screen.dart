@@ -201,32 +201,41 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   /// Filters the directory as the worker types (CL-R1). The typed text is
   /// NEVER modified by anything here — it is the observed truth.
   ///
-  /// Spec 13: the anchor is searched by the FULL placa, scoped to the parada's
-  /// MANZANA (or the whole directory on an unassisted route). A parada with NO
-  /// manzana is rural — free text, no search. The terna/distance shortcut is
-  /// retired; the manzana alone scopes the search.
+  /// Spec 13: scoped to the parada's MANZANA (full-placa search). AM.8: once the
+  /// parada has an R1-linked anchor, the worker types only the distance and we
+  /// search by distance on the anchor's face (terna from the anchor's R1 row). A
+  /// parada with NO manzana is rural — free text, no search.
   Future<void> _onPlacaChanged(String text) async {
     if (_linked != null || _notInList) return;
     final tenantId = ref.read(activeTenantIdProvider);
     if (tenantId == null || !_directoryAvailable) return;
-    // Spec 13 — scope strictly to the parada's manzana. Do NOT run a search
-    // until the stops have loaded: a premature GLOBAL search (manzana unknown)
-    // surfaces rows from OTHER manzanas and lets the worker link one — the
-    // cross-manzana anchor bug (a 327 door linked on a 005 parada → prediction
-    // can't find it in 005 → "fin de la parada").
+    // Spec 13 — do NOT search until the stops have loaded: a premature GLOBAL
+    // search (manzana unknown) surfaces rows from OTHER manzanas and lets the
+    // worker link one (the cross-manzana anchor bug).
     if (!ref.read(routeStopsProvider(widget.routeId)).hasValue) return;
     final parada = _currentParada;
     // Rural (a parada with no manzana): free text, nothing to search.
     if (parada != null && (parada.manzana?.trim().isEmpty ?? true)) return;
-    final seq = ++_searchSeq;
-    // The parada's manzana scopes the search; null only on a truly unassisted
-    // route (no parada) → the classic whole-directory search.
     final mz = parada?.manzana?.trim() ?? '';
-    final hits = await ref.read(r1DirectoryRepositoryProvider).search(
-          tenantId,
-          text,
-          manzana: mz.isEmpty ? null : mz,
-        );
+    final seq = ++_searchSeq;
+    final repo = ref.read(r1DirectoryRepositoryProvider);
+    // AM.8: after an R1-linked anchor, the typed text is a DISTANCE — search by
+    // distance on the anchor's face (terna from the anchor's R1 row), scoped to
+    // the manzana. Before the anchor it is the full placa (Spec 13).
+    final anchor = _esLote ? null : _paradaCtx?.anchorFace;
+    final List<R1DirectoryData> hits;
+    if (anchor != null && mz.isNotEmpty) {
+      hits = await repo.searchByDistance(
+        tenantId,
+        tipoVia: anchor.via,
+        numVia: anchor.numVia,
+        numCruce: anchor.numCruce,
+        distancePrefix: text.trim(),
+        manzana: mz,
+      );
+    } else {
+      hits = await repo.search(tenantId, text, manzana: mz.isEmpty ? null : mz);
+    }
     if (!mounted || seq != _searchSeq) return;
     // setState even when empty: the panel must show "No está en la lista"
     // for text that matches NOTHING (CL-R1).
@@ -251,27 +260,32 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   /// second use of the same NPN in the route warns and marks divergence —
   /// never blocks (CL-R3 trigger 5, PH share).
   ///
-  /// CL-R1 v1.1: with an INCOMPLETE typed placa the app asks whether the
-  /// physical plate reads exactly the R1 text. "Sí" copies it (affirmed
-  /// observation, rutina); "No" keeps the typed text (legitimate
-  /// divergence); dismissing links nothing. Silent overwrite stays
-  /// forbidden. On a GUIDED parada (Decisions v2 §4) this never applies: the
-  /// worker typed only a distance, which is already an exact match by
-  /// construction (that is why it is in the suggestions at all).
+  /// A confirmed R1 link stores the FULL direccion (Jorge 2026-10-05): the worker
+  /// types a shortcut ("3A-02") or a distance ("08"), and the stored placa becomes
+  /// the canonical "CALLE 13 # 3A-02". CL-R1 is preserved for divergence: in
+  /// full-placa mode, if the typed text does not already read as the R1 door, the
+  /// app asks "¿dice exactamente…?" — "No, difiere" keeps the typed observation
+  /// (still links the npn); dismissing links nothing. In distance / guided mode
+  /// the pick is an exact match by construction, so it links straight to the full.
   Future<void> _select(R1DirectoryData hit) async {
     final ctx = _paradaCtx;
-    if (ctx != null && ctx.hasTerna) {
-      _placaCtrl.text = hit.placa ?? _placaCtrl.text;
-    } else {
-      // v1.2: full match OR cruce-placa part match ("3A 08" is literally
-      // what the door says) counts as coincidente — no dialog.
-      final matches = typedMatchesLinked(_placaCtrl.text, hit.direccionNorm);
-      if (!matches) {
-        final saysExactly = await confirmExactPlate(context, hit.direccionNorm);
-        if (saysExactly == null || !mounted) return; // dismissed: no link
-        if (saysExactly) _placaCtrl.text = hit.direccionNorm;
-      }
+    // Full-placa mode (Spec 13: no anchor yet, no terna) with a typed text that
+    // does NOT already read as this R1 door: confirm the plate says exactly it.
+    // "No, difiere" is a legitimate divergence → keep the typed observation
+    // (still link the npn); dismissing links nothing.
+    final fullPlacaMode = ctx?.anchorFace == null && !(ctx?.hasTerna ?? false);
+    var keepTyped = false;
+    if (fullPlacaMode &&
+        !typedMatchesLinked(_placaCtrl.text, hit.direccionNorm)) {
+      final saysExactly = await confirmExactPlate(context, hit.direccionNorm);
+      if (saysExactly == null || !mounted) return; // dismissed: no link
+      keepTyped = !saysExactly; // "No, difiere" → keep what the worker observed
     }
+    // Jorge 2026-10-05: a confirmed R1 link stores the FULL direccion. The worker
+    // may type a shortcut ("3A-02") or a distance ("08"), but the stored placa is
+    // the canonical "CALLE 13 # 3A-02" (the npn carries identity). Only an
+    // explicit divergence keeps the typed text.
+    if (!keepTyped) _placaCtrl.text = hit.direccionNorm;
     final dup = await ref
         .read(captureRepositoryProvider)
         .npnPosicionInRoute(widget.routeId, hit.npn);
@@ -295,12 +309,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         _suggestions = [];
       });
 
-  /// Spec 10: the predicted door matches — link it in one tap. Only ever
-  /// called on a GUIDED parada (a prediction exists only with a terna), so the
-  /// field takes just the distance (Decisions v2 §4) — never the composed
-  /// address, which the worker never types.
+  /// Spec 10 / AM.8: the predicted door matches — link it in one tap. The worker
+  /// never typed the full address (a distance shortcut, or nothing at all before
+  /// tapping), so the field takes the full composed direccion; the npn carries
+  /// the identity.
   Future<void> _coincide(R1DirectoryData expected) async {
-    _placaCtrl.text = expected.placa ?? expected.direccionNorm;
+    _placaCtrl.text = expected.direccionNorm;
     final dup = await ref
         .read(captureRepositoryProvider)
         .npnPosicionInRoute(widget.routeId, expected.npn);
@@ -518,11 +532,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         typedParity != null &&
         typedParity != faceParity;
 
-    // The placa field's shape depends on the parada (Spec 13): a lote's address
-    // is optional; a rural parada (NO manzana) asks for the predio's name
-    // (topónimo); any parada WITH a manzana — and the unassisted route — asks
-    // for the full placa, searched within the manzana. The terna/distance
-    // shortcut is retired.
+    // The placa field's shape depends on the parada (Spec 13 + AM.8): a lote's
+    // address is optional; a rural parada (NO manzana) asks for the predio's name
+    // (topónimo); AFTER an R1-linked anchor the worker types only the distance
+    // (AM.8), composed from the anchor's terna; the first anchor (and the
+    // unassisted route) asks for the full placa, searched within the manzana.
+    final distanceMode = !_esLote && !rural && paradaCtx?.anchorFace != null;
     final String placaLabel;
     final String? placaHint;
     final String? placaHelper;
@@ -535,6 +550,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       placaLabel = 'Nombre del predio';
       placaHint = 'FINCA CANAÁN';
       placaHelper = 'Se guarda tal cual, siempre.';
+    } else if (distanceMode) {
+      // AM.8: the face is fixed by the anchor — the worker types only the
+      // distance; the helper shows the composed preview from the anchor's terna.
+      placaLabel = 'Distancia (a la esquina)';
+      placaHint = null;
+      placaHelper = paradaCtx!.previewFromAnchor(_placaCtrl.text);
     } else {
       placaLabel = 'Placa (dirección en la puerta)';
       placaHint = 'CALLE 14 # 2-104';
