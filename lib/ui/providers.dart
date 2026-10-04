@@ -621,6 +621,7 @@ class ParadaCaptureContext {
     this.prediction,
     this.expectedRow,
     this.facePlacaParity,
+    this.anchorFace,
   });
 
   final Parada parada;
@@ -650,6 +651,29 @@ class ParadaCaptureContext {
   /// The R1 row behind the prediction's expected address — carried so
   /// "Coincide" links it in one tap (a [FaceAddress] alone has no npn).
   final R1DirectoryData? expectedRow;
+
+  /// AM.8: the anchor's face (terna from the last R1-linked capture's R1 row),
+  /// present once the parada has an anchor. Drives the distance-only input after
+  /// the anchor — the worker types just the distance and it composes from this
+  /// terna (no parada terna needed). Null before the first R1 link.
+  final FaceAddress? anchorFace;
+
+  /// AM.8: compose the full address from the ANCHOR's terna + a typed distance,
+  /// for the live preview in distance mode (`CALLE 13 # 3A-__` → `…3A-12`).
+  /// Returns the raw distance when there is no anchor yet.
+  String previewFromAnchor(String distance) {
+    final a = anchorFace;
+    final d = distance.trim();
+    if (a == null) return d;
+    return composeParadaAddress(
+      tipoVia: a.via,
+      numVia: a.numVia,
+      numCruce: a.numCruce,
+      cardinal: parada.cardinal,
+      cardinalPosicion: parada.cardinalPosicion,
+      distance: d.isEmpty ? '__' : d,
+    );
+  }
 
   String? get expectedDireccion => prediction?.expectedDireccion;
   bool get endOfFace => prediction?.endOfFace ?? false;
@@ -756,6 +780,7 @@ final paradaCaptureContextProvider = FutureProvider.autoDispose
     prediction: prediction,
     expectedRow: expectedRow,
     facePlacaParity: anchor.parity,
+    anchorFace: anchor, // AM.8: the face terna for the distance-only input
   );
 });
 

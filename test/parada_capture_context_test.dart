@@ -174,6 +174,15 @@ void main() {
     expect(ctx.expectedDireccion, 'CARRERA 2 # 4-15');
     expect(ctx.expectedRow!.npn, 'npn-15');
     expect(ctx.facePlacaParity, 1);
+
+    // AM.8: the anchor's terna is exposed, and previewFromAnchor composes the
+    // full address from it + a typed distance — the basis of distance mode.
+    expect(ctx.anchorFace, isNotNull);
+    expect(ctx.anchorFace!.via, 'CARRERA');
+    expect(ctx.anchorFace!.numVia, '2');
+    expect(ctx.anchorFace!.numCruce, '4');
+    expect(ctx.previewFromAnchor('23'), 'CARRERA 2 # 4-23');
+    expect(ctx.previewFromAnchor(''), 'CARRERA 2 # 4-__');
   });
 
   test('rural parada (no terna): bare context, no prediction, no R1 lookup',

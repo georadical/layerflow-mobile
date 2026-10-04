@@ -50,11 +50,10 @@ row.
 
 ### Does NOT include
 - **Backend contract changes** or seeding the paradas' ternas.
-- The **distance-only guided input** as the anchor: it is retired — the anchor is
-  always the full placa. The terna is no longer consumed by the capture flow
-  (prediction uses the anchor's R1 row). *(Re-adding a distance shortcut + face
-  preview for terna paradas is a separate future enhancement — the "Ambas" option
-  not taken here.)*
+- The **distance shortcut** as the FIRST anchor: the anchor is always the full
+  placa (the face's terna is unknown until an R1 row is linked). A distance-only
+  input AFTER the anchor is added by **AM.8** (see below), composed from the
+  ANCHOR's R1 terna — not the parada's, and with no backend change.
 - Any **schema/migration** change (UI + providers logic only).
 - **`es_lote` / Spec 12** behavior (a lote still bypasses R1 suggestions).
 - The **urban/rural card classification** (stays by the manzana's zona código).
@@ -251,3 +250,48 @@ Feature: Anchor by manzana for assisted paradas
 - **AM.7 — Manual E2E.** Against the Railway pilot (Pitalito Ruta 20): anchor from the
   manzana dropdown → NPN link → prediction → push → frame round-trip. Gate: verified
   live; cross-confirmed cleanup.
+
+---
+
+## AM.8 — Distance shortcut after the anchor (follow-up)
+
+> Status: **Draft** — approved in concept (Jorge 2026-10-05, "solo distancia").
+> Branch `feature/distancia-ancla`.
+
+### Objective
+Once a parada has an R1-linked anchor, the face's terna is known (from the anchor's
+R1 row). From there the worker types **only the distance** (e.g. "12") and the app
+composes the full address from that terna, searching R1 by distance on that face —
+saving the street on every door. The FIRST anchor stays full-placa.
+
+### Business rules
+- **BR-D1 — Trigger.** Distance mode activates only when the parada has a capture
+  **linked to R1** (an anchor with an NPN). Before that → full-placa anchor (Spec 13).
+- **BR-D2 — Terna from the ANCHOR.** The composing terna is the anchor's R1 row terna
+  (`tipo_via/num_via/num_cruce`), NOT the parada's (paradas carry no terna).
+- **BR-D3 — Distance-only input.** The field reads "Distancia (a la esquina)"; the
+  worker types only the distance. The live helper shows the composed preview
+  (`CALLE 13 # 3A-__` → `CALLE 13 # 3A-12`).
+- **BR-D4 — Scoped search.** Typing searches `searchByDistance(anchor terna, distance,
+  manzana)` — scoped to that face. "No está en la lista" stays the fixed first row
+  (a finding on the same face).
+- **BR-D5 — Prediction coexists.** The "Siguiente esperada" card (Coincide / No
+  coincide) is unchanged — Coincide is the one-tap path; distance is for divergence.
+- **BR-D6 — es_lote / no-manzana unchanged.** A lote hides it; a parada with no
+  manzana stays rural free-text (no anchor → no distance mode).
+- **BR-D7 — No backend/contract/schema change.** Reuses `searchByDistance` + the
+  existing push (npn from the linked R1 row).
+
+### Out of scope
+- Hybrid input (full placa + distance together) — distance-only after the anchor.
+- Cross-face capture within one parada (one parada = one face).
+
+### Tickets
+- **AM.8.1 — Spec** (this section). Gate: approved.
+- **AM.8.2 — Expose the anchor terna.** `paradaCaptureContextProvider` surfaces the
+  anchor's `FaceAddress` (terna) on `ParadaCaptureContext`. Gate: unit test.
+- **AM.8.3 — Capture screen distance mode.** When the anchor terna exists (+ manzana,
+  not lote): label "Distancia (a la esquina)", preview from the anchor terna,
+  `searchByDistance`. Gate: live verify on Ruta 10 (anchor 3A-02 → type "08" →
+  composes/links "CALLE 13 # 3A-08").
+- **AM.8.4 — Tests.** analyze clean, flutter test green.
