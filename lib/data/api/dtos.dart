@@ -23,6 +23,7 @@ class PlacaItemRequest {
     this.sinR1,
     this.blockFaceId,
     this.stopId,
+    this.esLote = false,
   });
 
   final String clientId;
@@ -57,11 +58,18 @@ class PlacaItemRequest {
   /// with [npn].
   final bool? sinR1;
 
+  /// es_lote (Spec 12, LT.4): the predio is a vacant lot ("Sin construir").
+  /// Full-replacement (BR2): the backend reverts to false on omit, so the value
+  /// is ALWAYS sent (true/false), re-carried from the frame like npn/ins_after.
+  final bool esLote;
+
   Map<String, dynamic> toJson() => {
         'client_id': clientId,
         'posicion': posicion,
         // placa is optional: null is sent when blank (the server allows it).
         'placa': placa,
+        // Always sent (full-replacement): omitting it would clear the flag.
+        'es_lote': esLote,
         if (manzanaCatastral != null) 'manzana_catastral': manzanaCatastral,
         if (tipoAcceso != null) 'tipo_acceso': tipoAcceso,
         if (observacion != null) 'observacion': observacion,
@@ -644,6 +652,7 @@ class RouteFrameItem {
     this.npnMatchMethod,
     this.blockFaceId,
     this.stopId,
+    this.esLote = false,
   });
 
   final String clientId;
@@ -676,6 +685,10 @@ class RouteFrameItem {
   /// Parada binding, legacy/compatibility form (Spec 10 PC.1a).
   final String? blockFaceId;
 
+  /// es_lote (Spec 12): the predio is a vacant lot, as the server holds it.
+  /// Default false; re-carried on push (full-replacement).
+  final bool esLote;
+
   factory RouteFrameItem.fromJson(Map<String, dynamic> json) {
     return RouteFrameItem(
       clientId: json['client_id'] as String,
@@ -691,6 +704,7 @@ class RouteFrameItem {
       npnMatchMethod: json['npn_match_method'] as String?,
       blockFaceId: json['block_face_id'] as String?,
       stopId: json['stop_id'] as String?,
+      esLote: json['es_lote'] as bool? ?? false,
     );
   }
 }

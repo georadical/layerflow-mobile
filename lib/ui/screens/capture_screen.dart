@@ -61,6 +61,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   bool _directoryAvailable = false;
   int _searchSeq = 0;
 
+  /// Spec 12: the predio's built state — false = Construido (default), true =
+  /// Sin construir (a vacant lot, `es_lote`). Per-capture; resets to false on
+  /// save. When true the placa is optional, R1 is hidden, and a plate-less lot
+  /// is exempt from the mandatory photo.
+  bool _esLote = false;
+
   /// Spec 10 PC.3: the worker tapped "No coincide" on the predicted placa —
   /// hide the prediction for THIS capture so they enter what they see. Reset
   /// on save (the next door predicts again).
@@ -233,6 +239,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   }
 
   bool get _panelVisible {
+    if (_esLote) return false; // Spec 12: a lot uses no R1 directory UI.
     final ctx = _paradaCtx;
     if (ctx != null && !ctx.hasTerna) return false; // rural: no directory UI
     final hasDirectory = (ctx != null && ctx.hasTerna) || _directoryAvailable;
@@ -372,13 +379,18 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       final lotteryRoll = Random().nextInt(AppConfig.evidenceLotteryOneIn);
       // cameraReady:true — we always ATTEMPT on demand; the hardware valve is
       // handled at capture time (a dead camera returns cameraAvailable:false).
-      final needsAimed = EvidenceRepository.needsDeliberateShot(
-        soporte: soporte,
-        cameraReady: true,
-        alreadyDeliberate: shot != null,
-        lotteryRoll: lotteryRoll,
-        fotoObligatoria: ref.read(fotoObligatoriaProvider(widget.routeId)),
-      );
+      // Spec 12, BR4: a plate-less lot (es_lote && placa blank) is exempt from
+      // the forced photo entirely — never required (it may still be taken via
+      // the CTA). A lot WITH a placa falls through to the normal rule.
+      final loteExempt = _esLote && _placaCtrl.text.trim().isEmpty;
+      final needsAimed = !loteExempt &&
+          EvidenceRepository.needsDeliberateShot(
+            soporte: soporte,
+            cameraReady: true,
+            alreadyDeliberate: shot != null,
+            lotteryRoll: lotteryRoll,
+            fotoObligatoria: ref.read(fotoObligatoriaProvider(widget.routeId)),
+          );
       if (needsAimed) {
         final outcome = await _takeDeliberateShot(required: true);
         if (!outcome.cameraAvailable) {
@@ -418,6 +430,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         observacion: _obsCtrl.text,
         stopId: paradaCtx?.parada.stopId,
         blockFaceId: paradaCtx?.parada.blockFaceId,
+        // Spec 12: the built state the worker picked (Construido / Sin construir).
+        esLote: _esLote,
         // CL4: unsent content belongs to the person who captured it.
         owner: owner,
         // Spec 7: the pair is the record — raw placa above, npn here.
@@ -444,6 +458,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         _suggestions = [];
         _deliberateShot = null;
         _predictionDismissed = false; // the next door predicts again
+        _esLote = false; // Spec 12: each new capture starts Construido
       });
       _placaFocus.requestFocus();
     } finally {
@@ -468,6 +483,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     final hasTerna = assisted && paradaCtx.hasTerna;
     final rural = assisted && !paradaCtx.hasTerna;
     final showPrediction = assisted &&
+        !_esLote && // Spec 12: a lot has no R1 address to predict/link.
         !_predictionDismissed &&
         _linked == null &&
         !_notInList &&
@@ -489,7 +505,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     final String placaLabel;
     final String? placaHint;
     final String? placaHelper;
-    if (rural) {
+    if (_esLote) {
+      // Spec 12: a lot's address is optional (empty for a potrero).
+      placaLabel = 'Dirección del lote (opcional)';
+      placaHint = 'Vacío en potrero';
+      placaHelper = 'Si lees la dirección, escríbela; si no, déjala vacía.';
+    } else if (rural) {
       placaLabel = 'Nombre del predio';
       placaHint = 'FINCA CANAÁN';
       placaHelper = 'Se guarda tal cual, siempre.';
@@ -502,6 +523,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       placaHint = 'C 5 1 11';
       placaHelper = _directoryHelper;
     }
+
+    // Spec 12, BR4: a plate-less lot (es_lote && placa blank) is exempt from the
+    // mandatory photo; a lot WITH a placa behaves like any predio.
+    final placaBlank = _placaCtrl.text.trim().isEmpty;
+    final fotoRequired = fotoObligatoria && !(_esLote && placaBlank);
+    final fotoSubject = _esLote ? 'del lote' : 'de placa';
 
     return Scaffold(
       appBar: AppBar(
@@ -545,6 +572,39 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                // Spec 12: built state — Construido (default) vs Sin construir
+                // (= lote). Sin construir makes the placa optional, hides R1, and
+                // exempts a plate-less lot from the mandatory photo.
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(
+                        value: false,
+                        label: Text('Construido'),
+                        icon: Icon(Icons.home_outlined),
+                      ),
+                      ButtonSegment(
+                        value: true,
+                        label: Text('Sin construir'),
+                        icon: Icon(Icons.crop_square),
+                      ),
+                    ],
+                    selected: {_esLote},
+                    onSelectionChanged: (sel) => setState(() {
+                      _esLote = sel.first;
+                      if (_esLote) {
+                        // A lot has no R1 link / finding / suggestions.
+                        _linked = null;
+                        _notInList = false;
+                        _suggestions = [];
+                        _duplicateOfPosicion = null;
+                        _predictionDismissed = false;
+                      }
+                    }),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 // No live viewfinder (battery): a CTA that opens the camera
                 // only when tapped, shoots once, and releases it.
                 OutlinedButton.icon(
@@ -574,10 +634,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                           ? Icons.check_circle
                           : Icons.photo_camera),
                   label: Text(_deliberateShot != null
-                      ? 'Foto de placa lista'
-                      : fotoObligatoria
-                          ? 'Tomar foto de placa (requerida)'
-                          : 'Tomar foto de placa'),
+                      ? 'Foto $fotoSubject lista'
+                      : fotoRequired
+                          ? 'Tomar foto $fotoSubject (requerida)'
+                          : _esLote
+                              ? 'Tomar foto $fotoSubject (opcional)'
+                              : 'Tomar foto $fotoSubject'),
                 ),
                 if (assisted) ...[
                   const SizedBox(height: 16),

@@ -83,6 +83,12 @@ class Captures extends Table {
   /// legacy/no-stop_id rows. Pure display — the app NEVER sends it.
   IntColumn get secuenciaParada => integer().nullable()();
 
+  /// es_lote (Spec 12): the predio is a vacant lot ("Sin construir"). Default
+  /// false; full-replacement — sent on EVERY push and re-carried from the frame
+  /// (like npn). A plate-less lot (es_lote && placa null) is exempt from the
+  /// mandatory photo.
+  BoolColumn get esLote => boolean().withDefault(const Constant(false))();
+
   /// Pending relocation: the loc of the unit this one goes after (0 = start
   /// of route). Null = no mark. The contract is full-replacement, so this
   /// must ride on every push of the row or the backend clears it (Spec 2.1).
@@ -335,7 +341,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 20;
+  int get schemaVersion => 21;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -469,6 +475,11 @@ class AppDatabase extends _$AppDatabase {
             // the server. Null until the next sync/frame backfills it; the app
             // shows a provisional local count meanwhile.
             await m.addColumn(captures, captures.secuenciaParada);
+          }
+          if (from < 21) {
+            // Spec 12: the es_lote flag on a capture (vacant lot). Existing rows
+            // default false (not a lot).
+            await m.addColumn(captures, captures.esLote);
           }
         },
       );

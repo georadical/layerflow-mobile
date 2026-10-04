@@ -19,6 +19,7 @@ with a verifiable gate, a commit and explicit approval.
 | 9 | Route-state locks (capture + survey gating) | [route-state-locks.md](route-state-locks.md) | Done — L.1 foundation, L.2 survey gate, L.3 placa gate; survey gate verified live (unlock on open route) |
 | 10 | Parada-scoped capture (app side) | [parada-capture-app.md](parada-capture-app.md) | Done @ ac42310 — face-by-face sweep, compose-on-read, cardinal, readable manzana; PC.6 + Ruta 40 happy-path E2E verified; merged to main |
 | 11 | Per-parada sequence ("predio M") | [secuencia-parada.md](secuencia-parada.md) | Done — "predio N" per parada replaces the global `posicion`; SP.1–SP.7 complete, E2E-verified on Ruta 40 (1-16 / 1-10 / 1-10) against the real backend; branch `feature/secuencia-parada` |
+| 12 | Captura de lote (`es_lote`) | [captura-lote.md](captura-lote.md) | Draft — Construido/Sin construir segmented button; placa optional; plate-less lot exempt from `foto_obligatoria` (Jorge's carve-out); branch `feature/captura-lote` |
 | — | Road to production (backlog) | [road-to-production.md](road-to-production.md) | Backlog — deployment infra, rich census, pilot (run first); not scheduled |
 | — | Paradas — backend mirrors (reference) | [parada-scoped-capture.md](parada-scoped-capture.md), [block-faces.md](block-faces.md), [contract](../docs/mobile-parada-capture-contract.md) | Reference (read-only) — backend contract the app builds against; also the early note [paradas-blockface.md](paradas-blockface.md) |
 

@@ -47,6 +47,7 @@ class CaptureRepository {
     bool? sinR1,
     String? blockFaceId,
     String? stopId,
+    bool esLote = false,
   }) async {
     final now = DateTime.now();
     final clientId = _uuid.v4();
@@ -66,6 +67,7 @@ class CaptureRepository {
         sinR1: Value(sinR1),
         blockFaceId: Value(blockFaceId),
         stopId: Value(stopId),
+        esLote: Value(esLote),
         syncStatus: const Value(AppConfig.syncPending),
         createdAt: now,
         updatedAt: now,
@@ -132,6 +134,7 @@ class CaptureRepository {
     String? tipoAcceso,
     String? observacion,
     String? owner,
+    bool? esLote,
   }) async {
     await _db.updateCaptureRow(
       clientId,
@@ -140,6 +143,8 @@ class CaptureRepository {
         manzanaCatastral: Value(_nullIfBlank(manzanaCatastral)),
         tipoAcceso: Value(_nullIfBlank(tipoAcceso)),
         observacion: Value(_nullIfBlank(observacion)),
+        // Spec 12: the built state, when the editor changed it (absent = leave).
+        esLote: esLote == null ? const Value.absent() : Value(esLote),
         // Re-queued content belongs to whoever queued it (CL4).
         ownerEmail: Value(owner),
         syncStatus: const Value(AppConfig.syncPending),
@@ -289,6 +294,7 @@ class CaptureRepository {
             manzanaCatastral: Value(item.manzanaCatastral),
             loc: Value(item.loc),
             secuenciaParada: Value(item.secuenciaParada),
+            esLote: Value(item.esLote),
             insAfter: Value(item.insAfter),
             npn: Value(item.npn),
             npnMatchMethod: Value(item.npnMatchMethod),
@@ -311,6 +317,9 @@ class CaptureRepository {
             loc: Value(item.loc),
             // Re-carried from the frame (server-assigned, frozen), like loc.
             secuenciaParada: Value(item.secuenciaParada),
+            // es_lote is full-replacement — the frame is the truth on a synced
+            // row (an office correction flips it).
+            esLote: Value(item.esLote),
             // Written unconditionally, nulls included: once the office applies
             // the shift the frame comes back clean and the local mark must
             // follow it (Spec 2.1, BR5). The npn link follows the same rule

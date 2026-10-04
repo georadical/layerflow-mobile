@@ -147,6 +147,7 @@ void main() {
       posicion: 2,
       loc: 7,
       sinR1: false,
+      esLote: false,
       syncStatus: AppConfig.syncSynced,
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
@@ -158,6 +159,7 @@ void main() {
       routeId: routeId,
       posicion: 3,
       sinR1: false,
+      esLote: false,
       syncStatus: AppConfig.syncPending,
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
@@ -692,6 +694,48 @@ void main() {
       expect(rows.firstWhere((c) => c.clientId == 's1').secuenciaParada, 1);
       expect(
           rows.firstWhere((c) => c.clientId == 's2').secuenciaParada, isNull);
+    });
+  });
+
+  group('es_lote round-trip (Spec 12, LC.2)', () {
+    test('appendCapture stores es_lote', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      final normal = await repo.appendCapture(routeId: routeId, placa: 'A');
+      final lot = await repo.appendCapture(routeId: routeId, esLote: true);
+
+      final rows = await repo.capturesForRoute(routeId);
+      expect(rows.firstWhere((c) => c.clientId == normal).esLote, isFalse);
+      expect(rows.firstWhere((c) => c.clientId == lot).esLote, isTrue);
+      expect(rows.firstWhere((c) => c.clientId == lot).placa, isNull);
+    });
+
+    test('mergeFrame carries es_lote (and its absence as false)', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [
+          RouteFrameItem(clientId: 's1', posicion: 1, loc: 5, esLote: true),
+          RouteFrameItem(clientId: 's2', posicion: 2, loc: 10),
+        ],
+      ));
+
+      final rows = await repo.capturesForRoute(routeId);
+      expect(rows.firstWhere((c) => c.clientId == 's1').esLote, isTrue);
+      expect(rows.firstWhere((c) => c.clientId == 's2').esLote, isFalse);
     });
   });
 }

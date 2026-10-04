@@ -16,6 +16,7 @@ Capture _cap({
       stopId: stopId,
       secuenciaParada: secuenciaParada,
       sinR1: false,
+      esLote: false,
       syncStatus: AppConfig.syncPending,
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),

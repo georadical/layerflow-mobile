@@ -475,6 +475,8 @@ class SyncService {
             // rural); block_face_id keeps riding for compatibility.
             stopId: c.stopId,
             blockFaceId: c.blockFaceId,
+            // Spec 12: es_lote rides on every push too (full-replacement).
+            esLote: c.esLote,
           ),
       ],
     );

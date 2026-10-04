@@ -4,6 +4,7 @@ import 'ui/theme.dart';
 import 'ui/wireframes/assisted_capture_wireframe.dart';
 import 'ui/wireframes/login_wireframe.dart';
 import 'ui/wireframes/parada_capture_wireframe.dart';
+import 'ui/wireframes/lote_capture_wireframe.dart';
 import 'ui/wireframes/resume_route_wireframe.dart';
 import 'ui/wireframes/route_selector_wireframe.dart';
 import 'ui/wireframes/secuencia_parada_wireframe.dart';
@@ -103,8 +104,43 @@ class WireframeIndex extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const _SecuenciaHost()),
             ),
           ),
+          const Divider(height: 1),
+          ListTile(
+            title: const Text('Captura de lote (es_lote)'),
+            subtitle: const Text('Spec 12 · LC.3'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const _LoteHost()),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _LoteHost extends StatefulWidget {
+  const _LoteHost();
+
+  @override
+  State<_LoteHost> createState() => _LoteHostState();
+}
+
+class _LoteHostState extends State<_LoteHost> {
+  int _i = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _StateSwitcher(
+          labels: [for (final s in LoteState.values) s.name],
+          selected: _i,
+          onSelect: (i) => setState(() => _i = i),
+        ),
+        const Divider(height: 1),
+        Expanded(child: LoteCaptureWireframe(state: LoteState.values[_i])),
+      ],
     );
   }
 }

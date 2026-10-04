@@ -80,6 +80,9 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
   int _searchSeq = 0;
   bool _saving = false;
 
+  /// Spec 12: the built state (false = Construido, true = Sin construir / lote).
+  bool _esLote = false;
+
   @override
   void initState() {
     super.initState();
@@ -89,6 +92,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
     _insAfter = widget.row.insAfter;
     _npn = widget.row.npn;
     _sinR1 = widget.row.sinR1 ?? false;
+    _esLote = widget.row.esLote;
     Future.microtask(() async {
       final tenantId = ref.read(activeTenantIdProvider);
       if (tenantId == null) return;
@@ -202,6 +206,8 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
         manzanaCatastral: widget.row.manzanaCatastral,
         observacion: _obs.text,
         owner: owner,
+        // Spec 12: the built state (Construido / Sin construir).
+        esLote: _esLote,
       );
       if (_npn != widget.row.npn) {
         // Provenance rule: only a CHANGED link is a field decision.
@@ -341,6 +347,28 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
               ),
             ),
           ],
+          const SizedBox(height: 16),
+          // Spec 12: built state — Construido / Sin construir (lote). Switching
+          // re-queues the row; the push re-carries es_lote (full-replacement).
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  label: Text('Construido'),
+                  icon: Icon(Icons.home_outlined),
+                ),
+                ButtonSegment(
+                  value: true,
+                  label: Text('Sin construir'),
+                  icon: Icon(Icons.crop_square),
+                ),
+              ],
+              selected: {_esLote},
+              onSelectionChanged: (sel) => setState(() => _esLote = sel.first),
+            ),
+          ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
             // Not migrated to `initialValue`: FormFieldState ignores it

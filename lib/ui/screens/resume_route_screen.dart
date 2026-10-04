@@ -625,17 +625,33 @@ class _UnitTile extends ConsumerWidget {
                   // The address in plain language leads. A missing one keeps
                   // the size but goes muted and italic, so the gap reads as
                   // pending rather than as a shorter address.
-                  Text(
-                    hasAddress ? placa : 'Sin dirección aún',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight:
-                          hasAddress ? FontWeight.w600 : FontWeight.w400,
-                      fontStyle:
-                          hasAddress ? FontStyle.normal : FontStyle.italic,
-                      color: hasAddress
-                          ? theme.colorScheme.onSurface
-                          : theme.colorScheme.onSurfaceVariant,
-                    ),
+                  Row(
+                    children: [
+                      // The address leads. A plate-less lot reads "Lote" (Spec
+                      // 12); any other missing address stays muted/italic so the
+                      // gap reads as pending.
+                      Flexible(
+                        child: Text(
+                          hasAddress
+                              ? placa
+                              : (row.esLote ? 'Lote' : 'Sin dirección aún'),
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight:
+                                hasAddress ? FontWeight.w600 : FontWeight.w400,
+                            fontStyle: hasAddress || row.esLote
+                                ? FontStyle.normal
+                                : FontStyle.italic,
+                            color: hasAddress || row.esLote
+                                ? theme.colorScheme.onSurface
+                                : theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      if (row.esLote) ...[
+                        const SizedBox(width: 8),
+                        const _LoteChip(),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Wrap(
@@ -849,6 +865,34 @@ class _SurveyLine extends StatelessWidget {
 
 /// Marks a row the server refused. Uses the error colour because, unlike a
 /// queued row, this one will not resolve by waiting.
+/// Spec 12: marks a captured row as a vacant lot (`es_lote`).
+class _LoteChip extends StatelessWidget {
+  const _LoteChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.crop_square,
+              size: 13, color: theme.colorScheme.onTertiaryContainer),
+          const SizedBox(width: 3),
+          Text('Lote',
+              style: theme.textTheme.labelSmall
+                  ?.copyWith(color: theme.colorScheme.onTertiaryContainer)),
+        ],
+      ),
+    );
+  }
+}
+
 class _ErrorBadge extends StatelessWidget {
   const _ErrorBadge();
 
