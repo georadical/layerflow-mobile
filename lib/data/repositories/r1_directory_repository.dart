@@ -63,18 +63,20 @@ class R1DirectoryRepository {
   /// onward; "C 5 2 0" narrows to "CALLE 5 # 2-0". Text that does not
   /// start with a street type (rural) yields no suggestions — the
   /// typeahead never pretends to cover that population.
-  /// [manzana] scopes the PLACA mode to the current block when known —
-  /// today the form's manzana catastral field feeds it; when the backend
-  /// ships "paradas" they will feed the same argument with zero change
-  /// here (CL-R1 v1.2). Matching is by suffix: the worker types the short
-  /// block code, the R1 carries the full 17-digit one.
+  /// [manzana] scopes BOTH search modes — the prefix (full-address) mode and
+  /// the placa-part mode — to the parada's block (Spec 13): the parada's
+  /// manzana catastral feeds it. Without it a full address ("CALLE 13 # 3A-02")
+  /// would match across every manzana. Matching is by suffix: the parada
+  /// carries the full 17-digit código.
   Future<List<R1DirectoryData>> search(
     int tenantId,
     String rawTyped, {
     String? manzana,
   }) async {
     final prefix = typeaheadPrefix(rawTyped);
-    if (prefix != null) return _db.searchR1(tenantId, prefix);
+    if (prefix != null) {
+      return _db.searchR1(tenantId, prefix, manzana: manzana);
+    }
     final part = placaPartPattern(rawTyped);
     if (part != null) {
       return _db.searchR1Part(tenantId, part, manzana: manzana);

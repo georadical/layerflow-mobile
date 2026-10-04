@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'ui/theme.dart';
+import 'ui/wireframes/ancla_manzana_wireframe.dart';
 import 'ui/wireframes/assisted_capture_wireframe.dart';
 import 'ui/wireframes/login_wireframe.dart';
 import 'ui/wireframes/parada_capture_wireframe.dart';
@@ -113,6 +114,15 @@ class WireframeIndex extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const _LoteHost()),
             ),
           ),
+          const Divider(height: 1),
+          ListTile(
+            title: const Text('Ancla por manzana (placa completa)'),
+            subtitle: const Text('Spec 13 · AM.2'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const _AnclaHost()),
+            ),
+          ),
         ],
       ),
     );
@@ -140,6 +150,32 @@ class _LoteHostState extends State<_LoteHost> {
         ),
         const Divider(height: 1),
         Expanded(child: LoteCaptureWireframe(state: LoteState.values[_i])),
+      ],
+    );
+  }
+}
+
+class _AnclaHost extends StatefulWidget {
+  const _AnclaHost();
+
+  @override
+  State<_AnclaHost> createState() => _AnclaHostState();
+}
+
+class _AnclaHostState extends State<_AnclaHost> {
+  int _i = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _StateSwitcher(
+          labels: [for (final s in AnclaState.values) s.name],
+          selected: _i,
+          onSelect: (i) => setState(() => _i = i),
+        ),
+        const Divider(height: 1),
+        Expanded(child: AnclaManzanaWireframe(state: AnclaState.values[_i])),
       ],
     );
   }

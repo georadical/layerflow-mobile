@@ -128,6 +128,54 @@ void main() {
     expect(ctx.previewFor('15'), 'CARRERA 2 # 4-15');
   });
 
+  test('Spec 13 (AM.4): manzana parada WITHOUT terna predicts from the anchor',
+      () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+
+    // Same R1 face as the assisted test — manzana 001, rows carry the terna.
+    await db.replaceR1Slice(tenant, [
+      _r1(tenant, 'npn-09', 'CARRERA 2 # 4-09', '4', '09'),
+      _r1(tenant, 'npn-15', 'CARRERA 2 # 4-15', '4', '15'),
+      _r1(tenant, 'npn-23', 'CARRERA 2 # 4-23', '4', '23'),
+    ]);
+    // A parada with a MANZANA but NO terna (the Pitalito pilot shape). Before
+    // AM.4 the hasTerna gate sent this to bare() (rural); now it predicts from
+    // the anchor's R1 row, since the manzana + a linked anchor are enough.
+    await db.upsertParada(ParadasCompanion.insert(
+      stopId: 's1',
+      routeId: routeId,
+      faceSequence: 1,
+      manzana: const Value('001'),
+      updatedAt: DateTime.now(),
+    ));
+    // Anchor: first placa on the face, linked to R1 09.
+    await CaptureRepository(db).appendCapture(
+      routeId: routeId,
+      placa: 'CARRERA 2 # 4-09',
+      manzanaCatastral: '001',
+      npn: 'npn-09',
+      stopId: 's1',
+    );
+    final caps = await (db.select(db.captures)
+          ..where((c) => c.routeId.equals(routeId)))
+        .get();
+
+    final c = _container(db, tenant, caps);
+    addTearDown(c.dispose);
+    await c.read(routeStopsProvider(routeId).future);
+    await c.read(capturesProvider(routeId).future);
+
+    final ctx = await c.read(paradaCaptureContextProvider(routeId).future);
+    expect(ctx, isNotNull);
+    expect(ctx!.hasTerna, isFalse); // the PARADA carries no terna…
+    expect(ctx.prediction, isNotNull); // …yet it predicts from the anchor's R1.
+    expect(ctx.expectedDireccion, 'CARRERA 2 # 4-15');
+    expect(ctx.expectedRow!.npn, 'npn-15');
+    expect(ctx.facePlacaParity, 1);
+  });
+
   test('rural parada (no terna): bare context, no prediction, no R1 lookup',
       () async {
     final db = await _memoryDb();

@@ -595,12 +595,23 @@ class AppDatabase extends _$AppDatabase {
   Future<List<R1DirectoryData>> searchR1(
     int tenantId,
     String normPrefix, {
+    String? manzana,
     int limit = 8,
   }) {
     return (select(r1Directory)
-          ..where((r) =>
-              r.tenantId.equals(tenantId) &
-              r.direccionNorm.like('$normPrefix%'))
+          ..where((r) {
+            var cond = r.tenantId.equals(tenantId) &
+                r.direccionNorm.like('$normPrefix%');
+            // Spec 13: scope the prefix (full-address) search to the parada's
+            // manzana, exactly like searchR1Part — otherwise a full address
+            // ("CALLE 13 # 3A-02") matches across ALL manzanas and the worker
+            // can link a row from another one.
+            final mz = manzana?.trim();
+            if (mz != null && mz.isNotEmpty) {
+              cond = cond & r.manzana.like('%$mz');
+            }
+            return cond;
+          })
           ..orderBy([(r) => OrderingTerm.asc(r.direccionNorm)])
           ..limit(limit))
         .get();

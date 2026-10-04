@@ -77,10 +77,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   ParadaCaptureContext? get _paradaCtx =>
       ref.read(paradaCaptureContextProvider(widget.routeId)).valueOrNull;
 
-  /// The manzana scoping the R1 typeahead: authoritative from the parada.
-  /// Empty on an unassisted route now that the manual manzana field is gone —
-  /// the classic typeahead searches the whole directory.
-  String get _activeManzana => _paradaCtx?.parada.manzana ?? '';
+  /// The raw current parada (from the stops cache), available as soon as the
+  /// stops load — BEFORE the heavier async [_paradaCtx] prediction. The manzana
+  /// scope + stop binding read from HERE, never from [_paradaCtx], so a search is
+  /// never run unscoped during the context-loading window: Spec 13 found that an
+  /// unscoped (global) search lets the worker link an R1 row from ANOTHER
+  /// manzana, which corrupts the anchor and breaks prediction.
+  Parada? get _currentParada =>
+      ref.read(currentParadaProvider(widget.routeId));
 
   // Camera per SHOT, on demand (CL-R3): there is NO live preview and NO
   // persistent camera across the walk — a streaming viewfinder open at every
@@ -197,54 +201,48 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   /// Filters the directory as the worker types (CL-R1). The typed text is
   /// NEVER modified by anything here — it is the observed truth.
   ///
-  /// Three-way branch by parada mode (Decisions v2 §8): a GUIDED parada (has a
-  /// terna) searches by the EXACT distance the worker typed, scoped to that
-  /// terna — a deterministic lookup, not a fuzzy fragment match, since the
-  /// vía/generadora are already fixed. A RURAL parada (no terna) has no R1
-  /// concept at all: free text, no search. Unassisted stays the classic
-  /// fragment search.
+  /// Spec 13: the anchor is searched by the FULL placa, scoped to the parada's
+  /// MANZANA (or the whole directory on an unassisted route). A parada with NO
+  /// manzana is rural — free text, no search. The terna/distance shortcut is
+  /// retired; the manzana alone scopes the search.
   Future<void> _onPlacaChanged(String text) async {
     if (_linked != null || _notInList) return;
-    final ctx = _paradaCtx;
-    if (ctx != null && !ctx.hasTerna) return; // rural: nothing to search
     final tenantId = ref.read(activeTenantIdProvider);
-    if (tenantId == null) return;
+    if (tenantId == null || !_directoryAvailable) return;
+    // Spec 13 — scope strictly to the parada's manzana. Do NOT run a search
+    // until the stops have loaded: a premature GLOBAL search (manzana unknown)
+    // surfaces rows from OTHER manzanas and lets the worker link one — the
+    // cross-manzana anchor bug (a 327 door linked on a 005 parada → prediction
+    // can't find it in 005 → "fin de la parada").
+    if (!ref.read(routeStopsProvider(widget.routeId)).hasValue) return;
+    final parada = _currentParada;
+    // Rural (a parada with no manzana): free text, nothing to search.
+    if (parada != null && (parada.manzana?.trim().isEmpty ?? true)) return;
     final seq = ++_searchSeq;
-    List<R1DirectoryData> hits;
-    if (ctx != null && ctx.hasTerna) {
-      final p = ctx.parada;
-      hits = await ref.read(r1DirectoryRepositoryProvider).searchByDistance(
-            tenantId,
-            tipoVia: p.tipoVia!,
-            numVia: p.numVia!,
-            numCruce: p.numCruce!,
-            distancePrefix: text.trim(),
-            manzana: p.manzana,
-          );
-    } else {
-      if (!_directoryAvailable) return;
-      // CL-R1 v1.2: the manual manzana field scopes the placa-only mode.
-      final mz = _activeManzana;
-      hits = await ref.read(r1DirectoryRepositoryProvider).search(
-            tenantId,
-            text,
-            manzana: mz.isEmpty ? null : mz,
-          );
-    }
+    // The parada's manzana scopes the search; null only on a truly unassisted
+    // route (no parada) → the classic whole-directory search.
+    final mz = parada?.manzana?.trim() ?? '';
+    final hits = await ref.read(r1DirectoryRepositoryProvider).search(
+          tenantId,
+          text,
+          manzana: mz.isEmpty ? null : mz,
+        );
     if (!mounted || seq != _searchSeq) return;
     // setState even when empty: the panel must show "No está en la lista"
-    // for text that matches NOTHING — the most divergent case of all is
-    // exactly where that action must stay one tap away (CL-R1).
+    // for text that matches NOTHING (CL-R1).
     setState(() => _suggestions = hits);
   }
 
   bool get _panelVisible {
     if (_esLote) return false; // Spec 12: a lot uses no R1 directory UI.
-    final ctx = _paradaCtx;
-    if (ctx != null && !ctx.hasTerna) return false; // rural: no directory UI
-    final hasDirectory = (ctx != null && ctx.hasTerna) || _directoryAvailable;
-    return hasDirectory &&
-        _linked == null &&
+    if (!_directoryAvailable) return false;
+    final parada = _currentParada;
+    // Spec 13: rural (a parada with no manzana) has no directory UI; a parada
+    // WITH a manzana — or an unassisted route — uses the downloaded directory.
+    if (parada != null && (parada.manzana?.trim().isEmpty ?? true)) {
+      return false;
+    }
+    return _linked == null &&
         !_notInList &&
         _placaCtrl.text.trim().isNotEmpty;
   }
@@ -416,20 +414,22 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         return;
       }
       // Spec 10 / Decisions v2: on an assisted route the parada fixes the
-      // manzana and binds by stop_id (§6, both urban and rural); block_face_id
-      // rides too when the parada has one, for compatibility. Unassisted there
-      // is no parada binding and no manzana (the manual field is gone). In
-      // RURAL mode (§8, no terna) there is no R1 concept: npn/sinR1 never apply.
-      final paradaCtx = _paradaCtx;
-      final rural = paradaCtx != null && !paradaCtx.hasTerna;
+      // manzana and binds by stop_id (§6); block_face_id rides too when the
+      // parada has one. Spec 13: bind to the RAW parada (reliable identity +
+      // manzana, loaded before the async prediction context), and "rural" (no R1
+      // link / finding stored) = a parada with NO manzana; a manzana parada
+      // stores npn / sinR1 like any R1 capture.
+      final parada = ref.read(currentParadaProvider(widget.routeId));
+      final rural =
+          parada != null && (parada.manzana?.trim().isEmpty ?? true);
       final clientId = await repo.appendCapture(
         routeId: widget.routeId,
         placa: _placaCtrl.text,
-        manzanaCatastral: paradaCtx?.parada.manzana,
+        manzanaCatastral: parada?.manzana,
         tipoAcceso: _tipoAcceso,
         observacion: _obsCtrl.text,
-        stopId: paradaCtx?.parada.stopId,
-        blockFaceId: paradaCtx?.parada.blockFaceId,
+        stopId: parada?.stopId,
+        blockFaceId: parada?.blockFaceId,
         // Spec 12: the built state the worker picked (Construido / Sin construir).
         esLote: _esLote,
         // CL4: unsent content belongs to the person who captured it.
@@ -478,10 +478,30 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     // flow renders unchanged.
     final paradaCtx =
         ref.watch(paradaCaptureContextProvider(widget.routeId)).valueOrNull;
+    // Spec 13: the raw parada (identity + manzana) loads before the async
+    // prediction context — read the manzana from HERE so the field shape is
+    // right immediately, not after the context resolves.
+    final rawParada = ref.watch(currentParadaProvider(widget.routeId));
+    // Spec 13 robustness: the first keystrokes can land while the parada is
+    // still loading — _onPlacaChanged skips the search until the stops load and
+    // would otherwise never re-fire (it only runs on a keystroke). When the
+    // parada resolves (null → parada), re-run the search for whatever is already
+    // typed, so a fast typer isn't left with an empty dropdown.
+    ref.listen<Parada?>(currentParadaProvider(widget.routeId), (prev, next) {
+      if (prev == null &&
+          next != null &&
+          !_esLote &&
+          _linked == null &&
+          !_notInList &&
+          _placaCtrl.text.trim().isNotEmpty) {
+        _onPlacaChanged(_placaCtrl.text);
+      }
+    });
     final assisted = paradaCtx != null;
-    // Decisions v2 §8: chosen by the PARADA, never a manual toggle.
-    final hasTerna = assisted && paradaCtx.hasTerna;
-    final rural = assisted && !paradaCtx.hasTerna;
+    // "rural" (no R1 concept, free text) = a parada with NO manzana; a manzana —
+    // with or without a terna — drives the assisted full-placa anchor flow.
+    final rural = rawParada != null &&
+        (rawParada.manzana?.trim().isEmpty ?? true);
     final showPrediction = assisted &&
         !_esLote && // Spec 12: a lot has no R1 address to predict/link.
         !_predictionDismissed &&
@@ -498,10 +518,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         typedParity != null &&
         typedParity != faceParity;
 
-    // The placa field's shape depends entirely on the parada's mode (§8): the
-    // worker never chooses it. Guided shows a live preview as the helper
-    // (Decision 4 — the vía/generadora/dash are never typed); rural asks for
-    // the predio's name outright (topónimo, §8); unassisted stays classic.
+    // The placa field's shape depends on the parada (Spec 13): a lote's address
+    // is optional; a rural parada (NO manzana) asks for the predio's name
+    // (topónimo); any parada WITH a manzana — and the unassisted route — asks
+    // for the full placa, searched within the manzana. The terna/distance
+    // shortcut is retired.
     final String placaLabel;
     final String? placaHint;
     final String? placaHelper;
@@ -514,13 +535,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       placaLabel = 'Nombre del predio';
       placaHint = 'FINCA CANAÁN';
       placaHelper = 'Se guarda tal cual, siempre.';
-    } else if (hasTerna) {
-      placaLabel = 'Distancia (a la esquina)';
-      placaHint = null;
-      placaHelper = paradaCtx.previewFor(_placaCtrl.text);
     } else {
       placaLabel = 'Placa (dirección en la puerta)';
-      placaHint = 'C 5 1 11';
+      placaHint = 'CALLE 14 # 2-104';
       placaHelper = _directoryHelper;
     }
 
@@ -648,7 +665,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   // parada with none (rural, or urban before end-of-face)
                   // could never close and the walk would stall.
                   paradaCtx.endOfFace
-                      ? _FinCaraCard(
+                      ? _FinParadaCard(
                           onSweep: () =>
                               _markFaceSwept(paradaCtx.parada.stopId),
                         )
@@ -1025,8 +1042,8 @@ class _ParityWarningBanner extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Esta cara es ${_parityLabel(faceParity)}, pero la distancia que '
-                'escribiste es ${_parityLabel(other)}. Revisa la acera — se '
+                'Esta parada es ${_parityLabel(faceParity)}, pero la distancia '
+                'que escribiste es ${_parityLabel(other)}. Revisa la acera — se '
                 'guarda igual.',
                 style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
               ),
@@ -1210,7 +1227,7 @@ class _ExpectedPlacaCard extends StatelessWidget {
 /// on a guided one, or ALWAYS on a rural one (which has no prediction to
 /// exhaust, so this is its ONLY way to close and unlock the next parada). A
 /// plain action, not a card: it is not announcing "you're done" the way
-/// [_FinCaraCard] does, just always offering the door.
+/// [_FinParadaCard] does, just always offering the door.
 class _CerrarParadaButton extends StatelessWidget {
   const _CerrarParadaButton({required this.onSweep});
 
@@ -1233,8 +1250,8 @@ class _CerrarParadaButton extends StatelessWidget {
 /// capture a straggler the R1 never knew (a finding), then close the face —
 /// which unlocks the next parada. Closing is optimistic-local (PC.3); PC.4
 /// adds the foto_obligatoria gate and PC.5 the server reconcile.
-class _FinCaraCard extends StatelessWidget {
-  const _FinCaraCard({required this.onSweep});
+class _FinParadaCard extends StatelessWidget {
+  const _FinParadaCard({required this.onSweep});
 
   final VoidCallback onSweep;
 
@@ -1253,12 +1270,12 @@ class _FinCaraCard extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.done_all,
                   color: theme.colorScheme.onSecondaryContainer),
-              title: Text('Fin de la cara',
+              title: Text('Fin de la parada',
                   style:
                       TextStyle(color: theme.colorScheme.onSecondaryContainer)),
               subtitle: Text(
                 'No hay más direcciones esperadas. Si ves una puerta que la '
-                'lista no tiene, captúrala como hallazgo; si no, cierra la cara.',
+                'lista no tiene, captúrala como hallazgo; si no, cierra la parada.',
                 style: TextStyle(color: theme.colorScheme.onSecondaryContainer),
               ),
             ),
@@ -1266,7 +1283,7 @@ class _FinCaraCard extends StatelessWidget {
             FilledButton.icon(
               onPressed: onSweep,
               icon: const Icon(Icons.flag),
-              label: const Text('Marcar cara barrida'),
+              label: const Text('Marcar parada barrida'),
             ),
             const SizedBox(height: 4),
             Text('Desbloquea la siguiente parada.',
