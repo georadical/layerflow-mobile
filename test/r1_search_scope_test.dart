@@ -24,9 +24,8 @@ Future<AppDatabase?> _memoryDb() async {
 R1DirectoryCompanion _r1(int tenant, String npn, String manzana, String norm) =>
     R1DirectoryCompanion.insert(
       tenantId: tenant,
-      npn: npn,
-      direccion: norm,
       direccionNorm: norm,
+      npn: Value<String?>(npn),
       manzana: Value(manzana),
       parseOk: const Value(true),
     );
@@ -36,9 +35,8 @@ R1DirectoryCompanion _r1d(int tenant, String npn, String manzana, String norm,
         String via, String numVia, String numCruce, String placa) =>
     R1DirectoryCompanion.insert(
       tenantId: tenant,
-      npn: npn,
-      direccion: norm,
       direccionNorm: norm,
+      npn: Value<String?>(npn),
       manzana: Value(manzana),
       tipoVia: Value(via),
       numVia: Value(numVia),

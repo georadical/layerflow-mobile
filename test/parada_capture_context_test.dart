@@ -37,9 +37,8 @@ R1DirectoryCompanion _r1(
 ) =>
     R1DirectoryCompanion.insert(
       tenantId: tenant,
-      npn: npn,
-      direccion: norm,
       direccionNorm: norm,
+      npn: Value<String?>(npn),
       manzana: const Value('001'),
       tipoVia: const Value('CARRERA'),
       numVia: const Value('2'),

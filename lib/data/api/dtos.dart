@@ -441,71 +441,84 @@ class FieldSession {
       };
 }
 
-/// One row of GET /field/r1-directory (Spec 7): an addressed R1 unit for
-/// the typeahead. The NPN is carried but NEVER displayed — the worker only
-/// ever sees addresses.
+/// One item of GET /field/r1-directory (Spec 15, v4): a **PLACA** (collapsed by
+/// manzana + direccion_norm), not a single unit. The NPN is carried but NEVER
+/// displayed — the worker only ever sees addresses. The per-unit npn/direccion
+/// live in `units[]`; here we keep only the **representative npn** (the single
+/// unit's, when `unidades==1`) — a multi-unit placa has `npn=null` and is
+/// captured by `direccion_norm`. The full `units[]` is deferred to the survey
+/// phase (Spec 8).
 class R1DirectoryItem {
   const R1DirectoryItem({
-    required this.npn,
-    required this.direccion,
+    this.npn,
     required this.direccionNorm,
     this.manzana,
-    this.enlazadoLoc,
     this.tipoVia,
     this.numVia,
     this.numCruce,
     this.placa,
+    this.unidades = 1,
+    this.esConjunto = false,
+    this.capturada = false,
     this.parseOk = false,
     this.refGeografica,
   });
 
-  final String npn;
-  final String direccion;
+  /// Representative NPN: the single unit's when [unidades] == 1, else null
+  /// (a multi-unit placa is captured at the placa level by [direccionNorm]).
+  final String? npn;
   final String direccionNorm;
   final String? manzana;
 
-  /// Server-parsed address components (Spec 10, backend adds them to
-  /// /field/r1-directory). The local face prediction groups by these
-  /// authoritative values — never re-parsing direccion_norm, so vías with
-  /// letters/suffixes ("10AS") are used as sent, not synthesised.
+  /// Server-parsed address components (Spec 10). The local face prediction
+  /// groups by these authoritative values — never re-parsing direccion_norm.
   final String? tipoVia;
   final String? numVia;
   final String? numCruce;
   final String? placa;
+
+  /// Census units sharing this placa (apto/local/interior). 1 for a normal
+  /// door; >1 for PH. The per-unit detail is linked later (survey, Spec 8).
+  final int unidades;
+
+  /// Derived `unidades > 1`; carried for display/debugging only.
+  final bool esConjunto;
+
+  /// The placa is already captured on a route (Spec 15, BR-V3): HIDE it from the
+  /// typeahead — a finished door is never re-offered.
+  final bool capturada;
+
   final bool parseOk;
 
   /// Best-effort geographic reference (Spec 10): the corregimiento/vereda name
-  /// scraped from the raw address (e.g. "SALTO DE BORDONES"), or null on a
-  /// clean urban row. Free text, NOT a catalog — shown only as an approximate
-  /// hint, never as an official/structured field.
+  /// scraped from the raw address, or null on a clean urban row. Hint only.
   final String? refGeografica;
 
-  /// CL-R6: `{loc, ruta}` when this R1 row is ALREADY linked to a captured
-  /// unit — computed server-side on purpose, because a local count cannot
-  /// see links made by another device, worker or campaign. Consumed rows
-  /// are MARKED, never hidden: if the worker recognises that address at
-  /// THIS door they must still be able to pick it (the server accepts the
-  /// duplicate NPN and flags divergence), which is how a bad previous link
-  /// surfaces instead of staying buried.
-  final String? enlazadoLoc;
-
   factory R1DirectoryItem.fromJson(Map<String, dynamic> json) {
-    final enlazado = json['enlazado'];
+    final units = (json['units'] as List<dynamic>? ?? const []);
+    final unidades = (json['unidades'] as num?)?.toInt() ??
+        (units.isNotEmpty ? units.length : 1);
+    // Representative npn ONLY for a single-unit placa (multi-unit → null, captured
+    // by direccion_norm). Tolerate a flat v3 row (npn at the item level) during
+    // the brief window before the backend deploys v4.
+    String? repNpn;
+    if (unidades == 1) {
+      if (units.isNotEmpty && units.first is Map) {
+        repNpn = (units.first as Map)['npn']?.toString();
+      }
+      repNpn ??= json['npn']?.toString();
+    }
     return R1DirectoryItem(
-      npn: json['npn'] as String,
-      direccion: json['direccion']?.toString() ?? '',
+      npn: repNpn,
       direccionNorm: json['direccion_norm']?.toString() ?? '',
       manzana: json['manzana']?.toString(),
-      enlazadoLoc: enlazado is Map
-          ? [
-              if (enlazado['ruta'] != null) 'ruta ${enlazado['ruta']}',
-              if (enlazado['loc'] != null) 'loc ${enlazado['loc']}',
-            ].join(' · ')
-          : null,
       tipoVia: json['tipo_via']?.toString(),
       numVia: json['num_via']?.toString(),
       numCruce: json['num_cruce']?.toString(),
       placa: json['placa']?.toString(),
+      unidades: unidades,
+      esConjunto: json['es_conjunto'] as bool? ?? (unidades > 1),
+      capturada: json['capturada'] as bool? ?? false,
       parseOk: json['parse_ok'] as bool? ?? false,
       refGeografica: json['ref_geografica']?.toString(),
     );

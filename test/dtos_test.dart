@@ -606,4 +606,46 @@ void main() {
       expect(urban.refGeografica, isNull);
     });
   });
+
+  group('R1DirectoryItem v4 (Spec 15: grouped by placa)', () {
+    test('multi-unit placa → npn null, unidades/es_conjunto/capturada', () {
+      final item = R1DirectoryItem.fromJson({
+        'direccion_norm': 'CALLE 14 # 2-104',
+        'manzana': '41551010100000005',
+        'tipo_via': 'CALLE',
+        'num_via': '14',
+        'num_cruce': '2',
+        'placa': '104',
+        'unidades': 3,
+        'es_conjunto': true,
+        'capturada': false,
+        'parse_ok': true,
+        'units': [
+          {'npn': 'a'},
+          {'npn': 'b'},
+          {'npn': 'c'},
+        ],
+      });
+      expect(item.npn, isNull); // multi-unit → captured by direccion_norm
+      expect(item.unidades, 3);
+      expect(item.esConjunto, isTrue);
+      expect(item.capturada, isFalse);
+      expect(item.direccionNorm, 'CALLE 14 # 2-104');
+    });
+
+    test('single-unit placa → representative npn from units[0]; capturada', () {
+      final item = R1DirectoryItem.fromJson({
+        'direccion_norm': 'CALLE 13 # 3A-02',
+        'manzana': '41551010100000327',
+        'unidades': 1,
+        'capturada': true,
+        'units': [
+          {'npn': 'x-02'},
+        ],
+      });
+      expect(item.npn, 'x-02');
+      expect(item.unidades, 1);
+      expect(item.capturada, isTrue);
+    });
+  });
 }

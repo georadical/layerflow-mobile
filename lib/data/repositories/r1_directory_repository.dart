@@ -29,23 +29,25 @@ class R1DirectoryRepository {
 
   /// Fetches the slice if it changed; replaces the tenant's copy atomically.
   Future<R1RefreshResult> refresh(int tenantId) async {
-    final known = await _settings.getR1Version(tenantId);
+    final count = await _db.r1CountForTenant(tenantId);
+    // Spec 15: force a full re-download when the local slice is empty (e.g. right
+    // after the v22 migration dropped it) — otherwise a version match would leave
+    // the directory empty until the backend's version bumps.
+    final known = count == 0 ? null : await _settings.getR1Version(tenantId);
     final res = await _api.getR1Directory(knownVersion: known);
     if (res.unchanged) {
-      return R1RefreshResult(
-        unchanged: true,
-        count: await _db.r1CountForTenant(tenantId),
-      );
+      return R1RefreshResult(unchanged: true, count: count);
     }
     await _db.replaceR1Slice(tenantId, [
       for (final item in res.items)
         R1DirectoryCompanion.insert(
           tenantId: tenantId,
-          npn: item.npn,
-          direccion: item.direccion,
           direccionNorm: item.direccionNorm,
+          npn: Value(item.npn),
           manzana: Value(item.manzana),
-          enlazadoLoc: Value(item.enlazadoLoc),
+          unidades: Value(item.unidades),
+          esConjunto: Value(item.esConjunto),
+          capturada: Value(item.capturada),
           tipoVia: Value(item.tipoVia),
           numVia: Value(item.numVia),
           numCruce: Value(item.numCruce),

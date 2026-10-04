@@ -286,9 +286,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     // the canonical "CALLE 13 # 3A-02" (the npn carries identity). Only an
     // explicit divergence keeps the typed text.
     if (!keepTyped) _placaCtrl.text = hit.direccionNorm;
-    final dup = await ref
-        .read(captureRepositoryProvider)
-        .npnPosicionInRoute(widget.routeId, hit.npn);
+    // v4: a multi-unit placa has no npn — no per-npn duplicate to check.
+    final dup = hit.npn == null
+        ? null
+        : await ref
+            .read(captureRepositoryProvider)
+            .npnPosicionInRoute(widget.routeId, hit.npn!);
     if (!mounted) return;
     setState(() {
       _linked = hit;
@@ -315,9 +318,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   /// the identity.
   Future<void> _coincide(R1DirectoryData expected) async {
     _placaCtrl.text = expected.direccionNorm;
-    final dup = await ref
-        .read(captureRepositoryProvider)
-        .npnPosicionInRoute(widget.routeId, expected.npn);
+    final dup = expected.npn == null
+        ? null
+        : await ref
+            .read(captureRepositoryProvider)
+            .npnPosicionInRoute(widget.routeId, expected.npn!);
     if (!mounted) return;
     setState(() {
       _linked = expected;
