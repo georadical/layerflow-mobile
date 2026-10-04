@@ -553,9 +553,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     } else if (distanceMode) {
       // AM.8: the face is fixed by the anchor — the worker types only the
       // distance; the helper shows the composed preview from the anchor's terna.
+      // Once linked, the field holds the full direccion (not a distance), so the
+      // preview would double-compose — hide it and let the linked card speak.
       placaLabel = 'Distancia (a la esquina)';
       placaHint = null;
-      placaHelper = paradaCtx!.previewFromAnchor(_placaCtrl.text);
+      placaHelper =
+          _linked == null ? paradaCtx!.previewFromAnchor(_placaCtrl.text) : null;
     } else {
       placaLabel = 'Placa (dirección en la puerta)';
       placaHint = 'CALLE 14 # 2-104';
