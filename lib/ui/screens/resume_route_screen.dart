@@ -7,6 +7,7 @@ import '../../core/parada/face_prediction.dart' show composeParadaAddress;
 import '../../core/parada/predio_sequence.dart';
 import '../../data/api/api_client.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/capture_repository.dart';
 import '../../data/repositories/survey_repository.dart';
 import '../providers.dart';
 import '../widgets/predio_number.dart';
@@ -597,7 +598,11 @@ class _UnitTile extends ConsumerWidget {
     // per-parada number ("Parada N · predio M"), rendered with its state.
     final predio = predioDisplayFor(row, allRows);
     final metaRest = <String>[
-      if (row.loc != null) 'loc ${row.loc}',
+      // loc is always shown: the backend's value once synced, else the app's
+      // provisional loc = posicion * 5 (anchorLoc), matching the provisional →
+      // authoritative model. Spec 11 kept loc on the card but only post-sync
+      // (row.loc != null); this restores it pre-sync too.
+      'loc ${CaptureRepository.anchorLoc(row)}',
       // The full 17-digit LADM_COL código collapses to a readable label
       // (Mz50 / Z1·Mz88), keeping the intermediate fields that give it
       // uniqueness in a big city (PC.6, backend-pinned).
