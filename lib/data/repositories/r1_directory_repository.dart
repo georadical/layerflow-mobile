@@ -113,6 +113,12 @@ class R1DirectoryRepository {
   Future<R1DirectoryData?> byNpn(int tenantId, String npn) =>
       _db.r1ByNpn(tenantId, npn);
 
+  /// Spec 15 (v4): resolve a multi-unit placa's row by direccion_norm (it has no
+  /// npn) — used to find the anchor's face terna for prediction.
+  Future<R1DirectoryData?> byDireccionNorm(
+          int tenantId, String manzana, String direccionNorm) =>
+      _db.r1ByDireccionNorm(tenantId, manzana, direccionNorm);
+
   /// All parse_ok R1 rows of a manzana (Spec 10) — the candidate faces the
   /// local prediction groups over.
   Future<List<R1DirectoryData>> rowsForManzana(int tenantId, String manzana) =>

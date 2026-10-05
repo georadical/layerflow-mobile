@@ -453,8 +453,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         esLote: _esLote,
         // CL4: unsent content belongs to the person who captured it.
         owner: owner,
-        // Spec 7: the pair is the record — raw placa above, npn here.
+        // Spec 7: the pair is the record — raw placa above, npn here. v4: a
+        // multi-unit placa has no npn (it is null on the linked row).
         npn: rural ? null : _linked?.npn,
+        // v4 (Spec 15): a multi-unit placa (npn null) is linked by its
+        // direccion_norm instead; a single-unit link uses npn, so this stays null.
+        direccionNorm: (!rural && _linked != null && _linked!.npn == null)
+            ? _linked!.direccionNorm
+            : null,
         // CL-R7: only the EXPLICIT tap asserts it. Typing and saving
         // without opening suggestions says nothing (null) — turning
         // passivity into a "finding" would poison the very indicator. A

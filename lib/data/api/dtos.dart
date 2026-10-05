@@ -20,6 +20,7 @@ class PlacaItemRequest {
     this.observacion,
     this.insAfter,
     this.npn,
+    this.direccionNorm,
     this.sinR1,
     this.blockFaceId,
     this.stopId,
@@ -52,6 +53,12 @@ class PlacaItemRequest {
   /// the row's current value.
   final String? npn;
 
+  /// Spec 15 (v4): the linked PLACA's direccion_norm, sent for a MULTI-UNIT
+  /// placa (npn is null then — the units are linked later in the survey phase).
+  /// Full-replacement like npn (re-carried on every push). Mutually exclusive
+  /// with [npn]: a single-unit link sends npn, a multi-unit link sends this.
+  final String? direccionNorm;
+
   /// CL-R7, TRI-STATE (backend 287cf2a): true asserts the finding (the
   /// worker tapped "No está en la lista"), false RETRACTS it, null omits
   /// the key and the server PRESERVES what it holds. Mutually exclusive
@@ -77,6 +84,8 @@ class PlacaItemRequest {
         // only a real mark is serialised.
         if (insAfter != null) 'ins_after': insAfter,
         if (npn != null) 'npn': npn,
+        // v4: a multi-unit placa link (npn null). Full-replacement, like npn.
+        if (direccionNorm != null) 'direccion_norm': direccionNorm,
         // Tri-state: the key travels only when there is something to say
         // (assert or retract). Sending it beside npn is a per-item error.
         if (sinR1 != null && npn == null) 'sin_r1': sinR1,
@@ -662,6 +671,7 @@ class RouteFrameItem {
     this.manzanaCatastral,
     this.insAfter,
     this.npn,
+    this.direccionNorm,
     this.npnMatchMethod,
     this.blockFaceId,
     this.stopId,
@@ -687,6 +697,10 @@ class RouteFrameItem {
   /// NPN link as the server holds it (Spec 7). The frame is the source of
   /// truth on resume; the app re-carries this on every push (BR5).
   final String? npn;
+
+  /// Spec 15 (v4): the multi-unit placa link's direccion_norm, as the server
+  /// holds it; re-carried on push like npn. Null for a single-unit / no link.
+  final String? direccionNorm;
 
   /// Provenance of the link (field_confirmed | manual | ...); informational.
   final String? npnMatchMethod;
@@ -714,6 +728,7 @@ class RouteFrameItem {
       manzanaCatastral: json['manzana_catastral'] as String?,
       insAfter: (json['ins_after'] as num?)?.toInt(),
       npn: json['npn'] as String?,
+      direccionNorm: json['direccion_norm'] as String?,
       npnMatchMethod: json['npn_match_method'] as String?,
       blockFaceId: json['block_face_id'] as String?,
       stopId: json['stop_id'] as String?,

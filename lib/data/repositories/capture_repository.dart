@@ -44,6 +44,7 @@ class CaptureRepository {
     String? observacion,
     String? owner,
     String? npn,
+    String? direccionNorm,
     bool? sinR1,
     String? blockFaceId,
     String? stopId,
@@ -64,6 +65,7 @@ class CaptureRepository {
         observacion: Value(_nullIfBlank(observacion)),
         ownerEmail: Value(owner),
         npn: Value(npn),
+        direccionNorm: Value(direccionNorm),
         sinR1: Value(sinR1),
         blockFaceId: Value(blockFaceId),
         stopId: Value(stopId),
@@ -297,6 +299,8 @@ class CaptureRepository {
             esLote: Value(item.esLote),
             insAfter: Value(item.insAfter),
             npn: Value(item.npn),
+            // v4: the multi-unit placa link's direccion_norm (frame = truth).
+            direccionNorm: Value(item.direccionNorm),
             npnMatchMethod: Value(item.npnMatchMethod),
             sinR1: Value(
                 item.npnMatchMethod == AppConfig.methodSinMatch ? true : null),
@@ -327,6 +331,8 @@ class CaptureRepository {
             // next push re-carries exactly what it says.
             insAfter: Value(item.insAfter),
             npn: Value(item.npn),
+            // v4: the multi-unit placa link's direccion_norm (frame = truth).
+            direccionNorm: Value(item.direccionNorm),
             npnMatchMethod: Value(item.npnMatchMethod),
             // Re-carried from the frame's provenance (the general rule for
             // fields with procedencia). null = in sync, nothing to declare;

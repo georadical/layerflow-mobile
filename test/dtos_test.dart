@@ -256,6 +256,29 @@ void main() {
           reason: 'omitting clears the link server-side, by contract');
     });
 
+    test('v4: request sends direccion_norm for a multi-unit placa link', () {
+      final multi = const PlacaItemRequest(
+              clientId: 'a', posicion: 1, direccionNorm: 'CALLE 14 # 2-104')
+          .toJson();
+      expect(multi['direccion_norm'], 'CALLE 14 # 2-104');
+      expect(multi.containsKey('npn'), isFalse); // npn null for multi-unit
+
+      final single =
+          const PlacaItemRequest(clientId: 'b', posicion: 2, npn: 'npn-1')
+              .toJson();
+      expect(single.containsKey('direccion_norm'), isFalse); // npn carries it
+    });
+
+    test('v4: frame item parses direccion_norm', () {
+      final item = RouteFrameItem.fromJson({
+        'client_id': 'a',
+        'posicion': 1,
+        'direccion_norm': 'CALLE 14 # 2-104',
+      });
+      expect(item.direccionNorm, 'CALLE 14 # 2-104');
+      expect(item.npn, isNull);
+    });
+
     test('frame item parses npn and its provenance', () {
       final item = RouteFrameItem.fromJson({
         'client_id': 'a',

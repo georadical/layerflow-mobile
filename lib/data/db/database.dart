@@ -844,6 +844,23 @@ class AppDatabase extends _$AppDatabase {
             ..where((r) => r.tenantId.equals(tenantId) & r.npn.equals(npn)))
           .getSingleOrNull();
 
+  /// Spec 15 (v4): the directory row for a multi-unit placa, resolved by its
+  /// direccion_norm within a manzana — a multi-unit anchor has no npn.
+  Future<R1DirectoryData?> r1ByDireccionNorm(
+    int tenantId,
+    String manzana,
+    String direccionNorm,
+  ) {
+    final mz = manzana.trim();
+    return (select(r1Directory)
+          ..where((r) =>
+              r.tenantId.equals(tenantId) &
+              r.manzana.like('%$mz') &
+              r.direccionNorm.equals(direccionNorm))
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
   Future<int> r1CountForTenant(int tenantId) async {
     // v4: npn is nullable (multi-unit placas have none) — count a non-null
     // column so those rows are included.

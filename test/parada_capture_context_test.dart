@@ -184,6 +184,51 @@ void main() {
     expect(ctx.previewFromAnchor(''), 'CARRERA 2 # 4-__');
   });
 
+  test('Spec 15 (V4.6): multi-unit anchor (npn null) predicts by direccion_norm',
+      () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+
+    await db.replaceR1Slice(tenant, [
+      _r1(tenant, 'npn-09', 'CARRERA 2 # 4-09', '4', '09'),
+      _r1(tenant, 'npn-15', 'CARRERA 2 # 4-15', '4', '15'),
+      _r1(tenant, 'npn-23', 'CARRERA 2 # 4-23', '4', '23'),
+    ]);
+    await db.upsertParada(ParadasCompanion.insert(
+      stopId: 's1',
+      routeId: routeId,
+      faceSequence: 1,
+      manzana: const Value('001'),
+      updatedAt: DateTime.now(),
+    ));
+    // v4: a MULTI-UNIT placa anchor — captured with npn=null + direccion_norm
+    // (the placa). The provider must resolve its terna by direccion_norm.
+    await CaptureRepository(db).appendCapture(
+      routeId: routeId,
+      placa: 'CARRERA 2 # 4-09',
+      manzanaCatastral: '001',
+      direccionNorm: 'CARRERA 2 # 4-09',
+      stopId: 's1',
+    );
+    final caps = await (db.select(db.captures)
+          ..where((c) => c.routeId.equals(routeId)))
+        .get();
+    expect(caps.single.npn, isNull); // multi-unit: no npn
+    expect(caps.single.direccionNorm, 'CARRERA 2 # 4-09');
+
+    final c = _container(db, tenant, caps);
+    addTearDown(c.dispose);
+    await c.read(routeStopsProvider(routeId).future);
+    await c.read(capturesProvider(routeId).future);
+
+    final ctx = await c.read(paradaCaptureContextProvider(routeId).future);
+    expect(ctx, isNotNull);
+    expect(ctx!.prediction, isNotNull); // predicts despite the null npn
+    expect(ctx.expectedDireccion, 'CARRERA 2 # 4-15');
+    expect(ctx.anchorFace!.via, 'CARRERA');
+  });
+
   test('rural parada (no terna): bare context, no prediction, no R1 lookup',
       () async {
     final db = await _memoryDb();
