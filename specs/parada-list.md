@@ -147,13 +147,13 @@ exists** (`Paradas.swept`, `ParadaRepository.currentParada`, `markSwept`).
 - From `captures` grouped by `stopId`: count + `sync_status` rollup per parada.
 - `currentParada(routeId)` and `routeStopsProvider` already expose the needed state.
 
-## Assumptions & open decisions (please confirm / veto)
-- **D1 — Navigation integration.** Proposed: the **parada list replaces** the current
-  route-home (`resume_route_screen`) as the route's landing screen; the route-level
+## Assumptions & open decisions
+- **D1 — Navigation integration. ✅ DECIDED (Jorge, 2026-10-05): REPLACE.** The parada
+  list **replaces** `resume_route_screen` as the route's landing screen. The route-level
   **Enviar** + send-summary move onto the list header; a parada row drills into its
-  captures (current → CaptureScreen; done → read-only). *Alternative:* keep the resume
-  screen and add the list as a layer. **Recommendation: replace** (one coherent route
-  home). ← needs your call.
+  captures (current → CaptureScreen; done → read-only). `resume_route_screen` is retired
+  as the route home (its captures-list view is absorbed into the done-parada read-only
+  view). Implemented in PL.4.
 - **D2 — No-paradas routes.** Proposed: skip the list entirely and open the classic
   capture flow (BR7). Confirm vs. showing an empty-list screen.
 - **D3 — Done-parada tap.** Proposed: read-only captures view. Confirm (vs. not tappable
