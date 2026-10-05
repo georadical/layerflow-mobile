@@ -28,11 +28,7 @@ class _FakeR1Api implements ApiClient {
 }
 
 R1DirectoryItem _item(String npn, String norm, {String? manzana}) =>
-    R1DirectoryItem(
-        npn: npn,
-        direccion: norm.replaceAll(' # ', ' '),
-        direccionNorm: norm,
-        manzana: manzana);
+    R1DirectoryItem(npn: npn, direccionNorm: norm, manzana: manzana);
 
 /// A row WITH server-parsed columns (Spec 10) — what a guided parada's
 /// distance-only search reads.
@@ -47,7 +43,6 @@ R1DirectoryItem _parsedItem(
 }) =>
     R1DirectoryItem(
       npn: npn,
-      direccion: norm.replaceAll(' # ', ' '),
       direccionNorm: norm,
       manzana: manzana,
       tipoVia: tipoVia,

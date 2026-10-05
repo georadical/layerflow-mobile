@@ -467,6 +467,9 @@ class SyncService {
             // rides under the same rule (Spec 7).
             insAfter: c.insAfter,
             npn: c.npn,
+            // v4: the multi-unit placa link's direccion_norm (full-replacement,
+            // like npn). Null for a single-unit link or a finding.
+            direccionNorm: c.direccionNorm,
             // Third field under the same rule: omit it on a re-push and
             // the server clears the finding (CL-R7).
             sinR1: c.sinR1,

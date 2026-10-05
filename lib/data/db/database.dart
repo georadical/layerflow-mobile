@@ -102,6 +102,12 @@ class Captures extends Table {
   /// exactly like ins_after. The worker never sees this value.
   TextColumn get npn => text().nullable()();
 
+  /// Spec 15 (v4): the linked PLACA's direccion_norm, sent when a multi-unit
+  /// placa is captured (npn is null then — the units are linked later, in the
+  /// survey phase). Rides on EVERY push like npn (full-replacement). Null for a
+  /// single-unit link (npn carries it) or a finding.
+  TextColumn get direccionNorm => text().nullable()();
+
   /// Server-side provenance of the link (field_confirmed | manual | ...),
   /// read from the frame. Informational; never sent on push — EXCEPT that
   /// 'field_sin_match' is how a sin_r1 finding comes back (see below).
@@ -153,15 +159,16 @@ class Captures extends Table {
 /// Local copy of the tenant's addressed R1 slice (Spec 7, T7.1). Replaced
 /// wholesale per tenant on refresh (full snapshot, CL-R4). The typeahead
 /// reads it; capture NEVER blocks on it being stale or empty.
+/// Spec 15 (v4): one row per **placa** (collapsed by manzana + direccion_norm),
+/// not per unit. A per-tenant cache, fully replaced on each refresh.
 class R1Directory extends Table {
   /// Tenant the row belongs to: directories of different ESPs coexist
   /// without mixing (Spec 6 isolation applies here too).
   IntColumn get tenantId => integer()();
 
-  TextColumn get npn => text()();
-
-  /// Raw address as the R1 carries it.
-  TextColumn get direccion => text()();
+  /// Representative NPN — the single unit's when [unidades] == 1; NULL for a
+  /// multi-unit placa (captured at the placa level, by [direccionNorm]).
+  TextColumn get npn => text().nullable()();
 
   /// Server-normalized address (the pinned algorithm) — what the typeahead
   /// matches against and what the worker sees.
@@ -169,10 +176,15 @@ class R1Directory extends Table {
 
   TextColumn get manzana => text().nullable()();
 
-  /// CL-R6: where this R1 row is already linked ("ruta 10 · loc 15"), or
-  /// null when free. Server-computed: local counts cannot see links made
-  /// by another device, worker or campaign. Marked, never hidden.
-  TextColumn get enlazadoLoc => text().nullable()();
+  /// Census units sharing this placa (1 normal door; >1 PH). Spec 15.
+  IntColumn get unidades => integer().withDefault(const Constant(1))();
+
+  /// Derived `unidades > 1` — display/debug only.
+  BoolColumn get esConjunto => boolean().withDefault(const Constant(false))();
+
+  /// The placa is already captured on a route — HIDE it from the typeahead
+  /// (Spec 15, BR-V3). Replaces v3's per-npn `enlazadoLoc`.
+  BoolColumn get capturada => boolean().withDefault(const Constant(false))();
 
   /// Server-parsed address components (Spec 10). The face prediction groups
   /// by these authoritative values instead of re-parsing direccionNorm, so
@@ -190,8 +202,9 @@ class R1Directory extends Table {
   /// urban rows. Free text, shown only as an approximate hint.
   TextColumn get refGeografica => text().nullable()();
 
-  @override
-  Set<Column<Object>> get primaryKey => {tenantId, npn};
+  // No explicit primary key: the directory is a disposable per-tenant cache,
+  // fully replaced on refresh (replaceR1Slice deletes + re-inserts) and v4
+  // already sends one item per placa — drift's implicit rowid suffices.
 }
 
 /// Photo evidence queue (Spec 7, T7.4). One photo per unit (the contract's
@@ -341,7 +354,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: AppConfig.dbName));
 
   @override
-  int get schemaVersion => 21;
+  int get schemaVersion => 22;
 
   /// v2–v4 add nullable columns (null = the correct legacy meaning);
   /// v5 creates the R1 directory table (starts empty until first refresh).
@@ -370,7 +383,12 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 8) {
             await m.addColumn(captures, captures.sinR1);
-            await m.addColumn(r1Directory, r1Directory.enlazadoLoc);
+            // v4 (Spec 15) removed r1Directory.enlazadoLoc; add it via raw SQL so
+            // this historical step still compiles. The v22 step drops + recreates
+            // the table anyway, so this only matters for a (now-nonexistent) <8
+            // install passing through.
+            await m.database.customStatement(
+                'ALTER TABLE r1_directory ADD COLUMN enlazado_loc TEXT;');
           }
           if (from < 9) {
             // bool NOT NULL → nullable tri-state. Existing `false` means
@@ -480,6 +498,16 @@ class AppDatabase extends _$AppDatabase {
             // Spec 12: the es_lote flag on a capture (vacant lot). Existing rows
             // default false (not a lot).
             await m.addColumn(captures, captures.esLote);
+          }
+          if (from < 22) {
+            // Spec 15 (v4): the R1 directory collapses to one row per placa
+            // (units[] nested, npn nullable, + unidades/es_conjunto/capturada).
+            // The directory is a disposable per-tenant cache, so drop + recreate
+            // it with the new shape; refresh() re-downloads it clean (forced when
+            // empty). Captures gains direccion_norm for multi-unit placa capture.
+            await m.deleteTable('r1_directory');
+            await m.createTable(r1Directory);
+            await m.addColumn(captures, captures.direccionNorm);
           }
         },
       );
@@ -600,7 +628,9 @@ class AppDatabase extends _$AppDatabase {
   }) {
     return (select(r1Directory)
           ..where((r) {
+            // Spec 15 (v4): hide placas already captured on a route (BR-V3).
             var cond = r.tenantId.equals(tenantId) &
+                r.capturada.equals(false) &
                 r.direccionNorm.like('$normPrefix%');
             // Spec 13: scope the prefix (full-address) search to the parada's
             // manzana, exactly like searchR1Part — otherwise a full address
@@ -708,7 +738,9 @@ class AppDatabase extends _$AppDatabase {
   }) {
     return (select(r1Directory)
           ..where((r) {
+            // Spec 15 (v4): hide placas already captured on a route (BR-V3).
             var cond = r.tenantId.equals(tenantId) &
+                r.capturada.equals(false) &
                 r.direccionNorm.contains(partPattern);
             final mz = manzana?.trim();
             if (mz != null && mz.isNotEmpty) {
@@ -734,7 +766,7 @@ class AppDatabase extends _$AppDatabase {
         .get();
     return (
       total: rows.length,
-      free: rows.where((r) => r.enlazadoLoc == null).length,
+      free: rows.where((r) => !r.capturada).length,
     );
   }
 
@@ -786,7 +818,9 @@ class AppDatabase extends _$AppDatabase {
   }) {
     return (select(r1Directory)
           ..where((r) {
+            // Spec 15 (v4): hide placas already captured on a route (BR-V3).
             var cond = r.tenantId.equals(tenantId) &
+                r.capturada.equals(false) &
                 r.parseOk.equals(true) &
                 r.tipoVia.equals(tipoVia) &
                 r.numVia.equals(numVia) &
@@ -810,8 +844,27 @@ class AppDatabase extends _$AppDatabase {
             ..where((r) => r.tenantId.equals(tenantId) & r.npn.equals(npn)))
           .getSingleOrNull();
 
+  /// Spec 15 (v4): the directory row for a multi-unit placa, resolved by its
+  /// direccion_norm within a manzana — a multi-unit anchor has no npn.
+  Future<R1DirectoryData?> r1ByDireccionNorm(
+    int tenantId,
+    String manzana,
+    String direccionNorm,
+  ) {
+    final mz = manzana.trim();
+    return (select(r1Directory)
+          ..where((r) =>
+              r.tenantId.equals(tenantId) &
+              r.manzana.like('%$mz') &
+              r.direccionNorm.equals(direccionNorm))
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
   Future<int> r1CountForTenant(int tenantId) async {
-    final countExpr = r1Directory.npn.count();
+    // v4: npn is nullable (multi-unit placas have none) — count a non-null
+    // column so those rows are included.
+    final countExpr = r1Directory.direccionNorm.count();
     final query = selectOnly(r1Directory)
       ..where(r1Directory.tenantId.equals(tenantId))
       ..addColumns([countExpr]);

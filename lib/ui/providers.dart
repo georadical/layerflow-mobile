@@ -736,12 +736,21 @@ final paradaCaptureContextProvider = FutureProvider.autoDispose
   if (tenantId == null || manzana == null || onStop.isEmpty) return bare();
 
   final r1 = ref.watch(r1DirectoryRepositoryProvider);
-  // Anchor: the last R1-LINKED capture on the face. A finding (unlinked) does
-  // not move the anchor — the sweep continues from the last known R1 door.
-  final anchorCap =
-      onStop.lastWhere((c) => c.npn != null, orElse: () => onStop.last);
-  if (anchorCap.npn == null) return bare();
-  final anchorRow = await r1.byNpn(tenantId, anchorCap.npn!);
+  // Anchor: the last R1-LINKED capture on the face. v4 (Spec 15): a link is
+  // either an npn (single-unit placa) OR a direccion_norm (multi-unit placa, npn
+  // null). A finding (neither) does not move the anchor — the sweep continues
+  // from the last known R1 door.
+  final anchorCap = onStop.lastWhere(
+    (c) => c.npn != null || c.direccionNorm != null,
+    orElse: () => onStop.last,
+  );
+  R1DirectoryData? anchorRow;
+  if (anchorCap.npn != null) {
+    anchorRow = await r1.byNpn(tenantId, anchorCap.npn!);
+  } else if (anchorCap.direccionNorm != null) {
+    anchorRow =
+        await r1.byDireccionNorm(tenantId, manzana, anchorCap.direccionNorm!);
+  }
   if (anchorRow == null) return bare();
   final anchor = _faceFromRow(anchorRow);
   if (anchor == null) return bare();
