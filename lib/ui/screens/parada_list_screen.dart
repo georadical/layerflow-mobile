@@ -6,7 +6,9 @@ import '../../core/config/app_config.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
+import '../widgets/send_bar.dart';
 import 'capture_screen.dart';
+import 'resume_route_screen.dart';
 
 /// Spec 16 (PL.2) — the parada list, READ-ONLY render.
 ///
@@ -26,6 +28,12 @@ class ParadaListScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Opening a route is the sync moment (CL-R4): pull the frame + refresh the
+    // R1 directory and the paradas. Fire-and-forget — the list renders from the
+    // local cache and never blocks on it. The list is the route home now
+    // (Spec 16/D1), so this fires here instead of on the demoted resume view.
+    ref.watch(routeFrameProvider(routeId));
+
     final stopsAsync = ref.watch(routeStopsProvider(routeId));
     final routeCodigo =
         codigo ?? ref.watch(routeCodigoProvider(routeId)).valueOrNull;
@@ -37,11 +45,26 @@ class ParadaListScreen extends ConsumerWidget {
           routeLabel(codigo: routeCodigo, esp: esp),
           overflow: TextOverflow.ellipsis,
         ),
+        actions: [
+          // The full-route captures view + the placa editor live on the
+          // demoted resume screen (Spec 16/D1, option A): reachable from here,
+          // no longer the route home.
+          IconButton(
+            icon: const Icon(Icons.fact_check_outlined),
+            tooltip: 'Revisar / editar placas',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) =>
+                    ResumeRouteScreen(routeId: routeId, codigo: codigo),
+              ),
+            ),
+          ),
+        ],
       ),
       body: switch (stopsAsync) {
         AsyncError(:final error) => _ErrorView(error: error),
         AsyncData(:final value) => value.isEmpty
-            ? const _EmptyFallback()
+            ? _EmptyFallback(routeId: routeId)
             : _ParadaListView(routeId: routeId, stops: value),
         _ => const _Loading(),
       },
@@ -71,6 +94,9 @@ class _ParadaListView extends ConsumerWidget {
 
     return Column(
       children: [
+        // The route's queue + Enviar, shared with the demoted resume view.
+        // Renders nothing when there is nothing to send.
+        SendBar(routeId: routeId),
         _ProgressHeader(done: done, total: total),
         Divider(height: 1, color: theme.colorScheme.outlineVariant),
         Expanded(
@@ -375,7 +401,9 @@ class _Loading extends StatelessWidget {
 /// A route with no paradas: PL.7 will route it to the classic capture flow
 /// (BR7/D2). Here it only names the fallback so the state reads as intended.
 class _EmptyFallback extends StatelessWidget {
-  const _EmptyFallback();
+  const _EmptyFallback({required this.routeId});
+
+  final String routeId;
 
   @override
   Widget build(BuildContext context) {
@@ -393,11 +421,23 @@ class _EmptyFallback extends StatelessWidget {
                 textAlign: TextAlign.center, style: theme.textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(
-              'Se abrirá la captura clásica del recorrido.',
+              'Se captura en el flujo clásico del recorrido.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
+            ),
+            const SizedBox(height: 16),
+            // PL.7 will route a no-paradas route straight to the classic flow;
+            // for now the fallback is a plain entry into it.
+            FilledButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => CaptureScreen(routeId: routeId),
+                ),
+              ),
+              icon: const Icon(Icons.add),
+              label: const Text('Capturar'),
             ),
           ],
         ),

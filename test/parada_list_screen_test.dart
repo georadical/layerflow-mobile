@@ -58,6 +58,17 @@ Widget _host(
         routeStopsProvider.overrideWith((ref, routeId) => Stream.value(stops)),
         capturesProvider.overrideWith((ref, routeId) => Stream.value(caps)),
         espNameProvider.overrideWith((ref) => Future.value('ESP test')),
+        // PL.4: the list is the route home — it fires the sync moment and
+        // carries the SendBar. Stub the sync + the send-bar's DB-backed
+        // providers so the widget test stays DB-free and deterministic.
+        routeFrameProvider.overrideWith((ref, routeId) async {}),
+        isOnlineProvider.overrideWithValue(true),
+        isOnWifiProvider.overrideWithValue(true),
+        pendingEvidenceCountProvider
+            .overrideWith((ref, routeId) => Stream.value(0)),
+        pendingSurveyCountProvider
+            .overrideWith((ref, routeId) => Stream.value(0)),
+        routeRowProvider.overrideWith((ref, routeId) => Stream.value(null)),
       ],
       child: MaterialApp(
         home: const ParadaListScreen(routeId: 'r1', codigo: '10'),
@@ -148,6 +159,28 @@ void main() {
       expect(find.text('CALLE 14 # 2-112'), findsOneWidget);
       // No capture affordances on a read-only view.
       expect(find.text('Guardar y siguiente'), findsNothing);
+    });
+  });
+
+  group('ParadaListScreen route-home integration (Spec 16, PL.4)', () {
+    testWidgets('SendBar + "Revisar / editar" on the route home', (tester) async {
+      await tester.pumpWidget(_host(threeStops, caps)); // caps has one pending
+      await tester.pumpAndSettle();
+      // The queue's Enviar rides on the list header now (D1).
+      expect(find.text('Enviar'), findsOneWidget);
+      // The full captures view + editor are reachable (resume demoted).
+      expect(find.byTooltip('Revisar / editar placas'), findsOneWidget);
+    });
+
+    testWidgets('no SendBar when everything is synced', (tester) async {
+      final synced = [_cap('c1', 's1', AppConfig.syncSynced, placa: 'A')];
+      final stops = [
+        _parada('s1', 1, swept: true, manzana: '41551010100000005'),
+        _parada('s2', 2, swept: false, manzana: '41551010100000005'),
+      ];
+      await tester.pumpWidget(_host(stops, synced));
+      await tester.pumpAndSettle();
+      expect(find.text('Enviar'), findsNothing); // nothing queued → no bar
     });
   });
 }
