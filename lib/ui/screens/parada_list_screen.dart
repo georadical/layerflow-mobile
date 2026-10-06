@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/address/manzana_label.dart';
 import '../../core/config/app_config.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
+import 'capture_screen.dart';
 
 /// Spec 16 (PL.2) — the parada list, READ-ONLY render.
 ///
@@ -88,16 +90,101 @@ class _ParadaListView extends ConsumerWidget {
               final sinEnviar = onStop
                   .where((c) => c.syncStatus != AppConfig.syncSynced)
                   .length;
+              // Hard lock (BR3): only the current parada opens for capture; a
+              // done parada opens read-only (BR5); a locked one is inert and
+              // explains why. There is NO path to capture a non-current parada.
+              final onTap = switch (state) {
+                _RowState.current => () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => CaptureScreen(routeId: routeId),
+                      ),
+                    ),
+                _RowState.done => () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            _ParadaCapturesScreen(routeId: routeId, parada: p),
+                      ),
+                    ),
+                _RowState.pending => () =>
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content:
+                            Text('Se desbloquea al cerrar la parada anterior.'),
+                      ),
+                    ),
+              };
               return _ParadaTile(
                 parada: p,
                 state: state,
                 placas: placas,
                 sinEnviar: sinEnviar,
+                onTap: onTap,
               );
             },
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Read-only captures of a swept parada (PL.3, BR5). A done parada opens here,
+/// never back into capture — the route is swept in strict order and a closed
+/// parada is not re-entered for new placas (reopen/reinsertion is a future spec).
+class _ParadaCapturesScreen extends ConsumerWidget {
+  const _ParadaCapturesScreen({required this.routeId, required this.parada});
+
+  final String routeId;
+  final Parada parada;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final caps = [
+      for (final c
+          in ref.watch(capturesProvider(routeId)).valueOrNull ?? const [])
+        if (c.stopId == parada.stopId) c
+    ]..sort((a, b) => CaptureRepository.anchorLoc(a)
+        .compareTo(CaptureRepository.anchorLoc(b)));
+
+    return Scaffold(
+      appBar: AppBar(title: Text('Parada ${parada.faceSequence} · barrida')),
+      body: caps.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Parada barrida sin placas.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            )
+          : ListView.separated(
+              itemCount: caps.length,
+              separatorBuilder: (_, __) =>
+                  Divider(height: 1, color: theme.colorScheme.outlineVariant),
+              itemBuilder: (context, i) {
+                final c = caps[i];
+                final hasAddress =
+                    c.placa != null && c.placa!.trim().isNotEmpty;
+                return ListTile(
+                  title: Text(
+                    hasAddress ? c.placa! : 'Sin dirección aún',
+                    style: TextStyle(
+                      fontStyle:
+                          hasAddress ? FontStyle.normal : FontStyle.italic,
+                      color: hasAddress
+                          ? theme.colorScheme.onSurface
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  subtitle: Text('loc ${CaptureRepository.anchorLoc(c)}'),
+                );
+              },
+            ),
     );
   }
 }
@@ -144,12 +231,14 @@ class _ParadaTile extends StatelessWidget {
     required this.state,
     required this.placas,
     required this.sinEnviar,
+    this.onTap,
   });
 
   final Parada parada;
   final _RowState state;
   final int placas;
   final int sinEnviar;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -179,45 +268,56 @@ class _ParadaTile extends StatelessWidget {
         ),
     };
 
-    return Container(
-      color: current ? theme.colorScheme.primaryContainer : null,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: iconColor),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+    return Material(
+      color:
+          current ? theme.colorScheme.primaryContainer : Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: iconColor),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Parada ${parada.faceSequence}',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: pending
+                                ? theme.colorScheme.onSurfaceVariant
+                                : theme.colorScheme.onSurface,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (current) const _StateChip(label: 'en curso'),
+                        if (done)
+                          const _StateChip(label: 'barrida', muted: true),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
                     Text(
-                      'Parada ${parada.faceSequence}',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: pending
-                            ? theme.colorScheme.onSurfaceVariant
-                            : theme.colorScheme.onSurface,
+                      placaLine.toString(),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    if (current) const _StateChip(label: 'en curso'),
-                    if (done) const _StateChip(label: 'barrida', muted: true),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  placaLine.toString(),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+              ),
+              // A locked parada does not invite a tap; the actionable rows do.
+              if (!pending)
+                Icon(Icons.chevron_right,
+                    color: theme.colorScheme.onSurfaceVariant),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
