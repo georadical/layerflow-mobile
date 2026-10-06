@@ -10,7 +10,13 @@ import 'package:layerflow_capture/ui/screens/parada_list_screen.dart';
 /// (barrida / en curso / pendiente) and per-parada counts from the providers.
 /// PL.3 — the hard-lock navigation: a locked parada is inert (hint, no nav),
 /// a done parada opens read-only (never capture).
-Parada _parada(String stopId, int seq, {required bool swept, String? manzana}) =>
+Parada _parada(
+  String stopId,
+  int seq, {
+  required bool swept,
+  String? manzana,
+  String? sweepError,
+}) =>
     Parada(
       stopId: stopId,
       routeId: 'r1',
@@ -19,6 +25,7 @@ Parada _parada(String stopId, int seq, {required bool swept, String? manzana}) =
       sweptSynced: true,
       updatedAt: DateTime(2026),
       manzana: manzana,
+      sweepError: sweepError,
     );
 
 Capture _cap(
@@ -44,8 +51,7 @@ Capture _cap(
 class _PushCounter extends NavigatorObserver {
   int pushes = 0;
   @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) =>
-      pushes++;
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) => pushes++;
 }
 
 Widget _host(
@@ -84,7 +90,8 @@ void main() {
   ];
   final caps = [
     _cap('c1', 's1', AppConfig.syncSynced, placa: 'CALLE 14 # 2-104'),
-    _cap('c2', 's1', AppConfig.syncSynced, placa: 'CALLE 14 # 2-112', posicion: 2),
+    _cap('c2', 's1', AppConfig.syncSynced,
+        placa: 'CALLE 14 # 2-112', posicion: 2),
     _cap('c3', 's2', AppConfig.syncPending, placa: 'CARRERA 2 # 4-09'),
   ];
 
@@ -99,8 +106,8 @@ void main() {
       expect(find.text('Parada 2'), findsOneWidget);
       expect(find.text('1 / 3 barridas'), findsOneWidget);
       expect(find.textContaining('2 placas'), findsOneWidget); // s1
-      expect(find.textContaining('1 placa · 1 sin enviar'),
-          findsOneWidget); // s2
+      expect(
+          find.textContaining('1 placa · 1 sin enviar'), findsOneWidget); // s2
       expect(find.textContaining('pendiente'), findsOneWidget); // s3
     });
 
@@ -163,7 +170,8 @@ void main() {
   });
 
   group('ParadaListScreen route-home integration (Spec 16, PL.4)', () {
-    testWidgets('SendBar + "Revisar / editar" on the route home', (tester) async {
+    testWidgets('SendBar + "Revisar / editar" on the route home',
+        (tester) async {
       await tester.pumpWidget(_host(threeStops, caps)); // caps has one pending
       await tester.pumpAndSettle();
       // The queue's Enviar rides on the list header now (D1).
@@ -181,6 +189,31 @@ void main() {
       await tester.pumpWidget(_host(stops, synced));
       await tester.pumpAndSettle();
       expect(find.text('Enviar'), findsNothing); // nothing queued → no bar
+    });
+  });
+
+  group('ParadaListScreen sweep-rejection banner (Spec 16, PL.6)', () {
+    testWidgets('a server-rejected sweep surfaces the reopen banner',
+        (tester) async {
+      final stops = [
+        _parada('s1', 1,
+            swept: true,
+            manzana: '41551010100000005',
+            sweepError: 'foto_obligatoria_pendiente en loc 5'),
+        _parada('s2', 2, swept: false, manzana: '41551010100000005'),
+      ];
+      await tester.pumpWidget(_host(stops, const []));
+      await tester.pumpAndSettle();
+      // The banner names the parada (not "cara"), the reason, and offers reopen.
+      expect(find.text('Parada 1 no cerró en el servidor'), findsOneWidget);
+      expect(find.textContaining('foto_obligatoria_pendiente'), findsOneWidget);
+      expect(find.text('Reabrir'), findsOneWidget);
+    });
+
+    testWidgets('no banner when no sweep was rejected', (tester) async {
+      await tester.pumpWidget(_host(threeStops, const []));
+      await tester.pumpAndSettle();
+      expect(find.text('Reabrir'), findsNothing);
     });
   });
 }

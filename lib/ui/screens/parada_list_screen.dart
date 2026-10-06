@@ -7,6 +7,7 @@ import '../../data/db/database.dart';
 import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
 import '../widgets/send_bar.dart';
+import '../widgets/sweep_rejected_banner.dart';
 import 'capture_screen.dart';
 import 'resume_route_screen.dart';
 
@@ -97,6 +98,9 @@ class _ParadaListView extends ConsumerWidget {
         // The route's queue + Enviar, shared with the demoted resume view.
         // Renders nothing when there is nothing to send.
         SendBar(routeId: routeId),
+        // PC.5: a sweep the server rejected surfaces here (the only reopen).
+        // Renders nothing when none was rejected.
+        SweepRejectedBanner(routeId: routeId),
         _ProgressHeader(done: done, total: total),
         Divider(height: 1, color: theme.colorScheme.outlineVariant),
         Expanded(
@@ -295,8 +299,7 @@ class _ParadaTile extends StatelessWidget {
     };
 
     return Material(
-      color:
-          current ? theme.colorScheme.primaryContainer : Colors.transparent,
+      color: current ? theme.colorScheme.primaryContainer : Colors.transparent,
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -361,15 +364,17 @@ class _StateChip extends StatelessWidget {
     final bg = muted
         ? theme.colorScheme.surfaceContainerHighest
         : theme.colorScheme.primary;
-    final fg =
-        muted ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.onPrimary;
+    final fg = muted
+        ? theme.colorScheme.onSurfaceVariant
+        : theme.colorScheme.onPrimary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(label, style: theme.textTheme.labelSmall?.copyWith(color: fg)),
+      child:
+          Text(label, style: theme.textTheme.labelSmall?.copyWith(color: fg)),
     );
   }
 }
@@ -418,7 +423,8 @@ class _EmptyFallback extends StatelessWidget {
                 size: 40, color: theme.colorScheme.onSurfaceVariant),
             const SizedBox(height: 12),
             Text('Esta ruta no tiene paradas.',
-                textAlign: TextAlign.center, style: theme.textTheme.titleMedium),
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(
               'Se captura en el flujo clásico del recorrido.',
@@ -464,7 +470,8 @@ class _ErrorView extends StatelessWidget {
                 size: 40, color: theme.colorScheme.onSurfaceVariant),
             const SizedBox(height: 12),
             Text('No se pudieron cargar las paradas.',
-                textAlign: TextAlign.center, style: theme.textTheme.titleMedium),
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(
               'Se mostrará lo que haya guardado en el dispositivo.',
