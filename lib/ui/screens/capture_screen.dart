@@ -349,6 +349,15 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   Future<void> _markFaceSwept(String stopId) async {
     await ref.read(paradaRepositoryProvider).markSwept(stopId);
     if (!mounted) return;
+    // Spec 16/PL.5: closing a parada returns to the parada list (the route
+    // home), where the just-closed parada now reads barrida and the next one
+    // is the current 🔵. When there is no list to return to (a route with no
+    // paradas / classic flow), advance in place instead.
+    final nav = Navigator.of(context);
+    if (nav.canPop()) {
+      nav.pop();
+      return;
+    }
     setState(() {
       _linked = null;
       _notInList = false;
