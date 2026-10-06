@@ -6,6 +6,7 @@ import 'ui/wireframes/assisted_capture_wireframe.dart';
 import 'ui/wireframes/login_wireframe.dart';
 import 'ui/wireframes/parada_capture_wireframe.dart';
 import 'ui/wireframes/lote_capture_wireframe.dart';
+import 'ui/wireframes/parada_list_wireframe.dart';
 import 'ui/wireframes/resume_route_wireframe.dart';
 import 'ui/wireframes/route_selector_wireframe.dart';
 import 'ui/wireframes/secuencia_parada_wireframe.dart';
@@ -123,8 +124,48 @@ class WireframeIndex extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const _AnclaHost()),
             ),
           ),
+          const Divider(height: 1),
+          ListTile(
+            title: const Text('Lista de paradas'),
+            subtitle: const Text('Spec 16 · PL.1'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const _ParadaListHost()),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _ParadaListHost extends StatefulWidget {
+  const _ParadaListHost();
+
+  @override
+  State<_ParadaListHost> createState() => _ParadaListHostState();
+}
+
+class _ParadaListHostState extends State<_ParadaListHost> {
+  int _i = 1; // start on the populated list
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _StateSwitcher(
+          labels: [for (final s in ParadaListState.values) s.name],
+          selected: _i,
+          onSelect: (i) => setState(() => _i = i),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ParadaListWireframe(
+            state: ParadaListState.values[_i],
+            paradas: wireframeDummyParadas,
+          ),
+        ),
+      ],
     );
   }
 }

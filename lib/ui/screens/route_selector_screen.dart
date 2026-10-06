@@ -5,7 +5,7 @@ import '../../data/api/api_client.dart';
 import '../../data/api/dtos.dart';
 import '../providers.dart';
 import '../widgets/token_warning_banner.dart';
-import 'resume_route_screen.dart';
+import 'parada_list_screen.dart';
 import 'settings_screen.dart';
 
 /// CL4 — logout wipes tokens, never the queue. With unsent rows it warns
@@ -387,14 +387,15 @@ class _RouteTile extends ConsumerWidget {
 
   final RouteSummary route;
 
-  /// Marks the route active and hands over. Pulling the frame belongs to the
-  /// resume view, which owns the loading and error states for it.
+  /// Marks the route active and hands over to the parada list — the route home
+  /// (Spec 16, D1). Pulling the frame belongs to the list, which owns the
+  /// loading and error states for it.
   Future<void> _open(BuildContext context, WidgetRef ref) async {
     await ref.read(currentRouteIdProvider.notifier).setRoute(route.routeId);
     if (!context.mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ResumeRouteScreen(
+        builder: (_) => ParadaListScreen(
           routeId: route.routeId,
           codigo: route.codigo,
         ),
