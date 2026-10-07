@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/config/app_config.dart';
 import '../core/jwt.dart';
 import '../core/location/location_source.dart';
+import '../core/address/address_normalizer.dart';
 import '../core/parada/face_prediction.dart';
 import '../data/api/api_client.dart';
 import '../data/api/dtos.dart';
@@ -756,8 +757,19 @@ final paradaCaptureContextProvider = FutureProvider.autoDispose
     anchorRow =
         await r1.byDireccionNorm(tenantId, manzana, anchorCap.direccionNorm!);
   }
-  if (anchorRow == null) return bare();
-  final anchor = _faceFromRow(anchorRow);
+  FaceAddress? anchor;
+  if (anchorRow != null) {
+    anchor = _faceFromRow(anchorRow);
+  } else if (anchorCap.placa != null) {
+    // A hallazgo (sin R1 — e.g. the extreme placa is missing from an outdated
+    // R1) has no R1 row. Parse its typed placa into a face address so it can
+    // still anchor: predictNextFromFaces positions it vs the manzana's R1
+    // placas, and an extreme hallazgo (beyond the min/max) is a valid endpoint
+    // anchor (ascending below the min, descending above the max). A rural
+    // topónimo / unparseable text → null → bare, no prediction.
+    final norm = normalizeAddress(anchorCap.placa!).direccionNorm;
+    anchor = norm == null ? null : parseFaceAddress(norm);
+  }
   if (anchor == null) return bare();
 
   final rows = await r1.rowsForManzana(tenantId, manzana);

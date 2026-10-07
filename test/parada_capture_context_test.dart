@@ -195,6 +195,91 @@ void main() {
     expect(await isMiddle('CARRERA 2 # 4-99'), isFalse); // not found
   });
 
+  test('Spec 13: a hallazgo BEYOND the R1 max anchors (descending) + predicts',
+      () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+
+    await db.replaceR1Slice(tenant, [
+      _r1(tenant, 'npn-09', 'CARRERA 2 # 4-09', '4', '09'),
+      _r1(tenant, 'npn-15', 'CARRERA 2 # 4-15', '4', '15'),
+      _r1(tenant, 'npn-23', 'CARRERA 2 # 4-23', '4', '23'),
+    ]);
+    await db.upsertParada(ParadasCompanion.insert(
+      stopId: 's1',
+      routeId: routeId,
+      faceSequence: 1,
+      manzana: const Value('001'),
+      updatedAt: DateTime.now(),
+    ));
+    // The extreme placa 4-33 is MISSING from an outdated R1 → captured as a
+    // hallazgo (free text, no npn/direccion_norm). Same acera (odd) as the face
+    // — a face is one acera, keyed by parity.
+    await CaptureRepository(db).appendCapture(
+      routeId: routeId,
+      placa: 'CARRERA 2 # 4-33',
+      manzanaCatastral: '001',
+      stopId: 's1',
+    );
+    final caps = await (db.select(db.captures)
+          ..where((c) => c.routeId.equals(routeId)))
+        .get();
+
+    final c = _container(db, tenant, caps);
+    addTearDown(c.dispose);
+    await c.read(routeStopsProvider(routeId).future);
+    await c.read(capturesProvider(routeId).future);
+
+    final ctx = await c.read(paradaCaptureContextProvider(routeId).future);
+    expect(ctx, isNotNull);
+    // Beyond the max → it's the last → descending → predicts the max R1 placa.
+    expect(ctx!.prediction?.direction, FaceDirection.descendente);
+    expect(ctx.expectedDireccion, 'CARRERA 2 # 4-23');
+    expect(ctx.anchorFace?.placaNum, 33); // the hallazgo anchors
+    expect(ctx.warning, isNull); // a valid endpoint, not a middle anchor
+  });
+
+  test('Spec 13: a hallazgo BELOW the R1 min anchors (ascending) + predicts',
+      () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+
+    await db.replaceR1Slice(tenant, [
+      _r1(tenant, 'npn-09', 'CARRERA 2 # 4-09', '4', '09'),
+      _r1(tenant, 'npn-15', 'CARRERA 2 # 4-15', '4', '15'),
+      _r1(tenant, 'npn-23', 'CARRERA 2 # 4-23', '4', '23'),
+    ]);
+    await db.upsertParada(ParadasCompanion.insert(
+      stopId: 's1',
+      routeId: routeId,
+      faceSequence: 1,
+      manzana: const Value('001'),
+      updatedAt: DateTime.now(),
+    ));
+    await CaptureRepository(db).appendCapture(
+      routeId: routeId,
+      placa: 'CARRERA 2 # 4-05', // below the min, missing from R1
+      manzanaCatastral: '001',
+      stopId: 's1',
+    );
+    final caps = await (db.select(db.captures)
+          ..where((c) => c.routeId.equals(routeId)))
+        .get();
+
+    final c = _container(db, tenant, caps);
+    addTearDown(c.dispose);
+    await c.read(routeStopsProvider(routeId).future);
+    await c.read(capturesProvider(routeId).future);
+
+    final ctx = await c.read(paradaCaptureContextProvider(routeId).future);
+    expect(ctx, isNotNull);
+    expect(ctx!.prediction?.direction, FaceDirection.ascendente);
+    expect(ctx.expectedDireccion, 'CARRERA 2 # 4-09');
+    expect(ctx.anchorFace?.placaNum, 5);
+  });
+
   test('Spec 13 (AM.4): manzana parada WITHOUT terna predicts from the anchor',
       () async {
     final db = await _memoryDb();
