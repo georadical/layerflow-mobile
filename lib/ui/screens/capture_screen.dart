@@ -368,8 +368,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     });
   }
 
+  // The example lives OUTSIDE the field (helper), so it is never mistaken for a
+  // value; the instruction is the hint INSIDE. "Se guarda tal cual" keeps the
+  // raw-text reassurance.
   String get _directoryHelper => _directoryAvailable
-      ? 'Escribe lo que VES. Se guarda tal cual, siempre.'
+      ? 'Ej: CALLE 13 # 3-20 — se guarda tal cual, siempre.'
       : 'Opcional: puede quedar en blanco.';
 
   @override
@@ -576,12 +579,17 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       // Once linked, the field holds the full direccion (not a distance), so the
       // preview would double-compose — hide it and let the linked card speak.
       placaLabel = 'Distancia (a la esquina)';
-      placaHint = null;
+      // Just the number to the corner; the live preview in the helper shows
+      // where it lands. Pairs with the anchor field's instruction hint.
+      placaHint = 'Ej: 28';
       placaHelper =
           _linked == null ? paradaCtx!.previewFromAnchor(_placaCtrl.text) : null;
     } else {
       placaLabel = 'Placa (dirección en la puerta)';
-      placaHint = 'CALLE 14 # 2-104';
+      // Instruction, not an example (the example is in the helper). This field
+      // is the full-placa anchor that starts the parada (or the placa on an
+      // unassisted route).
+      placaHint = 'Escribe aquí la dirección ancla';
       placaHelper = _directoryHelper;
     }
 
