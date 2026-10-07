@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/config/app_config.dart';
 import '../core/jwt.dart';
 import '../core/location/location_source.dart';
+import '../core/address/address_normalizer.dart';
 import '../core/parada/face_prediction.dart';
 import '../data/api/api_client.dart';
 import '../data/api/dtos.dart';
@@ -678,6 +679,11 @@ class ParadaCaptureContext {
   String? get expectedDireccion => prediction?.expectedDireccion;
   bool get endOfFace => prediction?.endOfFace ?? false;
 
+  /// A soft warning when the anchor is a MIDDLE placa (one before AND one after)
+  /// so the sweep direction can't be inferred and nothing is predicted (Spec 13
+  /// / face_prediction): "esta placa no inicia la parada". Null otherwise.
+  String? get warning => prediction?.warning;
+
   /// The live preview of the composed address on a guided parada — e.g.
   /// `CALLE 13 # 3A-__` — filled in as the worker types the distance
   /// (Decisions v2 §4: the dash and the vía are never typed, only shown).
@@ -751,8 +757,19 @@ final paradaCaptureContextProvider = FutureProvider.autoDispose
     anchorRow =
         await r1.byDireccionNorm(tenantId, manzana, anchorCap.direccionNorm!);
   }
-  if (anchorRow == null) return bare();
-  final anchor = _faceFromRow(anchorRow);
+  FaceAddress? anchor;
+  if (anchorRow != null) {
+    anchor = _faceFromRow(anchorRow);
+  } else if (anchorCap.placa != null) {
+    // A hallazgo (sin R1 — e.g. the extreme placa is missing from an outdated
+    // R1) has no R1 row. Parse its typed placa into a face address so it can
+    // still anchor: predictNextFromFaces positions it vs the manzana's R1
+    // placas, and an extreme hallazgo (beyond the min/max) is a valid endpoint
+    // anchor (ascending below the min, descending above the max). A rural
+    // topónimo / unparseable text → null → bare, no prediction.
+    final norm = normalizeAddress(anchorCap.placa!).direccionNorm;
+    anchor = norm == null ? null : parseFaceAddress(norm);
+  }
   if (anchor == null) return bare();
 
   final rows = await r1.rowsForManzana(tenantId, manzana);
@@ -791,6 +808,38 @@ final paradaCaptureContextProvider = FutureProvider.autoDispose
     facePlacaParity: anchor.parity,
     anchorFace: anchor, // AM.8: the face terna for the distance-only input
   );
+});
+
+/// Spec 13: whether [key.direccionNorm] sits in the MIDDLE of its face in
+/// [key.manzana] (a placa before AND after) — a poor anchor, since the sweep
+/// direction can't be inferred. Used to warn at SELECTION, before the placa is
+/// saved. False for an endpoint, a lone placa, or a row not found.
+final isMiddleAnchorProvider = FutureProvider.autoDispose
+    .family<bool, ({String manzana, String direccionNorm})>((ref, key) async {
+  final tenantId = ref.watch(activeTenantIdProvider);
+  if (tenantId == null) return false;
+  final rows =
+      await ref.read(r1DirectoryRepositoryProvider).rowsForManzana(
+            tenantId,
+            key.manzana,
+          );
+  R1DirectoryData? anchorRow;
+  for (final r in rows) {
+    if (r.direccionNorm == key.direccionNorm) {
+      anchorRow = r;
+      break;
+    }
+  }
+  if (anchorRow == null) return false;
+  final anchor = _faceFromRow(anchorRow);
+  if (anchor == null) return false;
+  final faces = rows.map(_faceFromRow).whereType<FaceAddress>().toList();
+  final p = predictNextFromFaces(
+    anchor: anchor,
+    manzanaFaces: faces,
+    direction: null,
+  );
+  return p.direction == FaceDirection.indeterminada;
 });
 
 // ---- Extended survey (Spec 8, T8.5) ----
