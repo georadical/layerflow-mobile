@@ -243,7 +243,7 @@ FacePrediction predictNextFromFaces({
       dir = FaceDirection.descendente;
     } else {
       dir = FaceDirection.indeterminada;
-      warning = 'esta placa no inicia la cara';
+      warning = 'esta placa no inicia la parada';
     }
   }
 

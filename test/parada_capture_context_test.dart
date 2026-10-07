@@ -127,6 +127,74 @@ void main() {
     expect(ctx.previewFor('15'), 'CARRERA 2 # 4-15');
   });
 
+  test('Spec 13: a MIDDLE anchor warns "no inicia la parada", does not predict',
+      () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+
+    await db.replaceR1Slice(tenant, [
+      _r1(tenant, 'npn-09', 'CARRERA 2 # 4-09', '4', '09'),
+      _r1(tenant, 'npn-15', 'CARRERA 2 # 4-15', '4', '15'),
+      _r1(tenant, 'npn-23', 'CARRERA 2 # 4-23', '4', '23'),
+    ]);
+    await db.upsertParada(ParadasCompanion.insert(
+      stopId: 's1',
+      routeId: routeId,
+      faceSequence: 1,
+      manzana: const Value('001'),
+      updatedAt: DateTime.now(),
+    )); // direction null → inferred from the anchor's position in the face
+
+    // Anchor the MIDDLE placa (4-15: 4-09 before, 4-23 after).
+    await CaptureRepository(db).appendCapture(
+      routeId: routeId,
+      placa: 'CARRERA 2 # 4-15',
+      manzanaCatastral: '001',
+      npn: 'npn-15',
+      stopId: 's1',
+    );
+    final caps = await (db.select(db.captures)
+          ..where((c) => c.routeId.equals(routeId)))
+        .get();
+
+    final c = _container(db, tenant, caps);
+    addTearDown(c.dispose);
+    await c.read(routeStopsProvider(routeId).future);
+    await c.read(capturesProvider(routeId).future);
+
+    final ctx = await c.read(paradaCaptureContextProvider(routeId).future);
+    expect(ctx, isNotNull);
+    expect(ctx!.warning, 'esta placa no inicia la parada');
+    expect(ctx.prediction?.direction, FaceDirection.indeterminada);
+    expect(ctx.expectedDireccion, isNull); // no guess from a middle anchor
+    // A middle anchor leaves the direction unresolved (not persisted).
+    expect((await db.getParada('s1'))!.direction, isNull);
+  });
+
+  test('Spec 13: isMiddleAnchorProvider — middle true, endpoints false',
+      () async {
+    final db = await _memoryDb();
+    if (db == null) return markTestSkipped('native sqlite3 not available');
+    addTearDown(db.close);
+
+    await db.replaceR1Slice(tenant, [
+      _r1(tenant, 'npn-09', 'CARRERA 2 # 4-09', '4', '09'),
+      _r1(tenant, 'npn-15', 'CARRERA 2 # 4-15', '4', '15'),
+      _r1(tenant, 'npn-23', 'CARRERA 2 # 4-23', '4', '23'),
+    ]);
+    final c = _container(db, tenant, const []);
+    addTearDown(c.dispose);
+
+    Future<bool> isMiddle(String d) => c.read(
+        isMiddleAnchorProvider((manzana: '001', direccionNorm: d)).future);
+
+    expect(await isMiddle('CARRERA 2 # 4-15'), isTrue); // one before, one after
+    expect(await isMiddle('CARRERA 2 # 4-09'), isFalse); // min endpoint
+    expect(await isMiddle('CARRERA 2 # 4-23'), isFalse); // max endpoint
+    expect(await isMiddle('CARRERA 2 # 4-99'), isFalse); // not found
+  });
+
   test('Spec 13 (AM.4): manzana parada WITHOUT terna predicts from the anchor',
       () async {
     final db = await _memoryDb();

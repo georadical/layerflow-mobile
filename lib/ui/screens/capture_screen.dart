@@ -274,6 +274,18 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     // "No, difiere" is a legitimate divergence → keep the typed observation
     // (still link the npn); dismissing links nothing.
     final fullPlacaMode = ctx?.anchorFace == null && !(ctx?.hasTerna ?? false);
+    // Spec 13: warn BEFORE anchoring a MIDDLE placa (one before AND one after),
+    // which gives no sweep direction. Only for the anchor (fullPlacaMode); the
+    // worker can still anchor it ("Anclar igual").
+    final manzana = ctx?.parada.manzana;
+    if (fullPlacaMode && manzana != null && manzana.trim().isNotEmpty) {
+      final isMiddle = await ref.read(isMiddleAnchorProvider(
+        (manzana: manzana, direccionNorm: hit.direccionNorm),
+      ).future);
+      if (!mounted) return;
+      if (isMiddle && !await _confirmMiddleAnchor()) return; // chose another
+      if (!mounted) return;
+    }
     var keepTyped = false;
     if (fullPlacaMode &&
         !typedMatchesLinked(_placaCtrl.text, hit.direccionNorm)) {
@@ -298,6 +310,32 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       _duplicateOfPosicion = dup;
       _suggestions = [];
     });
+  }
+
+  /// Spec 13: a soft confirm before anchoring a MIDDLE placa. Returns true to
+  /// anchor anyway, false to pick another.
+  Future<bool> _confirmMiddleAnchor() async {
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('¿Seguro?'),
+        content: const Text(
+          'Esta placa no inicia la parada — verifica el sentido de la ruta y '
+          'ancla en la placa correcta.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Elegir otra'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('Anclar igual'),
+          ),
+        ],
+      ),
+    );
+    return proceed ?? false;
   }
 
   void _unlink() => setState(() {
@@ -726,6 +764,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                               _markFaceSwept(paradaCtx.parada.stopId),
                         ),
                 ],
+                // Spec 13: anchoring a MIDDLE placa (one before AND one after)
+                // leaves the sweep direction unresolved, so nothing is
+                // predicted — tell the worker instead of leaving the absence
+                // of a prediction unexplained.
+                if (paradaCtx?.warning != null) ...[
+                  const SizedBox(height: 16),
+                  _MidAnchorWarning(message: paradaCtx!.warning!),
+                ],
                 if (showPrediction) ...[
                   const SizedBox(height: 16),
                   _ExpectedPlacaCard(
@@ -1098,6 +1144,60 @@ class _ParityWarningBanner extends StatelessWidget {
                 'que escribiste es ${_parityLabel(other)}. Revisa la acera — se '
                 'guarda igual.',
                 style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Spec 13: the anchor is a MIDDLE placa (one before AND one after), so the
+/// sweep direction cannot be inferred and the app does not predict the next
+/// placa. A soft heads-up — the worker can still capture by hand; anchoring at
+/// an end of the parada restores the prediction.
+class _MidAnchorWarning extends StatelessWidget {
+  const _MidAnchorWarning({required this.message});
+
+  /// e.g. "esta placa no inicia la parada" (from face_prediction).
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final title = message.isEmpty
+        ? message
+        : '${message[0].toUpperCase()}${message.substring(1)}';
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline,
+                color: theme.colorScheme.onTertiaryContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.onTertiaryContainer,
+                    ),
+                  ),
+                  Text(
+                    'Tiene direcciones antes y después, así que no se predice la '
+                    'siguiente. Ancla en un extremo de la parada o captura a mano.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onTertiaryContainer,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

@@ -60,7 +60,7 @@ void main() {
       final p =
           predictNext(anchorDireccionNorm: 'CARRERA 2 # 4-23', manzanaR1: _odd);
       expect(p.direction, FaceDirection.indeterminada);
-      expect(p.warning, 'esta placa no inicia la cara');
+      expect(p.warning, 'esta placa no inicia la parada');
       expect(p.expectedDireccion, isNull);
     });
   });
