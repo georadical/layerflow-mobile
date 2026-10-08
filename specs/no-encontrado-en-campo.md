@@ -62,9 +62,9 @@ placa**, it **advances** the sweep, and it counts as **resolved** for manzana ex
 - **Not-accessible-now** (closed, occupant absent) — the predio **exists**; an
   access/timing matter, resolved under strict order (resolve or switch route), never
   invented and never a not-found.
-- **The backend wire representation** of a not-found (new field / endpoint / flag) — the
-  **backend owns the contract**; this spec states what the app needs and relays it. See
-  **Open decisions (backend contract)**.
+- **The server-side implementation** of a not-found (the `no_encontrados` table, exhaustion
+  recompute) — the **backend owns it**; the wire contract is **resolved** (see **Backend
+  contract**).
 - PH/PV / interiores / aptos — extended-survey phase; the container predio exists.
 
 ## Actors and permissions
@@ -155,27 +155,54 @@ that card.
 - **Duplicate.** Re-declaring the same R1 placa not-found is idempotent (same
   `client_id`), never a second record.
 
-## Data (app side — tentative; the wire contract is backend-owned)
-- A not-found is expected to reuse the local queue so prediction, resume and send all
-  work: a record carrying the predicted **`direccion_norm`** (+ `npn` when single-unit),
-  the **manzana** / `stop_id`, a **`not_found` flag**, an optional observación, **no** real
-  placa capture, and a stable **`client_id`** (idempotency). It advances the local
-  prediction cursor like a capture would, but creates **no census unit**.
-- Exact column(s) / table and the push shape are settled with the backend (see below).
+## Data (app side)
+- A not-found reuses the local capture queue: a row carrying the predicted
+  **`direccion_norm`** (+ `npn` when single-unit), **`manzana`** / `stop_id`, a
+  **`no_encontrado` flag**, an optional observación, a stable **`client_id`**, and **no**
+  real placa / **no `posicion`**. It advances the local prediction cursor like a capture
+  would, but creates no census unit.
+- **Push:** the item sets `no_encontrado: true`, sends `manzana_catastral` +
+  `direccion_norm` + `client_id` (+ optional `npn`), and **omits `posicion`**; `placa` is
+  ignored. Full-replacement, idempotent by `client_id`.
+- **Frame / sync:** read the `no_encontrados` list from the frame for resume/reopen; after
+  sync the R1 placa returns `capturada=true` and leaves the typeahead automatically (the
+  existing `capturada` / `version` path — no extra app logic). Undo = drop it from the
+  batch → `capturada` reverts to `false`.
 
-## Open decisions (backend contract — relay before implementation)
-- **D1 — Wire representation.** A new endpoint, or a flag on the existing
-  `/field/capture/placas` item that tells the backend to record a negative/anomaly and
-  **not** create a census_code? (App prefers reusing the batch push for one queue.)
-- **D2 — Full-replacement.** Do not-found records travel in the same full-replacement push,
-  idempotent by `client_id`, and come back in `GET /field/capture/route/{id}` so resume /
-  reopen can show them?
-- **D3 — Exhaustion.** Does the backend's manzana-exhaustion (CL-R6) count a not-found as
-  **resolved**, matching BR9?
-- **D4 — Photo.** Confirm a not-found is photo-exempt server-side (mirrors `es_lote`
-  plate-less exemption).
-- **D5 — Absence before the anchor.** Is "an absence before the anchor is not declarable"
-  acceptable, or is a flow needed?
+## Backend contract (resolved — 2026-10-09)
+The backend reuses the **existing batch push** + the **`capturada` / `version`** mechanism
+(Spec 15 / V4.8), so the app needs **no new endpoint** and **no new exhaustion/typeahead
+logic**.
+- **D1 — Representation.** `POST /field/capture/placas` item gains **`no_encontrado: bool`**.
+  With `true`: the backend creates **no census_code** — it writes a negative row (table
+  `no_encontrados`). The item sends **`manzana_catastral` + `direccion_norm` (the predicted
+  placa) + `client_id`**; `npn` optional; **`placa` is ignored**. Idempotent by `client_id`.
+- **D1b — No posición.** A `no_encontrado` item carries **no `posicion`** (`posicion` is now
+  optional *for this case only*). A normal placa item without `posicion` still **422**s — so
+  the push builder must **omit `posicion` only** for `no_encontrado` items.
+- **D2 — Full-replacement + frame.** They travel in the same full-replacement push. The
+  frame `GET /field/capture/route/{id}` returns a **`no_encontrados` list**
+  (`client_id, npn, direccion_norm, manzana, stop/face, observacion`) alongside `items`, so
+  resume / reopen show them.
+- **D3 — Exhaustion.** A declared not-found flips its R1 placa to **`capturada=true`** in
+  `GET /field/r1-directory` → it leaves the typeahead and the manzana can close at 100%.
+  The directory **`version` moves** (altas/bajas), so the **normal sync** re-downloads it —
+  exactly like `capturada` (Spec 15 / V4.8). No new app logic to hide or count.
+- **D4 — Photo.** Exempt server-side automatically — there is no census_code for the gate.
+- **Undo (BR8).** Dropping a not-found from the batch (full-replacement) removes the
+  `no_encontrados` row and flips `capturada` back to **`false`** (a *baja*; `version`
+  moves) — the same revert path proven for `capturada` in V4.8.
+
+### Decisions (resolved)
+- **Observación. ✅ CONFIRMED (backend, 2026-10-09): persisted.** The item's `observacion`
+  is stored as `no_encontrados.observacion` and returned in the frame
+  (`no_encontrados[].observacion`) — e.g. "demolido, hoy parqueadero" is available to SIG.
+  BR10 is fully backed; nothing to add app-side beyond sending it.
+- **D5 — Absence before the anchor. ✅ DECIDED (Jorge 2026-10-09): not declarable.** A door
+  absent *before* the parada's first captured placa is not surfaced by the prediction, so
+  it cannot be declared from the card (rare; SIG reconciles). The contract accepts a
+  `no_encontrado` item regardless of order, so this can be enabled later **without** a
+  backend change if the field shows it matters.
 
 ## Acceptance criteria
 - On an assisted parada **with an anchor**, the prediction card offers **"No encontrada en
@@ -239,8 +266,10 @@ Feature: Declare a predicted placa not found in the field (negative record)
 - **NE.1 — Spec** (this file) **+ wireframe** of the prediction card with the "No
   encontrada" action, the guardrail confirm, and the resume "no encontrada" row (dummy
   data, no style). Gate: renders.
-- **NE.2 — Backend contract relay (dependency).** Send D1–D5 to the backend and agree the
-  not-found representation **before** the push ticket. Gate: backend confirms the contract.
+- **NE.2 — Backend contract.** ✅ RESOLVED (2026-10-09): `no_encontrado: bool` on the placas
+  item (no census_code, no `posicion`), a `no_encontrados` list in the frame,
+  `capturada=true` + `version` for exhaustion/typeahead, photo-exempt, `observacion`
+  persisted. See **Backend contract**. (D5 decided: not declarable before the anchor.)
 - **NE.3 — Local model.** Store a not-found (flag + predicted `direccion_norm`/`npn`,
   manzana/`stop_id`, optional observación, `client_id`), photo-exempt, no census unit.
   Gate: unit tests.
@@ -254,7 +283,8 @@ Feature: Declare a predicted placa not found in the field (negative record)
   undo before send. Gate: visible + reversible.
 - **NE.7 — Exhaustion (CL-R6).** A not-found counts as resolved so the manzana/parada can
   close at 100%. Gate: a manzana with a not-found reaches 100%.
-- **NE.8 — Push + frame (after NE.2).** Carry not-found records in the push
-  (full-replacement, idempotent) and read them back in the frame. Gate: E2E on Pitalito.
+- **NE.8 — Push + frame.** Send `no_encontrado: true` items (**omit `posicion`**); read the
+  `no_encontrados` frame list; rely on `capturada` / `version` to hide + count + revert.
+  Gate: E2E on Pitalito.
 - **NE.9 — Tests + emulator E2E.** Full flow on Pitalito Ruta 10 (declare, advance, undo,
   offline, exhaustion). Gate: `flutter test` green + manual E2E.
