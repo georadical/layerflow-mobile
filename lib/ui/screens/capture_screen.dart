@@ -274,17 +274,20 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     // "No, difiere" is a legitimate divergence → keep the typed observation
     // (still link the npn); dismissing links nothing.
     final fullPlacaMode = ctx?.anchorFace == null && !(ctx?.hasTerna ?? false);
-    // Spec 13: warn BEFORE anchoring a MIDDLE placa (one before AND one after),
-    // which gives no sweep direction. Only for the anchor (fullPlacaMode); the
-    // worker can still anchor it ("Anclar igual").
+    // Spec 13: a MIDDLE placa (one before AND one after) gives no sweep
+    // direction, so it cannot anchor the parada — strict order starts a parada
+    // at a face extreme. Only the anchor (fullPlacaMode) is gated: inform the
+    // worker and abort the link; a middle placa never anchors (Jorge 2026-10-07).
     final manzana = ctx?.parada.manzana;
     if (fullPlacaMode && manzana != null && manzana.trim().isNotEmpty) {
       final isMiddle = await ref.read(isMiddleAnchorProvider(
         (manzana: manzana, direccionNorm: hit.direccionNorm),
       ).future);
       if (!mounted) return;
-      if (isMiddle && !await _confirmMiddleAnchor()) return; // chose another
-      if (!mounted) return;
+      if (isMiddle) {
+        await _warnMiddleAnchor(); // must pick an extreme — no "anchor anyway"
+        return;
+      }
     }
     var keepTyped = false;
     if (fullPlacaMode &&
@@ -312,30 +315,28 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     });
   }
 
-  /// Spec 13: a soft confirm before anchoring a MIDDLE placa. Returns true to
-  /// anchor anyway, false to pick another.
-  Future<bool> _confirmMiddleAnchor() async {
-    final proceed = await showDialog<bool>(
+  /// Spec 13: a MIDDLE placa gives no sweep direction, so it cannot anchor the
+  /// parada — the surveyor MUST start at a face extreme. This is a hard block,
+  /// not a soft confirm: the only action sends them back to pick another, there
+  /// is no "anchor anyway" (Jorge 2026-10-07). The caller aborts the link after.
+  Future<void> _warnMiddleAnchor() async {
+    await showDialog<void>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: const Text('¿Seguro?'),
+        title: const Text('Esta placa no inicia la parada'),
         content: const Text(
-          'Esta placa no inicia la parada — verifica el sentido de la ruta y '
-          'ancla en la placa correcta.',
+          'Tiene direcciones antes y después, así que no da el sentido del '
+          'recorrido. Ancla en un extremo de la parada — la primera placa '
+          'del tramo.',
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(false),
-            child: const Text('Elegir otra'),
-          ),
           FilledButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(true),
-            child: const Text('Anclar igual'),
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Elegir otra'),
           ),
         ],
       ),
     );
-    return proceed ?? false;
   }
 
   void _unlink() => setState(() {
@@ -428,6 +429,32 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() => _saving = true);
     final repo = ref.read(captureRepositoryProvider);
     try {
+      // Spec 13 (Jorge 2026-10-07): a free-typed HALLAZGO chosen as the parada's
+      // ANCHOR gets the SAME middle check as an R1 pick — a middle placa (R1
+      // doors both before AND after on its face) gives no sweep direction, so it
+      // cannot start the parada. An R1 pick is already gated in _select; this
+      // covers the typed path. Only when the text parses to a structured address
+      // (a rural topónimo has no distance to the generadora → unassisted flow).
+      final ctx = _paradaCtx;
+      final anchorManzana = ctx?.parada.manzana;
+      final fullPlacaMode =
+          ctx?.anchorFace == null && !(ctx?.hasTerna ?? false);
+      if (_linked == null &&
+          fullPlacaMode &&
+          anchorManzana != null &&
+          anchorManzana.trim().isNotEmpty) {
+        final norm = normalizeAddress(_placaCtrl.text).direccionNorm;
+        if (norm != null) {
+          final isMiddle = await ref.read(isMiddleAnchorProvider(
+            (manzana: anchorManzana, direccionNorm: norm),
+          ).future);
+          if (!mounted) return;
+          if (isMiddle) {
+            await _warnMiddleAnchor(); // must anchor at a face extreme
+            return; // abort — the finally resets _saving, the form stays intact
+          }
+        }
+      }
       final owner = ref.read(queueOwnerProvider);
       // Snapshot the divergence state BEFORE the form resets (CL-R3).
       final soporte = EvidenceRepository.classifySoporte(

@@ -830,8 +830,15 @@ final isMiddleAnchorProvider = FutureProvider.autoDispose
       break;
     }
   }
-  if (anchorRow == null) return false;
-  final anchor = _faceFromRow(anchorRow);
+  // The anchor's face: prefer the R1 row (server-parsed columns — handles a
+  // suffix vía like "10AS"), else parse the address string. The string path
+  // lets a free-typed HALLAZGO — not in R1 by definition — get the SAME middle
+  // check as an R1 pick (Spec 13, Jorge 2026-10-07): a middle placa gives no
+  // sweep direction wherever it came from. A rural/unparseable address yields
+  // null here → not middle (left to the unassisted flow).
+  final anchor = anchorRow != null
+      ? _faceFromRow(anchorRow)
+      : parseFaceAddress(key.direccionNorm);
   if (anchor == null) return false;
   final faces = rows.map(_faceFromRow).whereType<FaceAddress>().toList();
   final p = predictNextFromFaces(
