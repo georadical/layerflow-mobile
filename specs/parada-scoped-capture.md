@@ -95,15 +95,20 @@ The surveyor selects an assigned route and opens its first (or current) parada.
    discrepancy for office review. R1 is never overwritten.
 2. **Descending face.** The first captured placa is the list maximum → direction
    descending; expected placas count down. Same confirm flow.
-3. **First placa not an endpoint (BLOCKED for the R1-assisted anchor).** The anchor
-   placa sits in the middle of the face list (placas exist both before and after) → it
-   gives no sweep direction. For the R1-assisted anchor pick the app now **blocks** it: a
-   dialog ("esta placa no inicia la parada") sends the surveyor back to pick a face
-   extreme — there is **no "anclar igual"** (Jorge 2026-10-07; strict order starts a parada
-   at an end so the direction is determinate). This is a client-side UX gate on the anchor
-   selection; the backend prediction algorithm is unchanged, and a middle anchor that
-   still arises another way (legacy / free-typed) keeps the soft "unresolved + warning"
-   behavior surfaced by the post-save banner.
+3. **First placa not an endpoint (BLOCKED for the anchor — R1 pick AND free hallazgo).**
+   The anchor placa sits in the middle of the face list (placas exist both before and
+   after) → it gives no sweep direction. The app **blocks** anchoring there: a dialog
+   ("esta placa no inicia la parada") sends the surveyor back to pick a face extreme —
+   there is **no "anclar igual"** (Jorge 2026-10-07; strict order starts a parada at an
+   end so the direction is determinate). Both paths are gated via the same
+   `isMiddleAnchorProvider`: the R1 typeahead pick (`_select`) and a **free-typed hallazgo
+   at save** (`_saveAndNext`) — for a hallazgo the provider parses the typed address
+   instead of matching an R1 row, so "distance to the generadora" (the face's ordering
+   key) decides middle vs. extreme just the same. This is a client-side UX gate; the
+   backend prediction algorithm is unchanged. A middle anchor that still exists from
+   BEFORE this gate (legacy data) keeps the soft "unresolved + warning" behavior surfaced
+   by the post-save banner. A rural/unparseable address has no face → no gate (the
+   unassisted flow).
 4. **Skip guarded at parada granularity.** The surveyor tries to open parada 3 while
    parada 2 is not swept → backend rejects (409, gate). A skipped *house within a face*
    is not blocked: it uses the existing shift-insert (`ins_after`).
@@ -199,6 +204,13 @@ Feature: Parada-scoped placa capture
     When the surveyor picks 23 (a middle door) as the parada's anchor
     Then the app blocks the anchor with "esta placa no inicia la parada"
     And the only action is "Elegir otra" (no "anclar igual")
+    And nothing is anchored until the surveyor picks a face extreme
+
+  Scenario: A middle hallazgo (not in R1) is blocked the same way
+    Given the R1 face list is [09, 15, 23, 41]
+    And 19 is not in R1 (a hallazgo between 15 and 23)
+    When the surveyor types a 19 address and saves it as the parada's anchor
+    Then the app blocks it the same way (only "Elegir otra")
     And nothing is anchored until the surveyor picks a face extreme
 
   Scenario: Sweep gate blocks skipping a parada

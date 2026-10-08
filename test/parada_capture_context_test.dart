@@ -172,7 +172,7 @@ void main() {
     expect((await db.getParada('s1'))!.direction, isNull);
   });
 
-  test('Spec 13: isMiddleAnchorProvider — middle true, endpoints false',
+  test('Spec 13: isMiddleAnchorProvider — middle true (R1 or hallazgo), extremes false',
       () async {
     final db = await _memoryDb();
     if (db == null) return markTestSkipped('native sqlite3 not available');
@@ -192,7 +192,10 @@ void main() {
     expect(await isMiddle('CARRERA 2 # 4-15'), isTrue); // one before, one after
     expect(await isMiddle('CARRERA 2 # 4-09'), isFalse); // min endpoint
     expect(await isMiddle('CARRERA 2 # 4-23'), isFalse); // max endpoint
-    expect(await isMiddle('CARRERA 2 # 4-99'), isFalse); // not found
+    // Spec 13 (Jorge 2026-10-07): a HALLAZGO not in R1 is judged by PARSING the
+    // address, same as an R1 pick — so a free-typed middle anchor is blocked too.
+    expect(await isMiddle('CARRERA 2 # 4-19'), isTrue); // middle hallazgo (15<19<23)
+    expect(await isMiddle('CARRERA 2 # 4-99'), isFalse); // extreme hallazgo (beyond max)
   });
 
   test('Spec 13: a hallazgo BEYOND the R1 max anchors (descending) + predicts',

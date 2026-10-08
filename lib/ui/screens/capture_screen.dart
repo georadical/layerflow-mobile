@@ -429,6 +429,32 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() => _saving = true);
     final repo = ref.read(captureRepositoryProvider);
     try {
+      // Spec 13 (Jorge 2026-10-07): a free-typed HALLAZGO chosen as the parada's
+      // ANCHOR gets the SAME middle check as an R1 pick — a middle placa (R1
+      // doors both before AND after on its face) gives no sweep direction, so it
+      // cannot start the parada. An R1 pick is already gated in _select; this
+      // covers the typed path. Only when the text parses to a structured address
+      // (a rural topónimo has no distance to the generadora → unassisted flow).
+      final ctx = _paradaCtx;
+      final anchorManzana = ctx?.parada.manzana;
+      final fullPlacaMode =
+          ctx?.anchorFace == null && !(ctx?.hasTerna ?? false);
+      if (_linked == null &&
+          fullPlacaMode &&
+          anchorManzana != null &&
+          anchorManzana.trim().isNotEmpty) {
+        final norm = normalizeAddress(_placaCtrl.text).direccionNorm;
+        if (norm != null) {
+          final isMiddle = await ref.read(isMiddleAnchorProvider(
+            (manzana: anchorManzana, direccionNorm: norm),
+          ).future);
+          if (!mounted) return;
+          if (isMiddle) {
+            await _warnMiddleAnchor(); // must anchor at a face extreme
+            return; // abort — the finally resets _saving, the form stays intact
+          }
+        }
+      }
       final owner = ref.read(queueOwnerProvider);
       // Snapshot the divergence state BEFORE the form resets (CL-R3).
       final soporte = EvidenceRepository.classifySoporte(
