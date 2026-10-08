@@ -342,14 +342,14 @@ final routeFrameProvider =
           ),
     );
   }
-  // Paradas too (Spec 10): pull the route's stops so the guided sweep works
-  // offline. Best-effort — an unassisted route simply has none, and a
-  // failure leaves the last-known cache untouched (navigation never blocks).
-  unawaited(
-    ref.read(paradaRepositoryProvider).refreshStops(routeId).catchError(
-          (_) {},
-        ),
-  );
+  // Paradas too (Spec 10). AWAITED (unlike the R1 refresh): the stops must be
+  // final when this provider completes, so the parada list can tell a genuinely
+  // no-paradas route (→ skip to the classic capture, Spec 16/PL.7) from one
+  // whose stops just haven't loaded yet. Best-effort — a failure leaves the
+  // last-known cache untouched (navigation never blocks).
+  await ref.read(paradaRepositoryProvider).refreshStops(routeId).catchError(
+        (_) {},
+      );
   await ref.read(syncServiceProvider).pullFrame(routeId);
 });
 
