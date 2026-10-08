@@ -58,6 +58,8 @@ Widget _host(
   List<Parada> stops,
   List<Capture> caps, {
   NavigatorObserver? observer,
+  bool online = true,
+  void Function(BuildContext context, String routeId)? onNoParadas,
 }) =>
     ProviderScope(
       overrides: [
@@ -68,7 +70,7 @@ Widget _host(
         // carries the SendBar. Stub the sync + the send-bar's DB-backed
         // providers so the widget test stays DB-free and deterministic.
         routeFrameProvider.overrideWith((ref, routeId) async {}),
-        isOnlineProvider.overrideWithValue(true),
+        isOnlineProvider.overrideWithValue(online),
         isOnWifiProvider.overrideWithValue(true),
         pendingEvidenceCountProvider
             .overrideWith((ref, routeId) => Stream.value(0)),
@@ -77,7 +79,11 @@ Widget _host(
         routeRowProvider.overrideWith((ref, routeId) => Stream.value(null)),
       ],
       child: MaterialApp(
-        home: const ParadaListScreen(routeId: 'r1', codigo: '10'),
+        home: ParadaListScreen(
+          routeId: 'r1',
+          codigo: '10',
+          onNoParadas: onNoParadas,
+        ),
         navigatorObservers: observer != null ? [observer] : const [],
       ),
     );
@@ -214,6 +220,46 @@ void main() {
       await tester.pumpWidget(_host(threeStops, const []));
       await tester.pumpAndSettle();
       expect(find.text('Reabrir'), findsNothing);
+    });
+  });
+
+  group('ParadaListScreen no-paradas fallback (Spec 16, PL.7)', () {
+    testWidgets('online + synced + 0 paradas → auto-skips to classic capture',
+        (tester) async {
+      String? skippedRoute;
+      await tester.pumpWidget(_host(
+        const [],
+        const [],
+        onNoParadas: (_, routeId) => skippedRoute = routeId,
+      ));
+      // No pumpAndSettle: the auto-skip leaves a spinner (infinite animation).
+      // The sync future (async {}) resolves, _NoParadasFallback sees AsyncData
+      // and schedules the post-frame skip, which then fires.
+      await tester.pump(); // frame resolves → rebuild schedules the post-frame
+      await tester.pump(); // post-frame callback runs → onNoParadas
+
+      expect(skippedRoute, 'r1');
+      // The manual fallback is never shown for a confirmed no-paradas route.
+      expect(find.text('Esta ruta no tiene paradas.'), findsNothing);
+      expect(find.text('Capturar'), findsNothing);
+    });
+
+    testWidgets('offline + 0 paradas → manual fallback, no auto-skip',
+        (tester) async {
+      var skipped = false;
+      await tester.pumpWidget(_host(
+        const [],
+        const [],
+        online: false,
+        onNoParadas: (_, __) => skipped = true,
+      ));
+      await tester.pumpAndSettle();
+
+      // Can't tell "no paradas" from "not synced" offline → keep the manual
+      // fallback; never silently bypass a route that may still have paradas.
+      expect(skipped, isFalse);
+      expect(find.text('Esta ruta no tiene paradas.'), findsOneWidget);
+      expect(find.text('Capturar'), findsOneWidget);
     });
   });
 }

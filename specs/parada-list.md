@@ -154,8 +154,10 @@ exists** (`Paradas.swept`, `ParadaRepository.currentParada`, `markSwept`).
   captures (current → CaptureScreen; done → read-only). `resume_route_screen` is retired
   as the route home (its captures-list view is absorbed into the done-parada read-only
   view). Implemented in PL.4.
-- **D2 — No-paradas routes.** Proposed: skip the list entirely and open the classic
-  capture flow (BR7). Confirm vs. showing an empty-list screen.
+- **D2 — No-paradas routes. ✅ DECIDED + implemented (PL.7): skip.** A route with
+  genuinely 0 paradas auto-skips the list and opens the classic capture flow (BR7). The
+  only nuance: the skip waits for the opening sync to resolve online (so empty = real,
+  not mid-load); offline/failed sync keeps a manual one-tap fallback, never a blind skip.
 - **D3 — Done-parada tap.** Proposed: read-only captures view. Confirm (vs. not tappable
   at all).
 - **D4 — Close empty from where.** "Cerrar esta parada" lives in the CaptureScreen
@@ -243,6 +245,11 @@ Feature: Parada list with strict sequential hard lock
   swept and the list promotes the next 🔵 on return. Gate: close-empty advances.
 - **PL.6 — Resume + sweep-rejection banner on the list.** Re-entry lands on the 🔵;
   surface `sweepRejectionsProvider`. Gate: resume + a rejected sweep both behave.
-- **PL.7 — No-paradas fallback (BR7/D2).** Routes with 0 paradas skip the list.
+- **PL.7 — No-paradas fallback (BR7/D2).** ✅ DONE. A route with GENUINELY 0 paradas
+  auto-skips the list → classic capture (`pushReplacement`), but only once the opening
+  sync has resolved while online (`refreshStops` is now awaited in `routeFrameProvider`,
+  so an empty stops list is final — never an uncached/offline route mid-load). Offline
+  or a failed sync keeps the manual one-tap fallback. No no-paradas route exists in
+  Pitalito, so verified by widget tests (online-skip + offline-fallback), not live.
 - **PL.8 — Tests + emulator E2E** on Pitalito (Ruta 10 multi-parada, Ruta 20 single).
 ```
