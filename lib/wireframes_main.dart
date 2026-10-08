@@ -6,6 +6,7 @@ import 'ui/wireframes/assisted_capture_wireframe.dart';
 import 'ui/wireframes/login_wireframe.dart';
 import 'ui/wireframes/parada_capture_wireframe.dart';
 import 'ui/wireframes/lote_capture_wireframe.dart';
+import 'ui/wireframes/no_encontrado_wireframe.dart';
 import 'ui/wireframes/parada_list_wireframe.dart';
 import 'ui/wireframes/resume_route_wireframe.dart';
 import 'ui/wireframes/route_selector_wireframe.dart';
@@ -133,6 +134,15 @@ class WireframeIndex extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const _ParadaListHost()),
             ),
           ),
+          const Divider(height: 1),
+          ListTile(
+            title: const Text('No encontrado en campo'),
+            subtitle: const Text('Spec 14 · NE.1'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const _NoEncontradoHost()),
+            ),
+          ),
         ],
       ),
     );
@@ -164,6 +174,34 @@ class _ParadaListHostState extends State<_ParadaListHost> {
             state: ParadaListState.values[_i],
             paradas: wireframeDummyParadas,
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NoEncontradoHost extends StatefulWidget {
+  const _NoEncontradoHost();
+
+  @override
+  State<_NoEncontradoHost> createState() => _NoEncontradoHostState();
+}
+
+class _NoEncontradoHostState extends State<_NoEncontradoHost> {
+  int _i = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _StateSwitcher(
+          labels: [for (final s in NoEncontradoState.values) s.name],
+          selected: _i,
+          onSelect: (i) => setState(() => _i = i),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: NoEncontradoWireframe(state: NoEncontradoState.values[_i]),
         ),
       ],
     );
