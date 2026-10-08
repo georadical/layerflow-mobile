@@ -78,6 +78,54 @@ class CaptureRepository {
     return clientId;
   }
 
+  // ---- No encontrados (Spec 14) ----
+
+  Stream<List<NoEncontrado>> watchNoEncontrados(String routeId,
+          {String? owner}) =>
+      _db.watchNoEncontrados(routeId, owner: owner);
+
+  Future<List<NoEncontrado>> noEncontradosForRoute(String routeId,
+          {String? owner}) =>
+      _db.noEncontradosForRoute(routeId, owner: owner);
+
+  /// Records a NOT-FOUND against the predicted R1 placa (Spec 14, NE.3): the
+  /// placa has no field correspondence. A NEGATIVE record — no census unit, no
+  /// `posicion`/`loc`, photo-exempt. Idempotent by `clientId` (re-declaring the
+  /// same row updates, never duplicates). Returns the new `clientId`.
+  Future<String> appendNoEncontrado({
+    required String routeId,
+    required String direccionNorm,
+    String? npn,
+    String? manzana,
+    String? stopId,
+    String? observacion,
+    String? owner,
+  }) async {
+    final now = DateTime.now();
+    final clientId = _uuid.v4();
+    await _db.insertNoEncontrado(
+      NoEncontradosCompanion.insert(
+        clientId: clientId,
+        routeId: routeId,
+        direccionNorm: direccionNorm,
+        npn: Value(npn),
+        manzana: Value(_nullIfBlank(manzana)),
+        stopId: Value(stopId),
+        observacion: Value(_nullIfBlank(observacion)),
+        ownerEmail: Value(owner),
+        syncStatus: const Value(AppConfig.syncPending),
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    return clientId;
+  }
+
+  /// Undo a not-found before it is sent (NE.6): removes the local row. After a
+  /// send, undo is a full-replacement baja instead (handled by the push).
+  Future<int> deleteNoEncontrado(String clientId) =>
+      _db.deleteNoEncontrado(clientId);
+
   /// Sets or clears the door link (Spec 7). Changing the npn is a FIELD
   /// decision (provenance rule: the server only re-stamps the method when
   /// the value changes) and re-queues the row. editCapture deliberately

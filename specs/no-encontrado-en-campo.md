@@ -156,11 +156,14 @@ that card.
   `client_id`), never a second record.
 
 ## Data (app side)
-- A not-found reuses the local capture queue: a row carrying the predicted
-  **`direccion_norm`** (+ `npn` when single-unit), **`manzana`** / `stop_id`, a
-  **`no_encontrado` flag**, an optional observación, a stable **`client_id`**, and **no**
-  real placa / **no `posicion`**. It advances the local prediction cursor like a capture
-  would, but creates no census unit.
+- A not-found is stored in a **sibling `no_encontrados` table** (NE.3, schema v23) — NOT a
+  flag on `captures`: a row carrying the predicted **`direccion_norm`** (+ `npn` when
+  single-unit), **`manzana`** / `stop_id`, an optional observación, `ownerEmail` (CL4) +
+  `syncStatus`, and a stable **`client_id`**. **No `posicion` / `loc`** — which keeps the
+  `captures` table's hard, non-null **append-only `posicion` invariant** intact (27
+  call-sites) and mirrors the backend's own `no_encontrados` table. It advances the local
+  prediction cursor (NE.4) and rides the **same** push batch, but creates no census unit.
+  (The "reuse" is of the `/field/capture/placas` batch, not the local table.)
 - **Push:** the item sets `no_encontrado: true`, sends `manzana_catastral` +
   `direccion_norm` + `client_id` (+ optional `npn`), and **omits `posicion`**; `placa` is
   ignored. Full-replacement, idempotent by `client_id`.
@@ -270,9 +273,10 @@ Feature: Declare a predicted placa not found in the field (negative record)
   item (no census_code, no `posicion`), a `no_encontrados` list in the frame,
   `capturada=true` + `version` for exhaustion/typeahead, photo-exempt, `observacion`
   persisted. See **Backend contract**. (D5 decided: not declarable before the anchor.)
-- **NE.3 — Local model.** Store a not-found (flag + predicted `direccion_norm`/`npn`,
-  manzana/`stop_id`, optional observación, `client_id`), photo-exempt, no census unit.
-  Gate: unit tests.
+- **NE.3 — Local model. ✅ DONE.** Sibling `no_encontrados` table (schema **v23**) +
+  `appendNoEncontrado` / `watchNoEncontrados` / `noEncontradosForRoute` /
+  `deleteNoEncontrado` (undo) on `CaptureRepository`, CL4-scoped, idempotent by
+  `client_id`. No posicion/loc/census. 5 unit tests.
 - **NE.4 — Prediction advance.** A not-found advances the local prediction to the next
   expected placa (client mirror), same direction; consecutive ones + face-end handled.
   Gate: tests (not-found → next; at end → end-of-face).
