@@ -38,9 +38,12 @@ mobile/
 Auth: **field_token** (`kind='field'`), scoped a una ESP (tenant) y a un encuestador.
 Va en `Authorization: Bearer <token>`. Sin token → 401; token de login → 403.
 
-Backend local desde el **emulador Android**: `http://10.0.2.2:8000`
-(`10.0.2.2` = localhost de la laptop visto desde el emulador). En dispositivo
-físico: IP LAN de la laptop.
+El `base_url` es un valor **de runtime** (pantalla **Ajustes**, guardado en
+SharedPreferences); no hay default compilado, se cambia sin rebuild.
+- **Emulador Android (dev):** `http://10.0.2.2:8000` (`10.0.2.2` = localhost de la
+  laptop visto desde el emulador). En dispositivo físico contra la laptop: IP LAN.
+- **Piloto / producción (Railway):** `https://api-production-cded.up.railway.app`
+  (RD.7 — reemplaza el URL del emulador en Ajustes para el piloto de campo).
 
 Endpoints que consume (ya implementados en el backend):
 | Método | Path | Uso en la app |
