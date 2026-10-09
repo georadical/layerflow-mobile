@@ -55,6 +55,56 @@ ProviderContainer _container(AppDatabase db, int? tenant, List<Capture> caps) =>
       capturesProvider.overrideWith((ref, routeId) => Stream.value(caps)),
     ]);
 
+/// NE.4 harness: seed a CARRERA 2 # 4 face ([r1] placas), anchor on [anchor],
+/// declare [notFound] placas on stop s1, and return the prediction context.
+/// A not-found should be skipped so the prediction advances past it.
+Future<ParadaCaptureContext?> _ne4(
+  AppDatabase db, {
+  required List<String> r1,
+  required String anchor,
+  List<String> notFound = const [],
+}) async {
+  const tenant = 1;
+  const routeId = 'r1';
+  await db.replaceR1Slice(tenant, [
+    for (final p in r1) _r1(tenant, 'npn-$p', 'CARRERA 2 # 4-$p', '4', p),
+  ]);
+  await db.upsertParada(ParadasCompanion.insert(
+    stopId: 's1',
+    routeId: routeId,
+    faceSequence: 1,
+    blockFaceId: const Value('bf1'),
+    tipoVia: const Value('CARRERA'),
+    numVia: const Value('2'),
+    numCruce: const Value('4'),
+    manzana: const Value('001'),
+    updatedAt: DateTime(2026),
+  ));
+  final repo = CaptureRepository(db);
+  await repo.appendCapture(
+    routeId: routeId,
+    placa: 'CARRERA 2 # 4-$anchor',
+    manzanaCatastral: '001',
+    npn: 'npn-$anchor',
+    stopId: 's1',
+  );
+  for (final p in notFound) {
+    await repo.appendNoEncontrado(
+      routeId: routeId,
+      direccionNorm: 'CARRERA 2 # 4-$p',
+      manzana: '001',
+      stopId: 's1',
+    );
+  }
+  final caps = await repo.capturesForRoute(routeId);
+  final c = _container(db, tenant, caps);
+  addTearDown(c.dispose);
+  await c.read(routeStopsProvider(routeId).future);
+  await c.read(capturesProvider(routeId).future);
+  await c.read(noEncontradosProvider(routeId).future);
+  return c.read(paradaCaptureContextProvider(routeId).future);
+}
+
 void main() {
   const routeId = 'r1';
   const tenant = 1;
@@ -472,6 +522,56 @@ void main() {
         capturedOnStop: 0,
       );
       expect(ctx.previewFor('15'), 'CALLE 11 # 3A-15 SUR');
+    });
+  });
+
+  group('Spec 14 (NE.4): a not-found advances the prediction', () {
+    test('a not-found is skipped → the next expected placa, same direction',
+        () async {
+      final db = await _memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      final ctx = await _ne4(db,
+          r1: ['09', '15', '23', '41'], anchor: '09', notFound: ['15']);
+      expect(ctx!.prediction!.direction, FaceDirection.ascendente);
+      expect(ctx.expectedDireccion, 'CARRERA 2 # 4-23'); // 15 skipped
+    });
+
+    test('consecutive not-founds are all skipped', () async {
+      final db = await _memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      final ctx = await _ne4(db,
+          r1: ['09', '15', '23', '41'], anchor: '09', notFound: ['15', '23']);
+      expect(ctx!.expectedDireccion, 'CARRERA 2 # 4-41'); // 15 and 23 skipped
+    });
+
+    test('a not-found at the face end → end of face, no prediction', () async {
+      final db = await _memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      final ctx =
+          await _ne4(db, r1: ['09', '15'], anchor: '09', notFound: ['15']);
+      expect(ctx!.expectedDireccion, isNull);
+      expect(ctx.prediction!.endOfFace, isTrue);
+    });
+
+    test('a not-found on ANOTHER stop does not affect this prediction',
+        () async {
+      final db = await _memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      // 15 declared not-found on a DIFFERENT stop (s2) → must NOT be skipped
+      // here (this parada is s1); the exclusion is stop-scoped.
+      await CaptureRepository(db).appendNoEncontrado(
+        routeId: 'r1',
+        direccionNorm: 'CARRERA 2 # 4-15',
+        manzana: '001',
+        stopId: 's2',
+      );
+      final ctx = await _ne4(db,
+          r1: ['09', '15', '23', '41'], anchor: '09', notFound: const []);
+      expect(ctx!.expectedDireccion, 'CARRERA 2 # 4-15'); // 15 still predicted
     });
   });
 }

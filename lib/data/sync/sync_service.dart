@@ -4,7 +4,7 @@ import '../../core/config/app_config.dart';
 import '../api/api_client.dart';
 import '../api/dtos.dart';
 import '../api/sync_dtos.dart';
-import '../db/database.dart' show Capture, Parada;
+import '../db/database.dart' show Capture, NoEncontrado, Parada;
 import '../repositories/capture_repository.dart';
 import '../repositories/evidence_repository.dart';
 import '../repositories/parada_repository.dart';
@@ -334,6 +334,12 @@ class SyncService {
     for (final c in pending) {
       (byStop[c.stopId] ??= []).add(c);
     }
+    // NE.8: the route's pending not-founds ride in the same per-parada batches.
+    final pendingNe = await _repo.pendingNoEncontrados(routeId, owner: owner);
+    final neByStop = <String?, List<NoEncontrado>>{};
+    for (final n in pendingNe) {
+      (neByStop[n.stopId] ??= []).add(n);
+    }
 
     var pAtt = 0, pSyn = 0, pFail = 0;
     var eUp = 0, eHeld = 0, eFail = 0;
@@ -356,11 +362,22 @@ class SyncService {
       eFail += r.failed;
     }
 
+    // NE.8: a parada's not-founds go with its placas (before the sweep), and
+    // fold into the placas tally — they are "sent items" to the worker.
+    Future<void> stageNoEncontrados(List<NoEncontrado> group) async {
+      if (group.isEmpty) return;
+      final r = await _pushNoEncontrados(routeId, group);
+      pAtt += r.attempted;
+      pSyn += r.synced;
+      pFail += r.failed;
+    }
+
     var chainBroken = false;
     for (final stop in stops) {
       final group = byStop[stop.stopId] ?? const <Capture>[];
       await stagePlacas(group);
       await stageEvidence({for (final c in group) c.clientId});
+      await stageNoEncontrados(neByStop[stop.stopId] ?? const []);
       if (!stop.sweptSynced) {
         final outcome = await _pushSweepRow(routeId, stop);
         switch (outcome) {
@@ -384,6 +401,7 @@ class SyncService {
       final loose = byStop[null] ?? const <Capture>[];
       await stagePlacas(loose);
       await stageEvidence({for (final c in loose) c.clientId});
+      await stageNoEncontrados(neByStop[null] ?? const []);
     }
 
     SurveyResult? survey;
@@ -520,6 +538,50 @@ class SyncService {
           ? 'Enviadas $synced.'
           : '$synced enviadas, $failed con error.',
     );
+  }
+
+  /// Pushes a group of pending not-founds (Spec 14/NE.8) as `no_encontrado`
+  /// items in a /field/capture/placas batch, marking each by its per-item
+  /// result. Same not-caught transport rule as [_pushPlacas] (a dead transport
+  /// leaves every row pending, never `error`).
+  Future<SyncResult> _pushNoEncontrados(
+    String routeId,
+    List<NoEncontrado> pending,
+  ) async {
+    if (pending.isEmpty) {
+      return const SyncResult(attempted: 0, synced: 0, failed: 0);
+    }
+    final batch = PlacaBatchRequest(
+      routeId: routeId,
+      batchId: _uuid.v4(),
+      items: [
+        for (final n in pending)
+          PlacaItemRequest(
+            clientId: n.clientId,
+            noEncontrado: true,
+            manzanaCatastral: n.manzana,
+            direccionNorm: n.direccionNorm,
+            npn: n.npn,
+            observacion: n.observacion,
+            stopId: n.stopId,
+          ),
+      ],
+    );
+    final res = await _api.postPlacas(batch);
+    final byId = {for (final r in res.items) r.clientId: r};
+    var synced = 0, failed = 0;
+    for (final n in pending) {
+      final r = byId[n.clientId];
+      if (r != null && r.ok) {
+        await _repo.markNoEncontradoSynced(n.clientId);
+        synced++;
+      } else {
+        await _repo.markNoEncontradoError(n.clientId, _placaRejectionText(r));
+        failed++;
+      }
+    }
+    return SyncResult(
+        attempted: pending.length, synced: synced, failed: failed);
   }
 
   /// A worker-readable reason for a rejected placa. The PC.6 backend guard

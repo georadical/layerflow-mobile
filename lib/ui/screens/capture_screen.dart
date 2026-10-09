@@ -381,6 +381,68 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     _placaFocus.requestFocus();
   }
 
+  /// Spec 14 (NE.5): the predicted placa has NO predio in the field — declare it
+  /// "no encontrada" (a negative record, no census unit). Guardrail-confirmed so
+  /// it is not used for a demolido/lot (→ "Sin construir"). On confirm it drops
+  /// out of the face (NE.4) and the card re-points to the next expected placa.
+  /// The optional observación rides from the form's Observación field (BR10).
+  Future<void> _noEncontrada(R1DirectoryData expected) async {
+    if (!await _confirmNoEncontrada(expected.direccionNorm) || !mounted) return;
+    final parada = ref.read(currentParadaProvider(widget.routeId));
+    final repo = ref.read(captureRepositoryProvider);
+    final clientId = await repo.appendNoEncontrado(
+      routeId: widget.routeId,
+      direccionNorm: expected.direccionNorm,
+      npn: expected.npn,
+      manzana: parada?.manzana,
+      stopId: parada?.stopId,
+      observacion: _obsCtrl.text,
+      owner: ref.read(queueOwnerProvider),
+    );
+    if (!mounted) return;
+    // Clear the observación so it does not leak onto the next door; the sweep
+    // advances on its own (the prediction excludes the just-declared placa).
+    _obsCtrl.clear();
+    _placaFocus.requestFocus();
+    // NE.6: an immediate undo — deleting the row restores it to the face, so the
+    // prediction re-points at it (the provider watches the not-found set).
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('"${expected.direccionNorm}" marcada como no encontrada.'),
+        action: SnackBarAction(
+          label: 'Deshacer',
+          onPressed: () => repo.deleteNoEncontrado(clientId),
+        ),
+      ),
+    );
+  }
+
+  /// The guardrail confirm before a not-found: a deliberate two-way choice that
+  /// reminds a demolido/lot is "Sin construir", so not-found is never a
+  /// catch-all. Returns true to record it, false to cancel.
+  Future<bool> _confirmNoEncontrada(String placa) async {
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text('¿$placa no existe en campo?'),
+        content: const Text(
+          'Si está demolido o es un lote, usa "Sin construir".',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('Confirmar: no existe'),
+          ),
+        ],
+      ),
+    );
+    return proceed ?? false;
+  }
+
   /// Closes the current face (Spec 10). Optimistic-LOCAL (Decision Q1): the
   /// next parada unlocks at once and the mark is queued. PC.4 adds the
   /// foto_obligatoria gate; PC.5 pushes it and reconciles the server verdict
@@ -805,6 +867,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     expected: paradaCtx.expectedRow!.direccionNorm,
                     onCoincide: () => _coincide(paradaCtx.expectedRow!),
                     onNoCoincide: _noCoincide,
+                    onNoEncontrada: () =>
+                        _noEncontrada(paradaCtx.expectedRow!),
                   ),
                 ],
                 const SizedBox(height: 16),
@@ -1341,18 +1405,21 @@ class _FaceContextCard extends ConsumerWidget {
   }
 }
 
-/// Spec 10 PC.3: the predicted next placa — confirm it, or flag "No coincide"
-/// and enter what is really there.
+/// Spec 10 PC.3: the predicted next placa — confirm it, flag "No coincide" and
+/// enter what is really there, or (Spec 14/NE.5) declare it "No encontrada en
+/// campo" when there is no predio at all.
 class _ExpectedPlacaCard extends StatelessWidget {
   const _ExpectedPlacaCard({
     required this.expected,
     required this.onCoincide,
     required this.onNoCoincide,
+    required this.onNoEncontrada,
   });
 
   final String expected;
   final VoidCallback onCoincide;
   final VoidCallback onNoCoincide;
+  final VoidCallback onNoEncontrada;
 
   @override
   Widget build(BuildContext context) {
@@ -1394,6 +1461,17 @@ class _ExpectedPlacaCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+            // Spec 14 (NE.5): the not-found action — subtler than Coincide / No
+            // coincide (both assume a predio IS here); this is "there is nothing
+            // here at all".
+            Divider(height: 24, color: theme.colorScheme.outlineVariant),
+            Center(
+              child: TextButton.icon(
+                onPressed: onNoEncontrada,
+                icon: const Icon(Icons.search_off),
+                label: const Text('No encontrada en campo'),
+              ),
             ),
           ],
         ),

@@ -13,7 +13,7 @@ import '../../core/config/app_config.dart';
 class PlacaItemRequest {
   const PlacaItemRequest({
     required this.clientId,
-    required this.posicion,
+    this.posicion,
     this.placa,
     this.manzanaCatastral,
     this.tipoAcceso,
@@ -25,10 +25,15 @@ class PlacaItemRequest {
     this.blockFaceId,
     this.stopId,
     this.esLote = false,
+    this.noEncontrado = false,
   });
 
   final String clientId;
-  final int posicion;
+
+  /// The walk position — required for a normal placa (the server 422s without
+  /// it). NULL only for a [noEncontrado] item (Spec 14/NE.8): a negative record
+  /// takes no posicion/loc.
+  final int? posicion;
   final String? placa;
   final String? manzanaCatastral;
   final String? tipoAcceso;
@@ -70,28 +75,48 @@ class PlacaItemRequest {
   /// is ALWAYS sent (true/false), re-carried from the frame like npn/ins_after.
   final bool esLote;
 
-  Map<String, dynamic> toJson() => {
+  /// Spec 14 (NE.8): this item is a "No encontrado en campo" — a NEGATIVE
+  /// record. The backend writes it to `no_encontrados` with NO census_code and
+  /// NO posicion; `placa`/`es_lote` are irrelevant. Rides in the same
+  /// /field/capture/placas batch as the placas.
+  final bool noEncontrado;
+
+  Map<String, dynamic> toJson() {
+    // A no_encontrado is a minimal negative record: no posicion, placa ignored.
+    if (noEncontrado) {
+      return {
         'client_id': clientId,
-        'posicion': posicion,
-        // placa is optional: null is sent when blank (the server allows it).
-        'placa': placa,
-        // Always sent (full-replacement): omitting it would clear the flag.
-        'es_lote': esLote,
+        'no_encontrado': true,
         if (manzanaCatastral != null) 'manzana_catastral': manzanaCatastral,
-        if (tipoAcceso != null) 'tipo_acceso': tipoAcceso,
-        if (observacion != null) 'observacion': observacion,
-        // Omitted and explicit null mean the same to the server (clear), so
-        // only a real mark is serialised.
-        if (insAfter != null) 'ins_after': insAfter,
-        if (npn != null) 'npn': npn,
-        // v4: a multi-unit placa link (npn null). Full-replacement, like npn.
         if (direccionNorm != null) 'direccion_norm': direccionNorm,
-        // Tri-state: the key travels only when there is something to say
-        // (assert or retract). Sending it beside npn is a per-item error.
-        if (sinR1 != null && npn == null) 'sin_r1': sinR1,
+        if (npn != null) 'npn': npn,
+        if (observacion != null) 'observacion': observacion,
         if (stopId != null) 'stop_id': stopId,
-        if (blockFaceId != null) 'block_face_id': blockFaceId,
       };
+    }
+    return {
+      'client_id': clientId,
+      'posicion': posicion,
+      // placa is optional: null is sent when blank (the server allows it).
+      'placa': placa,
+      // Always sent (full-replacement): omitting it would clear the flag.
+      'es_lote': esLote,
+      if (manzanaCatastral != null) 'manzana_catastral': manzanaCatastral,
+      if (tipoAcceso != null) 'tipo_acceso': tipoAcceso,
+      if (observacion != null) 'observacion': observacion,
+      // Omitted and explicit null mean the same to the server (clear), so
+      // only a real mark is serialised.
+      if (insAfter != null) 'ins_after': insAfter,
+      if (npn != null) 'npn': npn,
+      // v4: a multi-unit placa link (npn null). Full-replacement, like npn.
+      if (direccionNorm != null) 'direccion_norm': direccionNorm,
+      // Tri-state: the key travels only when there is something to say
+      // (assert or retract). Sending it beside npn is a per-item error.
+      if (sinR1 != null && npn == null) 'sin_r1': sinR1,
+      if (stopId != null) 'stop_id': stopId,
+      if (blockFaceId != null) 'block_face_id': blockFaceId,
+    };
+  }
 }
 
 /// Request for POST /field/capture/placas.
@@ -737,12 +762,45 @@ class RouteFrameItem {
   }
 }
 
+/// Frame item (GET) for a "No encontrado en campo" (Spec 14/NE.8): a negative
+/// record the backend returns beside `items` so resume/reopen can show it.
+class RouteFrameNoEncontrado {
+  const RouteFrameNoEncontrado({
+    required this.clientId,
+    required this.direccionNorm,
+    this.npn,
+    this.manzana,
+    this.stopId,
+    this.observacion,
+  });
+
+  final String clientId;
+  final String direccionNorm;
+  final String? npn;
+  final String? manzana;
+  final String? stopId;
+  final String? observacion;
+
+  factory RouteFrameNoEncontrado.fromJson(Map<String, dynamic> json) {
+    return RouteFrameNoEncontrado(
+      clientId: json['client_id'] as String,
+      direccionNorm: json['direccion_norm'] as String,
+      npn: json['npn'] as String?,
+      manzana:
+          json['manzana'] as String? ?? json['manzana_catastral'] as String?,
+      stopId: json['stop_id'] as String?,
+      observacion: json['observacion'] as String?,
+    );
+  }
+}
+
 /// Response of GET /field/capture/route/{route_id}.
 class RouteFrame {
   const RouteFrame({
     required this.routeId,
     this.codigo,
     required this.items,
+    this.noEncontrados = const [],
     this.placasEstado = AppConfig.placasAbierta,
     this.surveyEstado = AppConfig.surveyBloqueada,
     this.fotoObligatoria = false,
@@ -751,6 +809,9 @@ class RouteFrame {
   final String routeId;
   final String? codigo;
   final List<RouteFrameItem> items;
+
+  /// Spec 14 (NE.8): the route's "no encontrado" records, beside `items`.
+  final List<RouteFrameNoEncontrado> noEncontrados;
 
   /// Route-state locks carried on the frame too (Spec 9), so a resumed route
   /// gates against the freshest value. Same fail-open/closed defaults.
@@ -766,6 +827,10 @@ class RouteFrame {
       codigo: json['codigo']?.toString(),
       items: (json['items'] as List<dynamic>? ?? const [])
           .map((e) => RouteFrameItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      noEncontrados: (json['no_encontrados'] as List<dynamic>? ?? const [])
+          .map((e) =>
+              RouteFrameNoEncontrado.fromJson(e as Map<String, dynamic>))
           .toList(),
       placasEstado:
           json['placas_estado']?.toString() ?? AppConfig.placasAbierta,

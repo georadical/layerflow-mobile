@@ -48,6 +48,24 @@ Capture _cap(
       updatedAt: DateTime(2026),
     );
 
+NoEncontrado _ne(
+  String id,
+  String stopId, {
+  required String direccionNorm,
+  String? observacion,
+  String sync = AppConfig.syncPending,
+}) =>
+    NoEncontrado(
+      clientId: id,
+      routeId: 'r1',
+      direccionNorm: direccionNorm,
+      stopId: stopId,
+      observacion: observacion,
+      syncStatus: sync,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+    );
+
 class _PushCounter extends NavigatorObserver {
   int pushes = 0;
   @override
@@ -60,11 +78,14 @@ Widget _host(
   NavigatorObserver? observer,
   bool online = true,
   void Function(BuildContext context, String routeId)? onNoParadas,
+  List<NoEncontrado> notFound = const [],
 }) =>
     ProviderScope(
       overrides: [
         routeStopsProvider.overrideWith((ref, routeId) => Stream.value(stops)),
         capturesProvider.overrideWith((ref, routeId) => Stream.value(caps)),
+        noEncontradosProvider
+            .overrideWith((ref, routeId) => Stream.value(notFound)),
         espNameProvider.overrideWith((ref) => Future.value('ESP test')),
         // PL.4: the list is the route home — it fires the sync moment and
         // carries the SendBar. Stub the sync + the send-bar's DB-backed
@@ -260,6 +281,48 @@ void main() {
       expect(skipped, isFalse);
       expect(find.text('Esta ruta no tiene paradas.'), findsOneWidget);
       expect(find.text('Capturar'), findsOneWidget);
+    });
+  });
+
+  group('ParadaCapturesScreen not-found rows (Spec 14, NE.6)', () {
+    final sweptStops = [
+      _parada('s1', 1, swept: true, manzana: '41551010100000327'),
+      _parada('s2', 2, swept: false, manzana: '41551010100000327'),
+    ];
+
+    testWidgets('a swept parada shows its not-found, distinct + undoable',
+        (tester) async {
+      final notFound = [
+        _ne('n1', 's1',
+            direccionNorm: 'CALLE 13 # 3-20',
+            observacion: 'demolido, hoy parqueadero'),
+      ];
+      await tester.pumpWidget(_host(sweptStops, const [], notFound: notFound));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Parada 1')); // done → read-only view
+      await tester.pumpAndSettle();
+
+      expect(find.text('CALLE 13 # 3-20'), findsOneWidget);
+      expect(find.textContaining('No encontrada en campo'), findsOneWidget);
+      expect(find.textContaining('demolido, hoy parqueadero'), findsOneWidget);
+      expect(find.text('Deshacer'), findsOneWidget); // pending → reversible
+    });
+
+    testWidgets('a SENT not-found is not undoable (no Deshacer)',
+        (tester) async {
+      final notFound = [
+        _ne('n1', 's1',
+            direccionNorm: 'CALLE 13 # 3-20', sync: AppConfig.syncSynced),
+      ];
+      await tester.pumpWidget(_host(sweptStops, const [], notFound: notFound));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Parada 1'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CALLE 13 # 3-20'), findsOneWidget);
+      expect(find.text('Deshacer'), findsNothing); // sent → replacement-undo only
     });
   });
 }

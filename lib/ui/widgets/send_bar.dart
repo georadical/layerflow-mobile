@@ -71,7 +71,14 @@ class SendBar extends ConsumerWidget {
     // Spec 10 PC.5: a face closed offline queues a sweep to push; count it, or
     // a sweep with everything else synced would have no "Enviar" to ride.
     final sweeps = ref.watch(pendingSweepCountProvider(routeId));
-    if (waiting == 0 && photos == 0 && surveys == 0 && sweeps == 0) {
+    // Spec 14 (NE.8): a pending not-found is unsent content too — count it so a
+    // route with only a not-found still offers Enviar.
+    final notFound = ref.watch(pendingNoEncontradoCountProvider(routeId));
+    if (waiting == 0 &&
+        photos == 0 &&
+        surveys == 0 &&
+        sweeps == 0 &&
+        notFound == 0) {
       return const SizedBox.shrink();
     }
     final sending = ref.watch(pushProvider(routeId));
@@ -107,6 +114,8 @@ class SendBar extends ConsumerWidget {
                       '$surveys ${surveys == 1 ? 'encuesta' : 'encuestas'}',
                     if (sweeps > 0)
                       '$sweeps ${sweeps == 1 ? 'parada por cerrar' : 'paradas por cerrar'}',
+                    if (notFound > 0)
+                      '$notFound ${notFound == 1 ? 'no encontrada' : 'no encontradas'}',
                     if (!online) 'sin conexión',
                   ].join(' · '),
                   style: theme.textTheme.titleSmall?.copyWith(
