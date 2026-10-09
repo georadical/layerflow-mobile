@@ -126,6 +126,16 @@ class CaptureRepository {
   Future<int> deleteNoEncontrado(String clientId) =>
       _db.deleteNoEncontrado(clientId);
 
+  Future<List<NoEncontrado>> pendingNoEncontrados(String routeId,
+          {String? owner}) =>
+      _db.pendingNoEncontrados(routeId, owner: owner);
+
+  Future<void> markNoEncontradoSynced(String clientId) =>
+      _db.markNoEncontradoSynced(clientId);
+
+  Future<void> markNoEncontradoError(String clientId, String error) =>
+      _db.markNoEncontradoError(clientId, error);
+
   /// Sets or clears the door link (Spec 7). Changing the npn is a FIELD
   /// decision (provenance rule: the server only re-stamps the method when
   /// the value changes) and re-queues the row. editCapture deliberately
@@ -412,6 +422,27 @@ class CaptureRepository {
           ),
         );
       }
+    }
+
+    // NE.8: the frame's no_encontrados are the server's truth on resume —
+    // upsert each as SYNCED (a pushed one that came back, or one declared on
+    // another device). Local PENDING not-founds absent from the frame are left
+    // untouched (they have not been pushed yet).
+    for (final n in frame.noEncontrados) {
+      await _db.insertNoEncontrado(
+        NoEncontradosCompanion.insert(
+          clientId: n.clientId,
+          routeId: frame.routeId,
+          direccionNorm: n.direccionNorm,
+          npn: Value(n.npn),
+          manzana: Value(n.manzana),
+          stopId: Value(n.stopId),
+          observacion: Value(n.observacion),
+          syncStatus: const Value(AppConfig.syncSynced),
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
     }
   }
 

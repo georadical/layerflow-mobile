@@ -1,6 +1,7 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:layerflow_capture/core/config/app_config.dart';
+import 'package:layerflow_capture/data/api/dtos.dart';
 import 'package:layerflow_capture/data/db/database.dart';
 import 'package:layerflow_capture/data/repositories/capture_repository.dart';
 
@@ -113,5 +114,53 @@ void main() {
         isEmpty);
     // An unscoped read sees only synced/unowned rows.
     expect(await repo.noEncontradosForRoute(routeId), isEmpty);
+  });
+
+  group('NE.8: push/frame plumbing', () {
+    test('mergeFrame upserts the frame no_encontrados as synced', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      await repo.mergeFrame(const RouteFrame(
+        routeId: routeId,
+        items: [],
+        noEncontrados: [
+          RouteFrameNoEncontrado(
+            clientId: 'ne1',
+            direccionNorm: 'CALLE 13 # 3-20',
+            npn: 'npn-20',
+            manzana: '327',
+            stopId: 's1',
+            observacion: 'demolido',
+          ),
+        ],
+      ));
+
+      final n = (await repo.noEncontradosForRoute(routeId)).single;
+      expect(n.clientId, 'ne1');
+      expect(n.direccionNorm, 'CALLE 13 # 3-20');
+      expect(n.observacion, 'demolido');
+      expect(n.syncStatus, AppConfig.syncSynced);
+      // Nothing is pending after the frame (it IS the server truth).
+      expect(await repo.pendingNoEncontrados(routeId), isEmpty);
+    });
+
+    test('pending excludes synced; markSynced flips a pending one', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+
+      final id = await repo.appendNoEncontrado(
+          routeId: routeId, direccionNorm: 'CALLE 13 # 3-20');
+      expect(await repo.pendingNoEncontrados(routeId), hasLength(1));
+
+      await repo.markNoEncontradoSynced(id);
+      expect(await repo.pendingNoEncontrados(routeId), isEmpty);
+      expect((await repo.noEncontradosForRoute(routeId)).single.syncStatus,
+          AppConfig.syncSynced);
+    });
   });
 }

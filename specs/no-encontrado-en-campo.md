@@ -294,8 +294,11 @@ Feature: Declare a predicted placa not found in the field (negative record)
   Both call `deleteNoEncontrado`; the prediction re-points at the restored placa. 2 widget tests.
 - **NE.7 — Exhaustion (CL-R6).** A not-found counts as resolved so the manzana/parada can
   close at 100%. Gate: a manzana with a not-found reaches 100%.
-- **NE.8 — Push + frame.** Send `no_encontrado: true` items (**omit `posicion`**); read the
-  `no_encontrados` frame list; rely on `capturada` / `version` to hide + count + revert.
-  Gate: E2E on Pitalito.
+- **NE.8 — Push + frame. ✅ CODE DONE (E2E against prod pending).** `PlacaItemRequest` gains
+  `no_encontrado` + nullable `posicion` (branched toJson: a not-found sends no posicion/placa);
+  `pushRoute` stages a parada's not-founds in its batch (`_pushNoEncontrados`) + marks synced;
+  the frame parses `no_encontrados[]` (`RouteFrameNoEncontrado`) and `mergeFrame` upserts them;
+  the SendBar counts pending not-founds ("N no encontradas"). 6 unit tests. **Gate:** E2E on
+  Pitalito against prod (declare → Enviar → server records it + R1 `capturada=true`; also NE.7).
 - **NE.9 — Tests + emulator E2E.** Full flow on Pitalito Ruta 10 (declare, advance, undo,
   offline, exhaustion). Gate: `flutter test` green + manual E2E.

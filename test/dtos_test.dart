@@ -671,4 +671,68 @@ void main() {
       expect(item.capturada, isTrue);
     });
   });
+
+  group('Spec 14 (NE.8): no_encontrado item + frame list', () {
+    test('a no_encontrado item: no posicion/placa, carries the fields', () {
+      final json = const PlacaItemRequest(
+        clientId: 'ne1',
+        noEncontrado: true,
+        manzanaCatastral: '327',
+        direccionNorm: 'CALLE 13 # 3-08',
+        npn: 'npn-08',
+        observacion: 'demolido',
+        stopId: 's1',
+      ).toJson();
+
+      expect(json['no_encontrado'], isTrue);
+      expect(json['client_id'], 'ne1');
+      expect(json['manzana_catastral'], '327');
+      expect(json['direccion_norm'], 'CALLE 13 # 3-08');
+      expect(json['npn'], 'npn-08');
+      expect(json['observacion'], 'demolido');
+      expect(json['stop_id'], 's1');
+      // A negative record takes no posicion; placa/es_lote are irrelevant.
+      expect(json.containsKey('posicion'), isFalse);
+      expect(json.containsKey('placa'), isFalse);
+      expect(json.containsKey('es_lote'), isFalse);
+    });
+
+    test('a normal item still carries posicion + es_lote', () {
+      final json =
+          const PlacaItemRequest(clientId: 'c1', posicion: 2).toJson();
+      expect(json['posicion'], 2);
+      expect(json.containsKey('es_lote'), isTrue);
+      expect(json.containsKey('no_encontrado'), isFalse);
+    });
+
+    test('RouteFrame.fromJson parses the no_encontrados list', () {
+      final frame = RouteFrame.fromJson({
+        'route_id': 'r1',
+        'items': const [],
+        'no_encontrados': [
+          {
+            'client_id': 'ne1',
+            'direccion_norm': 'CALLE 13 # 3-08',
+            'npn': 'npn-08',
+            'manzana': '327',
+            'stop_id': 's1',
+            'observacion': 'demolido',
+          },
+        ],
+      });
+      expect(frame.noEncontrados, hasLength(1));
+      final n = frame.noEncontrados.single;
+      expect(n.clientId, 'ne1');
+      expect(n.direccionNorm, 'CALLE 13 # 3-08');
+      expect(n.npn, 'npn-08');
+      expect(n.manzana, '327');
+      expect(n.stopId, 's1');
+      expect(n.observacion, 'demolido');
+    });
+
+    test('RouteFrame.fromJson defaults no_encontrados to empty', () {
+      final frame = RouteFrame.fromJson({'route_id': 'r1', 'items': const []});
+      expect(frame.noEncontrados, isEmpty);
+    });
+  });
 }

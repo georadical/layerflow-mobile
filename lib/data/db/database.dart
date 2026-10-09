@@ -696,6 +696,32 @@ class AppDatabase extends _$AppDatabase {
   Future<int> deleteNoEncontrado(String clientId) =>
       (delete(noEncontrados)..where((n) => n.clientId.equals(clientId))).go();
 
+  /// Pending (not-yet-sent) not-founds for the push (NE.8), CL4-scoped.
+  Future<List<NoEncontrado>> pendingNoEncontrados(String routeId,
+      {String? owner}) {
+    return (select(noEncontrados)
+          ..where((n) =>
+              n.routeId.equals(routeId) &
+              n.syncStatus.equals(AppConfig.syncSynced).not() &
+              _neVisibleTo(n, owner))
+          ..orderBy([(n) => OrderingTerm.asc(n.createdAt)]))
+        .get();
+  }
+
+  Future<void> markNoEncontradoSynced(String clientId) =>
+      (update(noEncontrados)..where((n) => n.clientId.equals(clientId)))
+          .write(const NoEncontradosCompanion(
+        syncStatus: Value(AppConfig.syncSynced),
+        syncError: Value(null),
+      ));
+
+  Future<void> markNoEncontradoError(String clientId, String error) =>
+      (update(noEncontrados)..where((n) => n.clientId.equals(clientId)))
+          .write(NoEncontradosCompanion(
+        syncStatus: const Value(AppConfig.syncError),
+        syncError: Value(error),
+      ));
+
   Future<bool> updateCaptureRow(String clientId, CapturesCompanion patch) {
     return (update(captures)..where((c) => c.clientId.equals(clientId)))
         .write(patch)

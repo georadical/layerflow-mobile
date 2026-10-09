@@ -539,6 +539,15 @@ final noEncontradosProvider =
       .watchNoEncontrados(routeId, owner: owner);
 });
 
+/// Spec 14 (NE.8): pending (not-yet-sent) not-founds, so the send bar surfaces
+/// them and offers Enviar when a not-found is the only unsent thing.
+final pendingNoEncontradoCountProvider =
+    Provider.family<int, String>((ref, routeId) {
+  final rows =
+      ref.watch(noEncontradosProvider(routeId)).valueOrNull ?? const [];
+  return rows.where((n) => n.syncStatus != AppConfig.syncSynced).length;
+});
+
 // ---- Route-state locks (Spec 9) ----
 
 /// CL-E8: whether the active worker-in-ESP may run the survey at all.

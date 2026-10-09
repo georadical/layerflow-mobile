@@ -343,7 +343,7 @@ void main() {
 
     final api = _FakeApi(
       respond: (b) => _response([
-        for (final i in b.items) _ok(i.clientId, i.posicion * 5),
+        for (final i in b.items) _ok(i.clientId, (i.posicion ?? 0) * 5),
       ]),
     );
     await SyncService(api, repo).pushPending(routeId);
@@ -370,7 +370,7 @@ void main() {
 
     final api = _FakeApi(
       respond: (b) => _response([
-        for (final i in b.items) _ok(i.clientId, i.posicion * 5),
+        for (final i in b.items) _ok(i.clientId, (i.posicion ?? 0) * 5),
       ]),
     );
     await SyncService(api, repo).pushPending(routeId);
@@ -400,7 +400,7 @@ void main() {
 
     final api = _FakeApi(
       respond: (b) => _response([
-        for (final i in b.items) _ok(i.clientId, i.posicion * 5),
+        for (final i in b.items) _ok(i.clientId, (i.posicion ?? 0) * 5),
       ]),
     );
     await SyncService(api, repo).pushPending(routeId);
@@ -425,7 +425,7 @@ void main() {
 
     final api = _FakeApi(
       respond: (b) => _response([
-        for (final i in b.items) _ok(i.clientId, i.posicion * 5),
+        for (final i in b.items) _ok(i.clientId, (i.posicion ?? 0) * 5),
       ]),
     );
     await SyncService(api, repo).pushPending(routeId);
@@ -638,7 +638,7 @@ void main() {
           await repo.appendCapture(routeId: routeId, placa: 'B', stopId: 's2');
       final api = _FakeApi(
         respond: (b) => _response(
-            [for (final i in b.items) _ok(i.clientId, i.posicion * 5)]),
+            [for (final i in b.items) _ok(i.clientId, (i.posicion ?? 0) * 5)]),
       )
         ..sweptBehavior['s1'] = () async {}
         ..sweptBehavior['s2'] = () async {};
@@ -667,7 +667,7 @@ void main() {
       await repo.appendCapture(routeId: routeId, placa: 'B', stopId: 's2');
       final api = _FakeApi(
         respond: (b) => _response(
-            [for (final i in b.items) _ok(i.clientId, i.posicion * 5)]),
+            [for (final i in b.items) _ok(i.clientId, (i.posicion ?? 0) * 5)]),
       )
         ..sweptBehavior['s1'] = (() async {
           throw ApiException('sin conexión'); // transport, not a verdict
@@ -700,7 +700,7 @@ void main() {
       final loose = await repo.appendCapture(routeId: routeId, placa: 'Z');
       final api = _FakeApi(
         respond: (b) => _response(
-            [for (final i in b.items) _ok(i.clientId, i.posicion * 5)]),
+            [for (final i in b.items) _ok(i.clientId, (i.posicion ?? 0) * 5)]),
       )..sweptBehavior['s1'] = () async {};
       final service = SyncService(api, repo, parada: ParadaRepository(db, api));
 
