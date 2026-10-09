@@ -281,9 +281,12 @@ Feature: Declare a predicted placa not found in the field (negative record)
   parada's declared not-founds (via `noEncontradosProvider`, stop-scoped) from the face
   before `predictNextFromFaces` → the prediction advances PAST them, same direction.
   Consecutive not-founds + a not-found at the face end fall out naturally. 4 tests.
-- **NE.5 — Prediction-card UI + guardrail confirm.** The "No encontrada en campo" action
-  (only when a concrete next placa is predicted) + the brief confirm that mentions "Sin
-  construir". Gate: tap → confirm → recorded, sweep advances.
+- **NE.5 — Prediction-card UI + guardrail confirm. ✅ DONE (live-verified).** The "No
+  encontrada en campo" action on `_ExpectedPlacaCard` (only when a placa is predicted) +
+  `_noEncontrada` → `_confirmNoEncontrada` (reminds "Sin construir") → `appendNoEncontrado`
+  (observación rides from the form field). Live on Ruta 10 Parada 1: anchor 3-02 → predict
+  3-08 → "No encontrada" → confirm → the row was written (npn/manzana/stop_id/owner) and the
+  card advanced to 3-14. The logic (append + advance) is unit-tested in NE.3/NE.4.
 - **NE.6 — Resume display + undo.** Not-found entries shown distinctly ("no encontrada");
   undo before send. Gate: visible + reversible.
 - **NE.7 — Exhaustion (CL-R6).** A not-found counts as resolved so the manzana/parada can
