@@ -529,6 +529,16 @@ final capturesProvider =
       .watchCaptures(routeId, owner: owner);
 });
 
+/// Spec 14: the route's "no encontrado" records (CL4-scoped like captures), so
+/// the prediction skips declared not-founds (NE.4) and the resume shows them.
+final noEncontradosProvider =
+    StreamProvider.family<List<NoEncontrado>, String>((ref, routeId) {
+  final owner = ref.watch(queueOwnerProvider);
+  return ref
+      .watch(captureRepositoryProvider)
+      .watchNoEncontrados(routeId, owner: owner);
+});
+
 // ---- Route-state locks (Spec 9) ----
 
 /// CL-E8: whether the active worker-in-ESP may run the survey at all.
@@ -773,7 +783,22 @@ final paradaCaptureContextProvider = FutureProvider.autoDispose
   if (anchor == null) return bare();
 
   final rows = await r1.rowsForManzana(tenantId, manzana);
-  final faces = rows.map(_faceFromRow).whereType<FaceAddress>().toList();
+  // NE.4: a not-found placa is skipped in the sweep — exclude THIS parada's
+  // declared not-founds from the face so the prediction advances PAST them, same
+  // direction. Consecutive not-founds and a not-found at the face end fall out
+  // naturally (the face simply has fewer entries). The anchor is never a
+  // not-found (findings/not-founds never move the anchor), so this is safe.
+  final notFound =
+      ref.watch(noEncontradosProvider(routeId)).valueOrNull ?? const [];
+  final notFoundNorms = <String>{
+    for (final n in notFound)
+      if (n.stopId == parada.stopId) n.direccionNorm,
+  };
+  final faces = rows
+      .map(_faceFromRow)
+      .whereType<FaceAddress>()
+      .where((f) => !notFoundNorms.contains(f.direccionNorm))
+      .toList();
   final prediction = predictNextFromFaces(
     anchor: anchor,
     manzanaFaces: faces,

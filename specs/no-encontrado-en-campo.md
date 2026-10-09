@@ -277,9 +277,10 @@ Feature: Declare a predicted placa not found in the field (negative record)
   `appendNoEncontrado` / `watchNoEncontrados` / `noEncontradosForRoute` /
   `deleteNoEncontrado` (undo) on `CaptureRepository`, CL4-scoped, idempotent by
   `client_id`. No posicion/loc/census. 5 unit tests.
-- **NE.4 — Prediction advance.** A not-found advances the local prediction to the next
-  expected placa (client mirror), same direction; consecutive ones + face-end handled.
-  Gate: tests (not-found → next; at end → end-of-face).
+- **NE.4 — Prediction advance. ✅ DONE.** `paradaCaptureContextProvider` excludes this
+  parada's declared not-founds (via `noEncontradosProvider`, stop-scoped) from the face
+  before `predictNextFromFaces` → the prediction advances PAST them, same direction.
+  Consecutive not-founds + a not-found at the face end fall out naturally. 4 tests.
 - **NE.5 — Prediction-card UI + guardrail confirm.** The "No encontrada en campo" action
   (only when a concrete next placa is predicted) + the brief confirm that mentions "Sin
   construir". Gate: tap → confirm → recorded, sweep advances.
