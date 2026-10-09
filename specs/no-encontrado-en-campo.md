@@ -16,9 +16,9 @@
 > **capture-time negative record** that feeds **R1 / cadastre quality**: a phantom entry
 > **in R1** with no field referent. It was renamed from "Fantasma" (2026-10-09, on the
 > backend's catch) to avoid that collision. It **pairs with *hallazgo*** (found in the
-> field, absent from R1): this is its inverse — present in R1, absent in the field. The
-> *englobe / Camaleón* case (a predio that exists but whose identity merged) is a
-> **separate future spec**, out of scope here.
+> field, absent from R1): this is its inverse — present in R1, absent in the field.
+> **Englobe** (a placa absent because its lot merged into a neighbour) is **captured here
+> too** — as a not-found + a free-text suspicion, **not** a separate feature; see **BR14**.
 
 ## User story
 As a **field surveyor (encuestador)** sweeping a parada in strict order, when the app
@@ -52,9 +52,12 @@ placa**, it **advances** the sweep, and it counts as **resolved** for manzana ex
 ### Does NOT include
 - **The CLAUDE.md audit rule "Fantasma"** (built polygon + 0 meters) — a different layer
   (SUI/utility audit), unrelated to this capture-time record.
-- **Camaleón / englobe** (a predio that exists but whose identity merged/changed) — a
-  separate future spec. A not-found is a *pure* negative record; an englobe is a *merge
-  relation* handled elsewhere.
+- **A structured englobe / merge relation** (a capture-time `englobado_en` pointer to the
+  absorbing predio). An englobe whose placa is **absent in the field** is captured **here**
+  as a not-found + a free-text suspicion (see **BR14**); the *determination* (englobe vs
+  demolition / re-numbering / never-built / R1 error, and **which** predio absorbed it) is
+  **deferred to office/SIG** — the audit rule **Camaleón** — because the surveyor cannot
+  establish it in the field.
 - **Demolido / baldío / potrero** — the lot exists → **"Sin construir"** (Spec 12
   `es_lote`), placa **deduced** from the neighbours. Not a not-found.
 - **Re-numerado** — the predio exists with another number → capture the **real field
@@ -140,8 +143,18 @@ that card.
 - **BR12 — Consecutive not-founds.** Several not-founds in a row are allowed; each advances
   the sweep. A not-found at the face end ends the face.
 - **BR13 — Not-a-not-found (documented).** Demolido/baldío → "Sin construir" (Spec 12);
-  re-numerado → real placa (Camaleón); not-accessible → exists; englobe → Camaleón
-  (separate spec). The UI steers these away from the not-found path.
+  re-numerado → real placa (the predio exists with another number); not-accessible →
+  exists. The UI steers these away from the not-found path. **Englobe is the exception**:
+  an absorbed placa that is **absent in the field** *is* a not-found (see **BR14**).
+- **BR14 — Englobe = a not-found + free-text suspicion.** When a predicted placa is absent
+  because its lot **merged** into a neighbour (*englobe*), it is recorded as a **not-found**
+  — the defensible field fact: *no predio here*. Any englobe suspicion (including which
+  predio seems to have absorbed it) goes in the **optional `observacion`** as free text,
+  **never** as a structured relation. The englobe **determination** is **deferred to
+  office/SIG** (the **Camaleón** audit rule), which has the cadastral/registral history and
+  the surviving identifier. *Rationale:* the surveyor cannot establish in the field (a) that
+  it was englobe rather than demolition, re-numbering, a never-built placa, or an R1 error,
+  nor (b) which predio legally absorbed it — both need office data, not a street observation.
 
 ## Edge cases and error handling
 - **Absent door before the anchor.** A door that is absent *before* the parada's first
@@ -207,6 +220,13 @@ logic**.
   it cannot be declared from the card (rare; SIG reconciles). The contract accepts a
   `no_encontrado` item regardless of order, so this can be enabled later **without** a
   backend change if the field shows it matters.
+- **Englobe → a not-found (Spec 17 absorbed). ✅ DECIDED (Jorge 2026-10-09).** The planned
+  *"Predio englobado"* capture feature (Spec 17) is **withdrawn and absorbed here**: an
+  englobe whose placa is absent in the field is a **not-found**, with any merge suspicion in
+  `observacion`; the determination is office/SIG (Camaleón). **No capture-contract change** —
+  the proposed `englobado_en` relation is dropped and the backend ask for it is retracted.
+  See **BR14**. Rationale: the surveyor cannot determine englobe nor the absorbing predio in
+  the field (both are cadastral/registral conclusions).
 
 ## Acceptance criteria
 - On an assisted parada **with an anchor**, the prediction card offers **"No encontrada en
