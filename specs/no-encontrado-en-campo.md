@@ -287,8 +287,11 @@ Feature: Declare a predicted placa not found in the field (negative record)
   (observación rides from the form field). Live on Ruta 10 Parada 1: anchor 3-02 → predict
   3-08 → "No encontrada" → confirm → the row was written (npn/manzana/stop_id/owner) and the
   card advanced to 3-14. The logic (append + advance) is unit-tested in NE.3/NE.4.
-- **NE.6 — Resume display + undo.** Not-found entries shown distinctly ("no encontrada");
-  undo before send. Gate: visible + reversible.
+- **NE.6 — Resume display + undo. ✅ DONE.** Two undos: an immediate **SnackBar "Deshacer"**
+  right after declaring (in `_noEncontrada`), and the **done-parada view** (`_ParadaCapturesScreen`)
+  now lists not-founds distinctly (`search_off` + "No encontrada en campo" + observación) with a
+  **Deshacer** button — shown only while pending (a sent one undoes via full-replacement, NE.8).
+  Both call `deleteNoEncontrado`; the prediction re-points at the restored placa. 2 widget tests.
 - **NE.7 — Exhaustion (CL-R6).** A not-found counts as resolved so the manzana/parada can
   close at 100%. Gate: a manzana with a not-found reaches 100%.
 - **NE.8 — Push + frame.** Send `no_encontrado: true` items (**omit `posicion`**); read the

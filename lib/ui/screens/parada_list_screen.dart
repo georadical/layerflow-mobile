@@ -187,10 +187,22 @@ class _ParadaCapturesScreen extends ConsumerWidget {
         if (c.stopId == parada.stopId) c
     ]..sort((a, b) => CaptureRepository.anchorLoc(a)
         .compareTo(CaptureRepository.anchorLoc(b)));
+    // NE.6: the parada's not-founds show here too, distinct from the placas and
+    // appended (they carry no loc). Reversible until sent.
+    final notFound = [
+      for (final n
+          in ref.watch(noEncontradosProvider(routeId)).valueOrNull ?? const [])
+        if (n.stopId == parada.stopId) n
+    ];
+
+    final rows = <Widget>[
+      for (final c in caps) _captureTile(theme, c),
+      for (final n in notFound) _notFoundTile(context, ref, theme, n),
+    ];
 
     return Scaffold(
       appBar: AppBar(title: Text('Parada ${parada.faceSequence} · barrida')),
-      body: caps.isEmpty
+      body: rows.isEmpty
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -204,27 +216,50 @@ class _ParadaCapturesScreen extends ConsumerWidget {
               ),
             )
           : ListView.separated(
-              itemCount: caps.length,
+              itemCount: rows.length,
               separatorBuilder: (_, __) =>
                   Divider(height: 1, color: theme.colorScheme.outlineVariant),
-              itemBuilder: (context, i) {
-                final c = caps[i];
-                final hasAddress =
-                    c.placa != null && c.placa!.trim().isNotEmpty;
-                return ListTile(
-                  title: Text(
-                    hasAddress ? c.placa! : 'Sin dirección aún',
-                    style: TextStyle(
-                      fontStyle:
-                          hasAddress ? FontStyle.normal : FontStyle.italic,
-                      color: hasAddress
-                          ? theme.colorScheme.onSurface
-                          : theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  subtitle: Text('loc ${CaptureRepository.anchorLoc(c)}'),
-                );
-              },
+              itemBuilder: (context, i) => rows[i],
+            ),
+    );
+  }
+
+  Widget _captureTile(ThemeData theme, Capture c) {
+    final hasAddress = c.placa != null && c.placa!.trim().isNotEmpty;
+    return ListTile(
+      title: Text(
+        hasAddress ? c.placa! : 'Sin dirección aún',
+        style: TextStyle(
+          fontStyle: hasAddress ? FontStyle.normal : FontStyle.italic,
+          color: hasAddress
+              ? theme.colorScheme.onSurface
+              : theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+      subtitle: Text('loc ${CaptureRepository.anchorLoc(c)}'),
+    );
+  }
+
+  Widget _notFoundTile(
+      BuildContext context, WidgetRef ref, ThemeData theme, NoEncontrado n) {
+    final obs = n.observacion?.trim();
+    final sent = n.syncStatus == AppConfig.syncSynced;
+    return ListTile(
+      leading: Icon(Icons.search_off, color: theme.colorScheme.tertiary),
+      title: Text(n.direccionNorm),
+      subtitle: Text(
+        obs != null && obs.isNotEmpty
+            ? 'No encontrada en campo · "$obs"'
+            : 'No encontrada en campo',
+      ),
+      // Reversible only before it is sent; after a send, undo is a
+      // full-replacement baja (NE.8), not a local delete.
+      trailing: sent
+          ? null
+          : TextButton(
+              onPressed: () =>
+                  ref.read(captureRepositoryProvider).deleteNoEncontrado(n.clientId),
+              child: const Text('Deshacer'),
             ),
     );
   }
