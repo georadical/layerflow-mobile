@@ -1,6 +1,7 @@
 # Spec 14 — No encontrado en campo (not-found-in-field, negative capture record)
 
-> Status: **Draft** — spec phase. Branch `feature/no-encontrado` (to create).
+> Status: **Implemented** — NE.1–NE.9 DONE, E2E-verified on prod Ruta 20 (2026-10-09).
+> Branch `feature/no-encontrado` (8 commits; ready to merge to main).
 > Pipeline: `Spec → Wireframe → Design → Implementation` (CLAUDE.md). Each phase
 > ends with a verifiable gate, a commit and explicit approval.
 > Relates to: **Spec 10 / parada-scoped capture** (the prediction card, `currentParada`,
@@ -292,13 +293,19 @@ Feature: Declare a predicted placa not found in the field (negative record)
   now lists not-founds distinctly (`search_off` + "No encontrada en campo" + observación) with a
   **Deshacer** button — shown only while pending (a sent one undoes via full-replacement, NE.8).
   Both call `deleteNoEncontrado`; the prediction re-points at the restored placa. 2 widget tests.
-- **NE.7 — Exhaustion (CL-R6).** A not-found counts as resolved so the manzana/parada can
-  close at 100%. Gate: a manzana with a not-found reaches 100%.
-- **NE.8 — Push + frame. ✅ CODE DONE (E2E against prod pending).** `PlacaItemRequest` gains
-  `no_encontrado` + nullable `posicion` (branched toJson: a not-found sends no posicion/placa);
-  `pushRoute` stages a parada's not-founds in its batch (`_pushNoEncontrados`) + marks synced;
-  the frame parses `no_encontrados[]` (`RouteFrameNoEncontrado`) and `mergeFrame` upserts them;
-  the SendBar counts pending not-founds ("N no encontradas"). 6 unit tests. **Gate:** E2E on
-  Pitalito against prod (declare → Enviar → server records it + R1 `capturada=true`; also NE.7).
-- **NE.9 — Tests + emulator E2E.** Full flow on Pitalito Ruta 10 (declare, advance, undo,
-  offline, exhaustion). Gate: `flutter test` green + manual E2E.
+- **NE.7 — Exhaustion (CL-R6). ✅ DONE (E2E-verified).** A declared not-found flips its R1 placa
+  to `capturada=true` server-side (version moves); the normal sync re-downloads the directory, so
+  the placa leaves the typeahead and counts as resolved for manzana exhaustion — no new app logic
+  (reuses the V4.8 `capturada`/`version` path). Verified on prod Ruta 20: `CALLE 20A # 3-11` →
+  `capturada=true` after declaring + Enviar.
+- **NE.8 — Push + frame. ✅ DONE (E2E-verified on prod).** `PlacaItemRequest` gains `no_encontrado`
+  + nullable `posicion` (branched toJson: a not-found sends no posicion/placa); `pushRoute` stages
+  a parada's not-founds in its batch (`_pushNoEncontrados`) + marks synced; the frame parses
+  `no_encontrados[]` (`RouteFrameNoEncontrado`) and `mergeFrame` upserts them; the SendBar counts
+  pending not-founds ("N no encontradas"). 6 unit tests. Verified on prod Ruta 20 (pushed → synced;
+  frame returned it in `no_encontrados[]`).
+- **NE.9 — E2E. ✅ DONE.** Full flow verified end-to-end on **prod** Ruta 20 (2026-10-09): anchor
+  `3-03` + photo → predict `3-11` → "No encontrada" → advance to `3-17` → Enviar → both synced
+  (loc/sec assigned) → R1 `3-03`/`3-11` `capturada=true` + frame `no_encontrados[]` → cross-cleanup
+  (`--cleanup` 1+1+1) reverted `capturada=false` + the app deleted local + re-synced to the baseline.
+  Plus `flutter test` green (337) across NE.1–NE.8.
