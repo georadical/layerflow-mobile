@@ -356,7 +356,7 @@ Feature: Corner lot recorded by its cruce
   `01a1441a…5860`, `secuencia_parada=1`, `loc=5`, `direccion_norm` null) and the
   parada **swept without a photo**; backend `--cleanup` + local reset restored the
   baseline (0 capturadas, 0/1 barridas).
-- **LX.5** — pending (pilot guide).
+- **LX.5 ✅** pilot guide updated (red pending note removed; photo-optional bullet and the "¿Te falta CON?" check added to the corner-lot section). The guide `.docx` is a local, untracked deliverable.
 
 ### Open items
 - **OI-C1 — RESOLVED (backend 2026-10-16).** `es_cruce` is evaluated AFTER the
