@@ -140,8 +140,9 @@ NormalizedAddress normalizeAddress(String raw) {
 
   // Cruce cut (BR-C2): a corner names no door, so stop before placa parsing —
   // otherwise `CALLE 13 CON CARRERA 3` composes `CALLE 13 # CON-CARRERA`.
-  // TODO(OI-C1): confirm with the backend that the cut runs after this
-  // first-token via check, as it does here.
+  // Runs AFTER the first-token via check, as in `address.py` (OI-C1, backend
+  // 2026-10-16): text not starting with a via is a geographic reference, never
+  // a cruce.
   if (isCruceTokens(tokens)) return const NormalizedAddress(esCruce: true);
 
   // a. Structural suffixes, extractable from any position.

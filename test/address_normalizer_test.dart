@@ -39,11 +39,19 @@ void main() {
           reason: 'unchanged pinned output — the LX.3b guard handles it');
     });
 
-    test('OI-C1 (pending backend confirmation): non-via first token → rural',
+    test('OI-C1 (backend 2026-10-16): not starting with a via → not a cruce',
         () {
-      final n = normalizeAddress('VEREDA X CON CALLE 3');
-      expect(n.esCruce, isFalse);
-      expect(n.direccionNorm, isNull);
+      for (final t in ['VEREDA X CON CARRERA 3', '13 CON CARRERA 3']) {
+        final n = normalizeAddress(t);
+        expect(n.esCruce, isFalse, reason: t);
+        expect(n.direccionNorm, isNull, reason: t);
+      }
+    });
+
+    test('OI-C1 (backend 2026-10-16): the backend reference cases', () {
+      expect(normalizeAddress('CALLE 20A CON CARRERA 3').esCruce, isTrue);
+      expect(normalizeAddress('CALLE 13 CON 3 15').esCruce, isFalse,
+          reason: 'what follows CON is not a via');
     });
 
     test('isCruceTokens works on cleaned tokens', () {

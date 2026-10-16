@@ -345,8 +345,21 @@ Feature: Corner lot recorded by its cruce
 - **LX.4 — Emulator E2E** (both forms) AC-C5, then clean up.
 - **LX.5 — Guide.** Remove the red pending notes in the pilot guide for Mauro.
 
+### Status (2026-10-16)
+- **LX.1 ✅** spec `e45a0e5` · **LX.2 ✅** detector `a5ceaa6` · **LX.3 ✅** photo
+  exemption `c20e6e3` · **LX.3b ✅** missing-`CON` guard `42bc3e2`.
+- **LX.4 ✅ E2E.** Emulator: `CALLE 13 CON CARRERA 3` and `KR 3 CON CL 13` save
+  photo-free and do not anchor (the next R1 placa anchors and predicts);
+  `CALLE 13 CARRERA 3` raises "¿Te falta CON?" ([Corregir] keeps the text, [Guardar
+  igual] asks for the photo); a lot with a real placa (`45`) requires the photo.
+  **Prod (Ruta 20):** lot `CALLE 20A CON CARRERA 3` pushed (census_code
+  `01a1441a…5860`, `secuencia_parada=1`, `loc=5`, `direccion_norm` null) and the
+  parada **swept without a photo**; backend `--cleanup` + local reset restored the
+  baseline (0 capturadas, 0/1 barridas).
+- **LX.5** — pending (pilot guide).
+
 ### Open items
-- **OI-C1 — Detector scope vs the first token.** Does `address.py` compute `es_cruce`
-  before or after the "first token must be a via" check? It matters only for the
-  photo exemption of texts like `VEREDA X CON CALLE 3`. The app mirrors the backend's
-  code verbatim; ask for the snippet when relaying LX.2.
+- **OI-C1 — RESOLVED (backend 2026-10-16).** `es_cruce` is evaluated AFTER the
+  "first token is a via" check; a non-via start is a geographic reference
+  (`VEREDA X CON CARRERA 3`, `13 CON CARRERA 3` → not a cruce). The app's cut is in
+  the same place; pinned by tests.
