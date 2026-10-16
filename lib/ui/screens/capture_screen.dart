@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/address/address_normalizer.dart';
+import '../../core/address/cruce_guard.dart';
 import '../../core/address/manzana_label.dart';
 import '../../core/config/app_config.dart';
 import '../../core/camera/plate_camera.dart';
@@ -336,6 +337,34 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     );
   }
 
+  /// Spec 12 amendment BR-C4 (LX.3b): a lot written as two streets WITHOUT
+  /// `CON` parses as a door on a fake face and corrupts the sweep. Soft check —
+  /// true = save anyway, false = go back and fix (the heuristic can misfire).
+  Future<bool> _confirmMissingCon() async {
+    final saveAnyway = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('¿Te falta CON?'),
+        content: const Text(
+          'Parece una esquina escrita sin la palabra CON. Escríbela así: '
+          'CALLE 13 CON CARRERA 3. Sin CON, la app la confunde con una '
+          'dirección y desordena la parada.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('Guardar igual'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Corregir'),
+          ),
+        ],
+      ),
+    );
+    return saveAnyway ?? false;
+  }
+
   void _unlink() => setState(() {
         _linked = null;
         _duplicateOfPosicion = null;
@@ -489,6 +518,16 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() => _saving = true);
     final repo = ref.read(captureRepositoryProvider);
     try {
+      // Spec 12 amendment BR-C4: catch a corner lot typed without CON before
+      // it reaches the parser. [Corregir] keeps the text and refocuses the field.
+      if (_esLote && looksLikeCruceMissingCon(_placaCtrl.text)) {
+        final saveAnyway = await _confirmMissingCon();
+        if (!mounted) return;
+        if (!saveAnyway) {
+          _placaFocus.requestFocus();
+          return; // abort — the finally resets _saving, the form stays intact
+        }
+      }
       // Spec 13 (Jorge 2026-10-07): a free-typed HALLAZGO chosen as the parada's
       // ANCHOR gets the SAME middle check as an R1 pick — a middle placa (R1
       // doors both before AND after on its face) gives no sweep direction, so it
