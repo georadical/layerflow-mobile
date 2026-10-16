@@ -83,8 +83,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   /// never run unscoped during the context-loading window: Spec 13 found that an
   /// unscoped (global) search lets the worker link an R1 row from ANOTHER
   /// manzana, which corrupts the anchor and breaks prediction.
-  Parada? get _currentParada =>
-      ref.read(currentParadaProvider(widget.routeId));
+  Parada? get _currentParada => ref.read(currentParadaProvider(widget.routeId));
 
   // Camera per SHOT, on demand (CL-R3): there is NO live preview and NO
   // persistent camera across the walk — a streaming viewfinder open at every
@@ -251,9 +250,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     if (parada != null && (parada.manzana?.trim().isEmpty ?? true)) {
       return false;
     }
-    return _linked == null &&
-        !_notInList &&
-        _placaCtrl.text.trim().isNotEmpty;
+    return _linked == null && !_notInList && _placaCtrl.text.trim().isNotEmpty;
   }
 
   /// Links the unit to the tapped R1 address. The NPN rides hidden. A
@@ -408,7 +405,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     // prediction re-points at it (the provider watches the not-found set).
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('"${expected.direccionNorm}" marcada como no encontrada.'),
+        content:
+            Text('"${expected.direccionNorm}" marcada como no encontrada.'),
         action: SnackBarAction(
           label: 'Deshacer',
           onPressed: () => repo.deleteNoEncontrado(clientId),
@@ -535,10 +533,13 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       final lotteryRoll = Random().nextInt(AppConfig.evidenceLotteryOneIn);
       // cameraReady:true — we always ATTEMPT on demand; the hardware valve is
       // handled at capture time (a dead camera returns cameraAvailable:false).
-      // Spec 12, BR4: a plate-less lot (es_lote && placa blank) is exempt from
+      // Spec 12, BR4 + BR-C3: a plate-less or corner-cruce lot is exempt from
       // the forced photo entirely — never required (it may still be taken via
-      // the CTA). A lot WITH a placa falls through to the normal rule.
-      final loteExempt = _esLote && _placaCtrl.text.trim().isEmpty;
+      // the CTA). A lot WITH a real placa falls through to the normal rule.
+      final loteExempt = EvidenceRepository.isLotePhotoExempt(
+        esLote: _esLote,
+        placa: _placaCtrl.text,
+      );
       final needsAimed = !loteExempt &&
           EvidenceRepository.needsDeliberateShot(
             soporte: soporte,
@@ -578,8 +579,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       // link / finding stored) = a parada with NO manzana; a manzana parada
       // stores npn / sinR1 like any R1 capture.
       final parada = ref.read(currentParadaProvider(widget.routeId));
-      final rural =
-          parada != null && (parada.manzana?.trim().isEmpty ?? true);
+      final rural = parada != null && (parada.manzana?.trim().isEmpty ?? true);
       final clientId = await repo.appendCapture(
         routeId: widget.routeId,
         placa: _placaCtrl.text,
@@ -664,8 +664,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     final assisted = paradaCtx != null;
     // "rural" (no R1 concept, free text) = a parada with NO manzana; a manzana —
     // with or without a terna — drives the assisted full-placa anchor flow.
-    final rural = rawParada != null &&
-        (rawParada.manzana?.trim().isEmpty ?? true);
+    final rural =
+        rawParada != null && (rawParada.manzana?.trim().isEmpty ?? true);
     final showPrediction = assisted &&
         !_esLote && // Spec 12: a lot has no R1 address to predict/link.
         !_predictionDismissed &&
@@ -709,8 +709,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       // Just the number to the corner; the live preview in the helper shows
       // where it lands. Pairs with the anchor field's instruction hint.
       placaHint = 'Ej: 28';
-      placaHelper =
-          _linked == null ? paradaCtx!.previewFromAnchor(_placaCtrl.text) : null;
+      placaHelper = _linked == null
+          ? paradaCtx!.previewFromAnchor(_placaCtrl.text)
+          : null;
     } else {
       placaLabel = 'Placa (dirección en la puerta)';
       // Instruction, not an example (the example is in the helper). This field
@@ -720,10 +721,13 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       placaHelper = _directoryHelper;
     }
 
-    // Spec 12, BR4: a plate-less lot (es_lote && placa blank) is exempt from the
-    // mandatory photo; a lot WITH a placa behaves like any predio.
-    final placaBlank = _placaCtrl.text.trim().isEmpty;
-    final fotoRequired = fotoObligatoria && !(_esLote && placaBlank);
+    // Spec 12, BR4 + BR-C3: a plate-less or corner-cruce lot is exempt from the
+    // mandatory photo; a lot WITH a real placa behaves like any predio.
+    final fotoRequired = fotoObligatoria &&
+        !EvidenceRepository.isLotePhotoExempt(
+          esLote: _esLote,
+          placa: _placaCtrl.text,
+        );
     final fotoSubject = _esLote ? 'del lote' : 'de placa';
 
     return Scaffold(
@@ -867,8 +871,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     expected: paradaCtx.expectedRow!.direccionNorm,
                     onCoincide: () => _coincide(paradaCtx.expectedRow!),
                     onNoCoincide: _noCoincide,
-                    onNoEncontrada: () =>
-                        _noEncontrada(paradaCtx.expectedRow!),
+                    onNoEncontrada: () => _noEncontrada(paradaCtx.expectedRow!),
                   ),
                 ],
                 const SizedBox(height: 16),

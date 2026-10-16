@@ -129,6 +129,35 @@ void main() {
     });
   });
 
+  group('isLotePhotoExempt (Spec 12 BR4 + amendment BR-C3)', () {
+    bool exempt(bool esLote, String placa) =>
+        EvidenceRepository.isLotePhotoExempt(esLote: esLote, placa: placa);
+
+    test('plate-less lot is exempt (BR4, unchanged)', () {
+      expect(exempt(true, ''), isTrue);
+      expect(exempt(true, '   '), isTrue);
+    });
+
+    test('AC-C3: corner-cruce lot is exempt', () {
+      expect(exempt(true, 'CALLE 13 CON CARRERA 3'), isTrue);
+      expect(exempt(true, 'kr 3 con cl 13'), isTrue);
+    });
+
+    test('AC-C3: a lot with a real placa still needs the photo', () {
+      expect(exempt(true, 'CALLE 13 # 3-30'), isFalse);
+      expect(exempt(true, '3-30'), isFalse);
+    });
+
+    test('the missing-CON form is not exempt (not a cruce)', () {
+      expect(exempt(true, 'CALLE 13 CARRERA 3'), isFalse);
+    });
+
+    test('a built predio is never exempt, even with a cruce or blank', () {
+      expect(exempt(false, ''), isFalse);
+      expect(exempt(false, 'CALLE 13 CON CARRERA 3'), isFalse);
+    });
+  });
+
   group('needsDeliberateShot (CL-R3 v1.1)', () {
     test('divergence always demands the aimed shot (camera alive)', () {
       for (var roll = 0; roll < 10; roll++) {
