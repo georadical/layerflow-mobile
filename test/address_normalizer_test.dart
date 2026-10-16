@@ -3,6 +3,55 @@ import 'package:layerflow_capture/core/address/address_normalizer.dart';
 import 'package:layerflow_capture/data/repositories/r1_directory_repository.dart';
 
 void main() {
+  group('cruce cut (Spec 12 amendment BR-C1/BR-C2, backend 2026-10-14)', () {
+    test('AC-C1: CALLE 13 CON CARRERA 3 → cruce, no direccion_norm', () {
+      final n = normalizeAddress('CALLE 13 CON CARRERA 3');
+      expect(n.esCruce, isTrue);
+      expect(n.direccionNorm, isNull,
+          reason: 'must NOT compose CALLE 13 # CON-CARRERA');
+    });
+
+    test('AC-C1: abbreviations, either order', () {
+      expect(normalizeAddress('KR 3 CON CL 13').esCruce, isTrue);
+      expect(normalizeAddress('KR 3 CON CL 13').direccionNorm, isNull);
+    });
+
+    test('AC-C1: lowercase, accents and extra spaces are cleaned first', () {
+      final n = normalizeAddress('  calle 13  con  cárrera 3 ');
+      expect(n.esCruce, isTrue);
+      expect(n.direccionNorm, isNull);
+    });
+
+    test('AC-C2: a normal door placa is untouched', () {
+      final n = normalizeAddress('CALLE 13 # 3-20');
+      expect(n.esCruce, isFalse);
+      expect(n.direccionNorm, 'CALLE 13 # 3-20');
+    });
+
+    test('AC-C2: CON followed by a non-via token is not a cruce', () {
+      expect(normalizeAddress('CALLE 13 CON 3').esCruce, isFalse);
+    });
+
+    test('AC-C2: the missing-CON form is NOT a cruce (parses as before)', () {
+      final n = normalizeAddress('CALLE 13 CARRERA 3');
+      expect(n.esCruce, isFalse);
+      expect(n.direccionNorm, 'CALLE 13 # CARRERA-3',
+          reason: 'unchanged pinned output — the LX.3b guard handles it');
+    });
+
+    test('OI-C1 (pending backend confirmation): non-via first token → rural',
+        () {
+      final n = normalizeAddress('VEREDA X CON CALLE 3');
+      expect(n.esCruce, isFalse);
+      expect(n.direccionNorm, isNull);
+    });
+
+    test('isCruceTokens works on cleaned tokens', () {
+      expect(isCruceTokens(['CALLE', '13', 'CON', 'CARRERA', '3']), isTrue);
+      expect(isCruceTokens(['CALLE', '13', 'CON']), isFalse);
+    });
+  });
+
   group('pinned algorithm — the spec\'s own examples', () {
     test('K 2 4A 09 → CARRERA 2 # 4A-09', () {
       expect(normalizeAddress('K 2 4A 09').direccionNorm, 'CARRERA 2 # 4A-09');
