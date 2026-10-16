@@ -63,6 +63,15 @@ class EvidenceRepository {
     return lotteryRoll == 0;
   }
 
+  /// Spec 12 BR4 + amendment BR-C3: a lot is exempt from the mandatory photo
+  /// when its placa is blank OR names a street corner (`CALLE 13 CON CARRERA 3`)
+  /// — neither has a door plate to photograph. A lot with a real placa is not
+  /// exempt; a non-lot never is. Mirrors the backend's `_placas_sin_foto`.
+  static bool isLotePhotoExempt({required bool esLote, required String placa}) {
+    if (!esLote) return false;
+    return placa.trim().isEmpty || normalizeAddress(placa).esCruce;
+  }
+
   /// Queues (or replaces) a unit's photo for a [proposito]. Re-capturing
   /// replaces file and row — the upload is idempotent per (unit, proposito)
   /// anyway. The OLD file is removed best-effort so re-shots do not

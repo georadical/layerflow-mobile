@@ -104,6 +104,7 @@ class NormalizedAddress {
     this.interior = false,
     this.lote,
     this.mz,
+    this.esCruce = false,
   });
 
   final String? direccionNorm;
@@ -111,6 +112,21 @@ class NormalizedAddress {
   final bool interior;
   final String? lote;
   final String? mz;
+
+  /// The text names a street corner (`CALLE 13 CON CARRERA 3`), not a door —
+  /// see [isCruceTokens]. Always paired with a null [direccionNorm].
+  final bool esCruce;
+}
+
+/// Pinned cruce rule (backend `address.py`, 2026-10-14 — Spec 12 amendment
+/// BR-C1): over CLEANED tokens, a corner is named when the token `CON` is
+/// present and the token right after it is a via. `CON` is the mandatory
+/// sentinel — a real door placa never produces it.
+bool isCruceTokens(List<String> tokens) {
+  for (var i = 0; i + 1 < tokens.length; i++) {
+    if (tokens[i] == 'CON' && _viaMap.containsKey(tokens[i + 1])) return true;
+  }
+  return false;
 }
 
 /// Pinned `normalize(raw)`.
@@ -121,6 +137,13 @@ NormalizedAddress normalizeAddress(String raw) {
 
   final via = _viaMap[tokens.first];
   if (via == null) return const NormalizedAddress(); // rural name
+
+  // Cruce cut (BR-C2): a corner names no door, so stop before placa parsing —
+  // otherwise `CALLE 13 CON CARRERA 3` composes `CALLE 13 # CON-CARRERA`.
+  // Runs AFTER the first-token via check, as in `address.py` (OI-C1, backend
+  // 2026-10-16): text not starting with a via is a geographic reference, never
+  // a cruce.
+  if (isCruceTokens(tokens)) return const NormalizedAddress(esCruce: true);
 
   // a. Structural suffixes, extractable from any position.
   var interior = false;

@@ -106,7 +106,9 @@ the list. A lot **without** a placa is exempt from the mandatory photo; a lot
   every capture EXCEPT a **plate-less lot** (`es_lote && placa == null`), which is
   **exempt**. A lot WITH a placa requires the photo like any predio. The app
   enforces this in the save gate; the backend applies the matching carve-out in
-  the sweep gate (`_placas_sin_foto`) — relayed and deployed.
+  the sweep gate (`_placas_sin_foto`) — relayed and deployed. **Amended
+  2026-10-14:** a lot whose placa is a **corner cruce** is exempt too — see
+  **Amendment — Corner lot (cruce)** (BR-C3).
 - **BR5 — A lot is one more parada.** It still gets a `secuencia_parada` and shows
   its `predio N` (Spec 11); it counts toward the parada and the sweep normally.
 - **BR6 — No R1 / NPN on a lot.** A lot is never NPN-linked; with **Sin construir**
@@ -211,3 +213,153 @@ Feature: Set a predio's built state (Construido / Sin construir → es_lote)
 - **Backend carve-out — DONE (deployed 2026-10-03):** `es_lote && placa == null`
   is exempt from the sweep photo gate `_placas_sin_foto`. The app side can land
   independently; the end-to-end sweep test (LC.7) runs against the deployed backend.
+
+---
+
+## Amendment — Corner lot (cruce) · 2026-10-14
+
+> Branch `feature/lote-cruce`. Decided by Jorge with the backend (relay
+> "Cruce de lote: patrón confirmado + contrato"). Tickets **LX.1–LX.5** below.
+
+### User story
+As a **field worker**, when the first predio at a corner is an **empty lot with no
+placa and no sign of where its entrance will be**, I cannot know whether R1 lists it
+under one street or the other. I want to record it as **Sin construir** and write
+the **two streets of the corner** — `CALLE 13 CON CARRERA 3` — so the office can
+recognize it, without the app mistaking that text for a door address.
+
+### Why
+Written as a plain address, a cruce is parsed by the pinned normalizer as
+`CALLE 13 # CON-CARRERA` (num_cruce = `CON`) — garbage, but non-null. Without `CON`
+(`CALLE 13 CARRERA 3`) it parses to a **fake face** (`CALLE|13|CARRERA|odd`): verified
+on the emulator (2026-10-14) it persists a false `ascendente` direction on the
+parada, shows "Fin de la parada" right after the lot, switches the field to distance
+mode composing garbage (`CALLE 13 # CARRERA-CALLE 13 # 3-42`), hides the R1
+suggestions and raises a false acera-parity warning.
+
+### Includes
+- **LX — Cruce detector** mirrored from the authoritative normalizer
+  (`backend/reconciliation/address.py`), exactly as the backend defines it.
+- **Photo exemption** extended to a lot whose placa is a cruce.
+- **Missing-`CON` guard** (app-only UX): a soft warning when a lot's text looks like
+  two streets without `CON`.
+
+### Does NOT include
+- **Office dedup** of the same corner lot captured from both faces — backend/office
+  (geometry: same manzana + adjacent faces + `es_lote`, cruce as confirmer; canonical
+  key ordered so `CALLE 13 CON CARRERA 3` ≡ `KR 3 CON CL 13`). Separate backend spec.
+- **Any new push/frame field.** The backend derives `es_cruce` from the raw placa;
+  the app sends the placa as typed. No contract change.
+- **R1 linking** of a cruce lot — it stays a hallazgo until the office resolves it.
+- **Construido corner predios** — a built corner with a visible door is a normal
+  predio registered only on the face of its door; the cruce convention does not apply.
+- **Changing the pinned normalizer beyond the detector** (e.g. making the missing-`CON`
+  form parse to null) — that is a contract change, the backend's call.
+
+### Business rules
+- **BR-C1 — Pattern (pinned, backend-defined).** After cleaning (pinned steps 1–3:
+  ASCII, uppercase, `# - . , ; :` → space, collapse), the text is a **cruce** when the
+  token `CON` is present **and** the token right after `CON` is in the pinned via map
+  (`CALLE/CARRERA/AVENIDA/DIAGONAL/TRANSVERSAL` + abbreviations). `CON` is mandatory —
+  a sentinel no real placa produces.
+- **BR-C2 — Behavior on detection (mirror EXACTLY).** The normalizer stops before
+  placa parsing: `esCruce = true`, `direccionNorm = null`. The raw text is kept as
+  the placa (display + office dedup). Downstream this means: no face, no middle-anchor
+  check, the lot does not anchor the parada, no R1 auto-link.
+- **BR-C3 — Photo.** Exempt when `es_lote && (placa blank || esCruce)`. A demolition
+  lot with a **real** placa keeps the photo requirement (BR4). Backend mirrors it in
+  `_placas_sin_foto`.
+- **BR-C4 — Missing-`CON` guard (app-only).** In **Sin construir** mode, if the text
+  has two **street words** after cleaning (multi-letter via tokens only: `CALLE`,
+  `CARRERA`, `AVENIDA`, `DIAGONAL`, `TRANSVERSAL`, `CL`, `CLL`, `KR`, `CR`, `CRA`, `AV`,
+  `AVE`, `DG`, `DIAG`, `TV`, `TRANS` — single letters excluded to avoid
+  `CALLE 13 A …` false positives) and **no** `CON`, then on **Guardar** a dialog asks
+  *"¿Te falta CON?"* — example `CALLE 13 CON CARRERA 3` — with **[Corregir]** (back to
+  the field) / **[Guardar igual]**. Soft, not a block: the heuristic can misfire.
+- **BR-C5 — Both faces.** The corner lot is captured on **each** face/route that
+  reaches it, written the same way; dedup is the office's (out of scope).
+
+### Edge cases
+- **First token not a street** (`VEREDA X CON CALLE 3`): mirror whatever the backend's
+  detector returns — see Open item OI-C1.
+- **`CON` followed by a non-via token** (`CALLE 13 CON 3`): not a cruce (BR-C1);
+  normal parsing applies, unchanged.
+- **Cruce typed in Construido mode:** the detector still yields `direccionNorm = null`
+  (harmless), but no photo exemption (BR-C3 requires `es_lote`) and no guard (BR-C4 is
+  lot-only).
+- **Lowercase / accents / extra spaces** (`calle 13 con  cárrera 3`): handled by the
+  pinned cleaning before detection.
+
+### Acceptance criteria
+- **AC-C1.** `normalizeAddress('CALLE 13 CON CARRERA 3')` → `esCruce = true`,
+  `direccionNorm = null`; also for `KR 3 CON CL 13` and lowercase/accented input.
+- **AC-C2.** Unchanged results for normal placas (`CALLE 13 # 3-20`), for
+  `CALLE 13 CON 3`, and for the missing-`CON` form (`CALLE 13 CARRERA 3`).
+- **AC-C3.** On a `foto_obligatoria` route, a Sin construir lot with a cruce saves
+  **without** a photo; a Sin construir lot with a real placa still requires it.
+- **AC-C4.** In Sin construir, `CALLE 13 CARRERA 3` + Guardar shows the
+  *"¿Te falta CON?"* dialog; [Corregir] returns to the field, [Guardar igual] saves.
+  `CALLE 13 A 3 20`-style text does not trigger it.
+- **AC-C5.** Emulator: lot `CALLE 13 CON CARRERA 3` saves as predio 1, the parada
+  direction stays NULL, the next R1 placa anchors and predicts normally.
+- **AC-C6.** `flutter analyze` clean, `flutter test` green.
+
+### BDD (Gherkin)
+```gherkin
+Feature: Corner lot recorded by its cruce
+
+  Background:
+    Given a field worker on a foto_obligatoria route, parada 1 with no captures
+
+  Scenario: Corner lot with a cruce saves without photo and does not anchor
+    When the worker selects "Sin construir"
+    And types "CALLE 13 CON CARRERA 3"
+    And taps "Guardar y siguiente"
+    Then the capture saves with es_lote true and placa "CALLE 13 CON CARRERA 3"
+    And no photo was required
+    And the parada direction is still unset
+    And the next R1 placa anchors the parada
+
+  Scenario: Missing CON is caught softly
+    When the worker selects "Sin construir"
+    And types "CALLE 13 CARRERA 3"
+    And taps "Guardar y siguiente"
+    Then a dialog asks "¿Te falta CON?"
+    When the worker taps "Corregir"
+    Then the field is focused with the typed text intact
+
+  Scenario: A demolition lot with a real placa still needs the photo
+    When the worker selects "Sin construir"
+    And types "CALLE 13 # 3-30"
+    And taps "Guardar y siguiente" without a photo
+    Then the save requires a photo
+```
+
+### Tickets (atomic, each gated + committed + approved)
+- **LX.1 — Spec** (this amendment). Gate: approved.
+- **LX.2 — Detector.** `NormalizedAddress.esCruce` + the BR-C1/BR-C2 cut in
+  `address_normalizer.dart`, mirrored from `address.py`. Unit tests AC-C1/AC-C2.
+- **LX.3 — Photo exemption.** Extend the two save-gate checks in `capture_screen.dart`
+  to `es_lote && (blank || esCruce)`. Tests AC-C3.
+- **LX.3b — Missing-`CON` guard.** Detector helper + the soft dialog (BR-C4). Tests AC-C4.
+- **LX.4 — Emulator E2E** (both forms) AC-C5, then clean up.
+- **LX.5 — Guide.** Remove the red pending notes in the pilot guide for Mauro.
+
+### Status (2026-10-16)
+- **LX.1 ✅** spec `e45a0e5` · **LX.2 ✅** detector `a5ceaa6` · **LX.3 ✅** photo
+  exemption `c20e6e3` · **LX.3b ✅** missing-`CON` guard `42bc3e2`.
+- **LX.4 ✅ E2E.** Emulator: `CALLE 13 CON CARRERA 3` and `KR 3 CON CL 13` save
+  photo-free and do not anchor (the next R1 placa anchors and predicts);
+  `CALLE 13 CARRERA 3` raises "¿Te falta CON?" ([Corregir] keeps the text, [Guardar
+  igual] asks for the photo); a lot with a real placa (`45`) requires the photo.
+  **Prod (Ruta 20):** lot `CALLE 20A CON CARRERA 3` pushed (census_code
+  `01a1441a…5860`, `secuencia_parada=1`, `loc=5`, `direccion_norm` null) and the
+  parada **swept without a photo**; backend `--cleanup` + local reset restored the
+  baseline (0 capturadas, 0/1 barridas).
+- **LX.5 ✅** pilot guide updated (red pending note removed; photo-optional bullet and the "¿Te falta CON?" check added to the corner-lot section). The guide `.docx` is a local, untracked deliverable.
+
+### Open items
+- **OI-C1 — RESOLVED (backend 2026-10-16).** `es_cruce` is evaluated AFTER the
+  "first token is a via" check; a non-via start is a geographic reference
+  (`VEREDA X CON CARRERA 3`, `13 CON CARRERA 3` → not a cruce). The app's cut is in
+  the same place; pinned by tests.
