@@ -225,7 +225,8 @@ Feature: Set a predio's built state (Construido / Sin construir → es_lote)
 As a **field worker**, when the first predio at a corner is an **empty lot with no
 placa and no sign of where its entrance will be**, I cannot know whether R1 lists it
 under one street or the other. I want to record it as **Sin construir** and write
-the **two streets of the corner** — `CALLE 13 CON CARRERA 3` — so the office can
+the **two streets of the corner**, my parada's street first — `CALLE 13 CON CARRERA 3`
+(BR-C6) — so the office can
 recognize it, without the app mistaking that text for a door address.
 
 ### Why
@@ -277,7 +278,13 @@ suggestions and raises a false acera-parity warning.
   *"¿Te falta CON?"* — example `CALLE 13 CON CARRERA 3` — with **[Corregir]** (back to
   the field) / **[Guardar igual]**. Soft, not a block: the heuristic can misfire.
 - **BR-C5 — Both faces.** The corner lot is captured on **each** face/route that
-  reaches it, written the same way; dedup is the office's (out of scope).
+  reaches it; dedup is the office's (out of scope).
+- **BR-C6 — Street order (Jorge 2026-10-17).** The **parada's own street goes
+  first**, then `CON`, then the crossing street: on a parada along CALLE 13 →
+  `CALLE 13 CON CARRERA 3`; on a parada along CARRERA 3 → `CARRERA 3 CON CALLE 13`.
+  The two faces therefore record different orders, which also tells the office which
+  face each record came from. Order does not matter to the app's detector (any order
+  is a cruce) nor to the backend's dedup key (canonically ordered).
 
 ### Edge cases
 - **First token not a street** (`VEREDA X CON CALLE 3`): mirror whatever the backend's
