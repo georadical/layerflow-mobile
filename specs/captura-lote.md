@@ -279,16 +279,17 @@ suggestions and raises a false acera-parity warning.
   the field) / **[Guardar igual]**. Soft, not a block: the heuristic can misfire.
 - **BR-C5 — Both faces.** The corner lot is captured on **each** face/route that
   reaches it; dedup is the office's (out of scope).
-- **BR-C6 — Street order (Jorge 2026-10-17/18).** The cruce **starts with the main
-  street — the one that is part of the route** (the street the parada runs along) —
-  then `CON`, then **the street that crosses it at that corner**: on a parada along CALLE 13 →
+- **BR-C6 — Street order (Jorge 2026-10-17/19).** The cruce **starts with the
+  parada's street** ("vía de la parada": the street the face being swept runs along —
+  wording unified with the backend spec LO6 on 2026-10-19), then `CON`, then **the
+  street that crosses it at that corner**: on a parada along CALLE 13 →
   `CALLE 13 CON CARRERA 3`; on a parada along CARRERA 3 → `CARRERA 3 CON CALLE 13`.
   The two faces therefore record different orders, which also tells the office which
   face each record came from. Order does not matter to the app's detector (any order
   is a cruce) nor to the backend's dedup key (canonically ordered).
 - **BR-C7 — A lot spanning the whole face (Jorge 2026-10-18).** When one lot runs
   corner to corner (two crossing streets), the cruce names the **first corner reached
-  following the route's direction**: main street, `CON`, the street crossing there
+  following the route's direction**: the parada's street, `CON`, the street crossing there
   (route along CALLE 13, parada from CARRERA 3 to CARRERA 4 → `CALLE 13 CON CARRERA 3`).
   A lot spanning several faces (up to the whole manzana) is captured once per face, each
   with this rule; the office dedup (live in prod) merges them.
