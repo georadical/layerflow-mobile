@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 ///
 /// It only exists while the capture is linked — after an R1 pick or after
 /// "Coincide" — so the toggle can never be pressed without a link (BR2).
-/// Off: an outlined invitation. On: a tonal, checked state that reads as a toggle;
+/// Off: an outlined invitation. On: a filled, checked state that reads as a toggle;
 /// tapping it again turns the mode off (BR5).
 class LinkedCard extends StatelessWidget {
   const LinkedCard({
@@ -63,7 +63,9 @@ class LinkedCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: sinPlaca
-                  ? FilledButton.tonalIcon(
+                  // Solid, not tonal: a tonal button is the card's own
+                  // secondaryContainer and vanished into it (SE.7 emulator).
+                  ? FilledButton.icon(
                       onPressed: onToggleSinPlaca,
                       icon: const Icon(Icons.check),
                       label: const Text(
