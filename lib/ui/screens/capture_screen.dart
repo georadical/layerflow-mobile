@@ -15,6 +15,7 @@ import '../../core/parada/predio_sequence.dart';
 import '../widgets/predio_number.dart';
 import '../../data/repositories/evidence_repository.dart';
 import '../widgets/confirm_exact_plate.dart';
+import '../widgets/linked_card.dart';
 import 'plate_shot_screen.dart';
 
 import '../../data/db/database.dart';
@@ -67,6 +68,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   /// save. When true the placa is optional, R1 is hidden, and a plate-less lot
   /// is exempt from the mandatory photo.
   bool _esLote = false;
+
+  /// Spec 18: "Solo enlazar — no hay placa a la vista". The capture keeps its R1
+  /// link but records NO placa (the R1 address must never read as an observed
+  /// placa). While on, the placa field is cleared and locked. Only meaningful
+  /// with a link; reset on unlink, on "Sin construir" and on save.
+  bool _sinPlaca = false;
 
   /// Spec 10 PC.3: the worker tapped "No coincide" on the predicted placa —
   /// hide the prediction for THIS capture so they enter what they see. Reset
@@ -368,7 +375,24 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   void _unlink() => setState(() {
         _linked = null;
         _duplicateOfPosicion = null;
+        _sinPlaca = false; // Spec 18 BR5: no link → no "sin placa" mode
       });
+
+  /// Spec 18 BR5: on → clear and lock the placa field (the link stays); off →
+  /// unlock it EMPTY (the R1 address is never restored into it) for typing.
+  void _toggleSinPlaca() {
+    final on = !_sinPlaca;
+    _placaCtrl.clear();
+    setState(() {
+      _sinPlaca = on;
+      _suggestions = [];
+    });
+    if (on) {
+      _placaFocus.unfocus();
+    } else {
+      _placaFocus.requestFocus();
+    }
+  }
 
   void _markNotInList() => setState(() {
         _notInList = true;
@@ -607,7 +631,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       }
       // No passive fallback frame: with no persistent camera there is nothing
       // to grab for free. Routine photos are the CTA or the 1/N lottery only.
-      if (shot != null && !await _ocrSoftCheck(shot)) {
+      // Spec 18: with no placa read there is nothing for the OCR to compare —
+      // the shot is evidence only (a facade sign must not raise "leyó otra cosa").
+      if (shot != null && !_sinPlaca && !await _ocrSoftCheck(shot)) {
         // The worker chose "Corregir": abort, keep the form as-is.
         return;
       }
@@ -662,6 +688,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         _deliberateShot = null;
         _predictionDismissed = false; // the next door predicts again
         _esLote = false; // Spec 12: each new capture starts Construido
+        _sinPlaca = false; // Spec 18: each new capture starts unlocked
       });
       _placaFocus.requestFocus();
     } finally {
@@ -762,11 +789,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
 
     // Spec 12, BR4 + BR-C3: a plate-less or corner-cruce lot is exempt from the
     // mandatory photo; a lot WITH a real placa behaves like any predio.
-    final fotoRequired = fotoObligatoria &&
-        !EvidenceRepository.isLotePhotoExempt(
-          esLote: _esLote,
-          placa: _placaCtrl.text,
-        );
+    // Spec 18 BR6: "sin placa a la vista" always needs the photo (it is the
+    // evidence the office verifies), even on a route without foto_obligatoria.
+    final fotoRequired = _sinPlaca ||
+        (fotoObligatoria &&
+            !EvidenceRepository.isLotePhotoExempt(
+              esLote: _esLote,
+              placa: _placaCtrl.text,
+            ));
     final fotoSubject = _esLote ? 'del lote' : 'de placa';
 
     return Scaffold(
@@ -833,8 +863,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                     onSelectionChanged: (sel) => setState(() {
                       _esLote = sel.first;
                       if (_esLote) {
-                        // A lot has no R1 link / finding / suggestions.
+                        // A lot has no R1 link / finding / suggestions —
+                        // and so no "sin placa a la vista" (Spec 18 BR4).
                         _linked = null;
+                        _sinPlaca = false;
                         _notInList = false;
                         _suggestions = [];
                         _duplicateOfPosicion = null;
@@ -918,12 +950,22 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   controller: _placaCtrl,
                   focusNode: _placaFocus,
                   autofocus: true,
+                  // Spec 18 BR5: locked (and empty) while "sin placa a la vista".
+                  enabled: !_sinPlaca,
                   textCapitalization: TextCapitalization.characters,
-                  decoration: InputDecoration(
-                    labelText: placaLabel,
-                    hintText: placaHint,
-                    helperText: placaHelper,
-                  ),
+                  decoration: _sinPlaca
+                      ? InputDecoration(
+                          labelText: placaLabel,
+                          hintText: 'Sin placa a la vista',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          helperText: 'Enlazada a R1 sin placa leída — '
+                              'la oficina la verifica.',
+                        )
+                      : InputDecoration(
+                          labelText: placaLabel,
+                          hintText: placaHint,
+                          helperText: placaHelper,
+                        ),
                   textInputAction: TextInputAction.next,
                   // setState first so the acera warning / prediction visibility
                   // recompute on every keystroke (the async filter may return
@@ -943,10 +985,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                 ],
                 if (_linked != null) ...[
                   const SizedBox(height: 8),
-                  _LinkedCard(
+                  LinkedCard(
                     direccion: _linked!.direccionNorm,
                     typed: _placaCtrl.text,
                     onUnlink: _unlink,
+                    sinPlaca: _sinPlaca,
+                    onToggleSinPlaca: _toggleSinPlaca,
                   ),
                 ] else if (_notInList) ...[
                   const SizedBox(height: 8),
@@ -1141,39 +1185,6 @@ class _SuggestionPanel extends StatelessWidget {
 
   static String _tail(String s) =>
       s.length <= 3 ? s : s.substring(s.length - 3);
-}
-
-/// The pair, both halves visible (CL-R1 hard rule: selecting never
-/// overwrites the typed placa). The NPN itself is never shown.
-class _LinkedCard extends StatelessWidget {
-  const _LinkedCard({
-    required this.direccion,
-    required this.typed,
-    required this.onUnlink,
-  });
-
-  final String direccion;
-  final String typed;
-  final VoidCallback onUnlink;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      color: theme.colorScheme.secondaryContainer,
-      child: ListTile(
-        leading: const Icon(Icons.link),
-        title: Text('Enlazada a: $direccion'),
-        subtitle: Text('Tú escribiste: "$typed" — se guardan las dos.'),
-        trailing: IconButton(
-          icon: const Icon(Icons.close),
-          tooltip: 'Quitar enlace',
-          onPressed: onUnlink,
-        ),
-      ),
-    );
-  }
 }
 
 /// First-class outcome, not an error state (doctrine).
