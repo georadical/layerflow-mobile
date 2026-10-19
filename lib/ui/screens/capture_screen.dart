@@ -390,7 +390,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     if (on) {
       _placaFocus.unfocus();
     } else {
-      _placaFocus.requestFocus();
+      // The field is still disabled until this frame rebuilds, and a disabled
+      // field ignores focus — ask once it is enabled again (seen on SE.4).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _placaFocus.requestFocus();
+      });
     }
   }
 
@@ -953,11 +957,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   // Spec 18 BR5: locked (and empty) while "sin placa a la vista".
                   enabled: !_sinPlaca,
                   textCapitalization: TextCapitalization.characters,
+                  // The label itself reads the state: a disabled field never takes
+                  // focus, so a hint would never show (seen on the emulator, SE.4).
                   decoration: _sinPlaca
-                      ? InputDecoration(
-                          labelText: placaLabel,
-                          hintText: 'Sin placa a la vista',
-                          prefixIcon: const Icon(Icons.lock_outline),
+                      ? const InputDecoration(
+                          labelText: 'Sin placa a la vista',
+                          prefixIcon: Icon(Icons.lock_outline),
                           helperText: 'Enlazada a R1 sin placa leída — '
                               'la oficina la verifica.',
                         )
