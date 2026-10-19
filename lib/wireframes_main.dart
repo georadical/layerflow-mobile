@@ -11,6 +11,7 @@ import 'ui/wireframes/parada_list_wireframe.dart';
 import 'ui/wireframes/resume_route_wireframe.dart';
 import 'ui/wireframes/route_selector_wireframe.dart';
 import 'ui/wireframes/secuencia_parada_wireframe.dart';
+import 'ui/wireframes/solo_enlazar_wireframe.dart';
 import 'ui/wireframes/survey_rail_wireframe.dart';
 
 /// Wireframe gallery — separate entry point, does not touch the real app.
@@ -143,6 +144,15 @@ class WireframeIndex extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const _NoEncontradoHost()),
             ),
           ),
+          const Divider(height: 1),
+          ListTile(
+            title: const Text('Solo enlazar — sin placa a la vista'),
+            subtitle: const Text('Spec 18 · SE.2'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const _SoloEnlazarHost()),
+            ),
+          ),
         ],
       ),
     );
@@ -202,6 +212,34 @@ class _NoEncontradoHostState extends State<_NoEncontradoHost> {
         const Divider(height: 1),
         Expanded(
           child: NoEncontradoWireframe(state: NoEncontradoState.values[_i]),
+        ),
+      ],
+    );
+  }
+}
+
+class _SoloEnlazarHost extends StatefulWidget {
+  const _SoloEnlazarHost();
+
+  @override
+  State<_SoloEnlazarHost> createState() => _SoloEnlazarHostState();
+}
+
+class _SoloEnlazarHostState extends State<_SoloEnlazarHost> {
+  int _i = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _StateSwitcher(
+          labels: [for (final s in SoloEnlazarState.values) s.name],
+          selected: _i,
+          onSelect: (i) => setState(() => _i = i),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: SoloEnlazarWireframe(state: SoloEnlazarState.values[_i]),
         ),
       ],
     );
