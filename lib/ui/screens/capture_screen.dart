@@ -16,6 +16,7 @@ import '../widgets/predio_number.dart';
 import '../../data/repositories/evidence_repository.dart';
 import '../widgets/confirm_exact_plate.dart';
 import '../widgets/linked_card.dart';
+import '../widgets/sin_placa.dart';
 import 'plate_shot_screen.dart';
 
 import '../../data/db/database.dart';
@@ -1109,12 +1110,19 @@ class _LastCaptureCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              (placa == null || placa.isEmpty) ? '(sin placa)' : placa,
+              (placa != null && placa.isNotEmpty)
+                  ? placa
+                  // Spec 18 BR10: linked to R1 with no placa read.
+                  : isSinPlaca(last!)
+                      ? 'Sin placa a la vista'
+                      : '(sin placa)',
               style: Theme.of(context)
                   .textTheme
                   .headlineSmall
                   ?.copyWith(fontWeight: FontWeight.bold),
             ),
+            if ((placa == null || placa.isEmpty) && isSinPlaca(last!))
+              LinkedAddressText(last!),
             const SizedBox(height: 4),
             Row(
               children: [

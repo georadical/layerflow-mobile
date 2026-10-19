@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:layerflow_capture/core/config/app_config.dart';
 import 'package:layerflow_capture/data/db/database.dart' hide Route;
 import 'package:layerflow_capture/ui/providers.dart';
+import 'package:layerflow_capture/ui/widgets/sin_placa.dart';
 import 'package:layerflow_capture/ui/screens/parada_list_screen.dart';
 
 /// PL.2 — the real ParadaListScreen renders the correct states
@@ -34,6 +35,7 @@ Capture _cap(
   String sync, {
   String? placa,
   int posicion = 1,
+  String? npn,
 }) =>
     Capture(
       clientId: id,
@@ -41,6 +43,7 @@ Capture _cap(
       posicion: posicion,
       stopId: stopId,
       placa: placa,
+      npn: npn,
       sinR1: false,
       esLote: false,
       syncStatus: sync,
@@ -79,9 +82,11 @@ Widget _host(
   bool online = true,
   void Function(BuildContext context, String routeId)? onNoParadas,
   List<NoEncontrado> notFound = const [],
+  List<Override> extraOverrides = const [],
 }) =>
     ProviderScope(
       overrides: [
+        ...extraOverrides,
         routeStopsProvider.overrideWith((ref, routeId) => Stream.value(stops)),
         capturesProvider.overrideWith((ref, routeId) => Stream.value(caps)),
         noEncontradosProvider
@@ -284,6 +289,31 @@ void main() {
     });
   });
 
+  group('ParadaCapturesScreen "sin placa a la vista" rows (Spec 18, SE.5)', () {
+    testWidgets(
+        'a linked capture with no placa reads apart, with its R1 address',
+        (tester) async {
+      final stops = [
+        _parada('s1', 1, swept: true, manzana: '41551010100000005'),
+        _parada('s2', 2, swept: false, manzana: '41551010100000005'),
+      ];
+      final caps = [_cap('c1', 's1', AppConfig.syncPending, npn: '4155')];
+      await tester.pumpWidget(_host(stops, caps, extraOverrides: [
+        linkedAddressProvider
+            .overrideWith((ref, key) async => 'CALLE 20A # 3-03'),
+      ]));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Parada 1')); // done → read-only view
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sin placa a la vista'), findsOneWidget);
+      expect(
+          find.textContaining('enlazada a CALLE 20A # 3-03'), findsOneWidget);
+      expect(find.text('Sin dirección aún'), findsNothing);
+    });
+  });
+
   group('ParadaCapturesScreen not-found rows (Spec 14, NE.6)', () {
     final sweptStops = [
       _parada('s1', 1, swept: true, manzana: '41551010100000327'),
@@ -322,7 +352,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('CALLE 13 # 3-20'), findsOneWidget);
-      expect(find.text('Deshacer'), findsNothing); // sent → replacement-undo only
+      expect(
+          find.text('Deshacer'), findsNothing); // sent → replacement-undo only
     });
   });
 }
