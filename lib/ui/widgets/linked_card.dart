@@ -17,6 +17,7 @@ class LinkedCard extends StatelessWidget {
     required this.onUnlink,
     required this.sinPlaca,
     required this.onToggleSinPlaca,
+    this.offSubtitle,
   });
 
   /// The linked R1 address.
@@ -30,6 +31,10 @@ class LinkedCard extends StatelessWidget {
   /// Spec 18: the capture is linked with NO placa read on the door.
   final bool sinPlaca;
   final VoidCallback onToggleSinPlaca;
+
+  /// Replaces the "Tú escribiste…" line while the mode is off (editar unidad
+  /// keeps its own note about unlinking being a field decision).
+  final String? offSubtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +52,8 @@ class LinkedCard extends StatelessWidget {
               title: Text('Enlazada a: $direccion'),
               subtitle: Text(sinPlaca
                   ? 'Sin placa a la vista — se verifica en oficina.'
-                  : 'Tú escribiste: "$typed" — se guardan las dos.'),
+                  : offSubtitle ??
+                      'Tú escribiste: "$typed" — se guardan las dos.'),
               trailing: IconButton(
                 icon: const Icon(Icons.close),
                 tooltip: 'Quitar enlace',
