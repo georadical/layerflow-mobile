@@ -129,6 +129,38 @@ void main() {
     });
   });
 
+  group('"sin placa a la vista" photo (Spec 18 BR6)', () {
+    test('blank placa + R1 link is divergence → the aimed shot is demanded',
+        () {
+      final soporte = EvidenceRepository.classifySoporte(
+        notInList: false,
+        duplicateNpn: false,
+        typedPlaca: '',
+        linkedDireccionNorm: 'CALLE 20A # 3-03',
+      );
+      expect(soporte, AppConfig.soporteDivergencia);
+      // Even on a route WITHOUT foto_obligatoria, and whatever the lottery says.
+      for (var roll = 0; roll < 5; roll++) {
+        expect(
+          EvidenceRepository.needsDeliberateShot(
+            soporte: soporte,
+            cameraReady: true,
+            alreadyDeliberate: false,
+            lotteryRoll: roll,
+            fotoObligatoria: false,
+          ),
+          isTrue,
+        );
+      }
+    });
+
+    test('a built predio is never photo-exempt, so the shot is not skipped',
+        () {
+      expect(EvidenceRepository.isLotePhotoExempt(esLote: false, placa: ''),
+          isFalse);
+    });
+  });
+
   group('isLotePhotoExempt (Spec 12 BR4 + amendment BR-C3)', () {
     bool exempt(bool esLote, String placa) =>
         EvidenceRepository.isLotePhotoExempt(esLote: esLote, placa: placa);

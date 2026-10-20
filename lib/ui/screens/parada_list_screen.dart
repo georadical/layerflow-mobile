@@ -7,6 +7,7 @@ import '../../data/db/database.dart';
 import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
 import '../widgets/send_bar.dart';
+import '../widgets/sin_placa.dart';
 import '../widgets/sweep_rejected_banner.dart';
 import 'capture_screen.dart';
 import 'resume_route_screen.dart';
@@ -225,6 +226,16 @@ class _ParadaCapturesScreen extends ConsumerWidget {
   }
 
   Widget _captureTile(ThemeData theme, Capture c) {
+    // Spec 18 BR10: linked to R1 with no placa read — reads apart, never as a
+    // missing address nor as an observed placa.
+    if (isSinPlaca(c)) {
+      return ListTile(
+        leading: Icon(Icons.visibility_off, color: theme.colorScheme.tertiary),
+        title: const Text('Sin placa a la vista'),
+        subtitle: LinkedAddressText(c,
+            suffix: ' · loc ${CaptureRepository.anchorLoc(c)}'),
+      );
+    }
     final hasAddress = c.placa != null && c.placa!.trim().isNotEmpty;
     return ListTile(
       title: Text(
@@ -257,8 +268,9 @@ class _ParadaCapturesScreen extends ConsumerWidget {
       trailing: sent
           ? null
           : TextButton(
-              onPressed: () =>
-                  ref.read(captureRepositoryProvider).deleteNoEncontrado(n.clientId),
+              onPressed: () => ref
+                  .read(captureRepositoryProvider)
+                  .deleteNoEncontrado(n.clientId),
               child: const Text('Deshacer'),
             ),
     );
@@ -466,8 +478,7 @@ class _NoParadasFallback extends ConsumerStatefulWidget {
   final void Function(BuildContext context, String routeId)? onSkip;
 
   @override
-  ConsumerState<_NoParadasFallback> createState() =>
-      _NoParadasFallbackState();
+  ConsumerState<_NoParadasFallback> createState() => _NoParadasFallbackState();
 }
 
 class _NoParadasFallbackState extends ConsumerState<_NoParadasFallback> {

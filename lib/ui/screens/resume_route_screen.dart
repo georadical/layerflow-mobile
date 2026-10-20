@@ -12,6 +12,7 @@ import '../../data/repositories/survey_repository.dart';
 import '../providers.dart';
 import '../widgets/predio_number.dart';
 import '../widgets/send_bar.dart';
+import '../widgets/sin_placa.dart';
 import '../widgets/sweep_rejected_banner.dart';
 import 'capture_screen.dart';
 import 'edit_unit_screen.dart';
@@ -414,14 +415,20 @@ class _UnitTile extends ConsumerWidget {
                         child: Text(
                           hasAddress
                               ? placa
-                              : (row.esLote ? 'Lote' : 'Sin dirección aún'),
+                              : row.esLote
+                                  ? 'Lote'
+                                  // Spec 18 BR10: linked to R1, no placa read.
+                                  : isSinPlaca(row)
+                                      ? 'Sin placa a la vista'
+                                      : 'Sin dirección aún',
                           style: theme.textTheme.titleLarge?.copyWith(
                             fontWeight:
                                 hasAddress ? FontWeight.w600 : FontWeight.w400,
-                            fontStyle: hasAddress || row.esLote
-                                ? FontStyle.normal
-                                : FontStyle.italic,
-                            color: hasAddress || row.esLote
+                            fontStyle:
+                                hasAddress || row.esLote || isSinPlaca(row)
+                                    ? FontStyle.normal
+                                    : FontStyle.italic,
+                            color: hasAddress || row.esLote || isSinPlaca(row)
                                 ? theme.colorScheme.onSurface
                                 : theme.colorScheme.onSurfaceVariant,
                           ),
@@ -433,6 +440,13 @@ class _UnitTile extends ConsumerWidget {
                       ],
                     ],
                   ),
+                  if (isSinPlaca(row))
+                    LinkedAddressText(
+                      row,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                   const SizedBox(height: 4),
                   Wrap(
                     crossAxisAlignment: WrapCrossAlignment.center,

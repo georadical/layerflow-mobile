@@ -8,6 +8,7 @@ import '../../data/db/database.dart';
 import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
 import '../widgets/confirm_exact_plate.dart';
+import '../widgets/linked_card.dart';
 
 const _tipoAccesoLabels = <String, String>{
   'puerta_calle': 'Puerta a la calle',
@@ -83,6 +84,11 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
   /// Spec 12: the built state (false = Construido, true = Sin construir / lote).
   bool _esLote = false;
 
+  /// Spec 18 BR11: "sin placa a la vista" — linked, with the placa field
+  /// cleared and locked. Saved as placa null + the link (BR1).
+  bool _sinPlaca = false;
+  final _placaFocus = FocusNode();
+
   @override
   void initState() {
     super.initState();
@@ -93,6 +99,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
     _npn = widget.row.npn;
     _sinR1 = widget.row.sinR1 ?? false;
     _esLote = widget.row.esLote;
+    _sinPlaca = _npn != null && !_esLote && _placa.text.trim().isEmpty;
     Future.microtask(() async {
       final tenantId = ref.read(activeTenantIdProvider);
       if (tenantId == null) return;
@@ -119,6 +126,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
   void dispose() {
     _placa.dispose();
     _obs.dispose();
+    _placaFocus.dispose();
     super.dispose();
   }
 
@@ -158,7 +166,27 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
   void _unlink() => setState(() {
         _npn = null;
         _linkedLabel = null;
+        _sinPlaca = false; // Spec 18 BR5: no link → no "sin placa" mode
       });
+
+  /// Spec 18 BR5/BR11: on → clear and lock the placa field (the link stays);
+  /// off → unlock it EMPTY (the R1 address is never restored into it).
+  void _toggleSinPlaca() {
+    final on = !_sinPlaca;
+    _placa.clear();
+    setState(() {
+      _sinPlaca = on;
+      _suggestions = [];
+    });
+    if (on) {
+      _placaFocus.unfocus();
+    } else {
+      // A disabled field ignores focus: ask once the rebuild enables it (SE.4).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _placaFocus.requestFocus();
+      });
+    }
+  }
 
   /// Opens the anchor picker. The number that travels as `ins_after` is
   /// derived from the unit the worker points at, never typed (BR1/BR2).
@@ -265,31 +293,37 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
         children: [
           TextField(
             controller: _placa,
+            focusNode: _placaFocus,
+            // Spec 18 BR5: locked (and empty) while "sin placa a la vista".
+            enabled: !_sinPlaca,
             textCapitalization: TextCapitalization.characters,
-            decoration: InputDecoration(
-              labelText: 'Placa (dirección en la puerta)',
-              helperText: _directoryAvailable
-                  ? 'Escribe lo que VES. Se guarda tal cual, siempre.'
-                  : 'Opcional: puede quedar en blanco.',
-            ),
+            // The label itself reads the state: a disabled field never takes
+            // focus, so a hint would never show (SE.4).
+            decoration: _sinPlaca
+                ? const InputDecoration(
+                    labelText: 'Sin placa a la vista',
+                    prefixIcon: Icon(Icons.lock_outline),
+                    helperText:
+                        'Enlazada a R1 sin placa leída — la oficina la verifica.',
+                  )
+                : InputDecoration(
+                    labelText: 'Placa (dirección en la puerta)',
+                    helperText: _directoryAvailable
+                        ? 'Escribe lo que VES. Se guarda tal cual, siempre.'
+                        : 'Opcional: puede quedar en blanco.',
+                  ),
             onChanged: _onPlacaChanged,
           ),
           if (_npn != null) ...[
             const SizedBox(height: 8),
-            Card(
-              margin: EdgeInsets.zero,
-              color: theme.colorScheme.secondaryContainer,
-              child: ListTile(
-                leading: const Icon(Icons.link),
-                title: Text('Enlazada a: ${_linkedLabel ?? '…'}'),
-                subtitle: const Text('Quitar el enlace es decisión de campo; '
-                    'viaja en el próximo envío.'),
-                trailing: IconButton(
-                  icon: const Icon(Icons.close),
-                  tooltip: 'Quitar enlace',
-                  onPressed: _unlink,
-                ),
-              ),
+            LinkedCard(
+              direccion: _linkedLabel ?? '…',
+              typed: _placa.text,
+              offSubtitle: 'Quitar el enlace es decisión de campo; '
+                  'viaja en el próximo envío.',
+              onUnlink: _unlink,
+              sinPlaca: _sinPlaca,
+              onToggleSinPlaca: _toggleSinPlaca,
             ),
           ] else if (_sinR1) ...[
             const SizedBox(height: 8),
@@ -366,7 +400,16 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
                 ),
               ],
               selected: {_esLote},
-              onSelectionChanged: (sel) => setState(() => _esLote = sel.first),
+              onSelectionChanged: (sel) => setState(() {
+                _esLote = sel.first;
+                if (_esLote && _sinPlaca) {
+                  // Spec 18 edge: a lot is never linked — the link and the
+                  // mode drop, the field unlocks empty.
+                  _npn = null;
+                  _linkedLabel = null;
+                  _sinPlaca = false;
+                }
+              }),
             ),
           ),
           const SizedBox(height: 16),
