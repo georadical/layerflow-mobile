@@ -1,5 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:layerflow_capture/core/config/app_config.dart';
 import 'package:layerflow_capture/core/parada/address_display.dart';
+import 'package:layerflow_capture/core/parada/face_prediction.dart';
+import 'package:layerflow_capture/data/db/database.dart';
 
 /// AD.2 — Spec 19: compose only a bare distance; a full address or a cruce is
 /// shown as stored.
@@ -90,4 +93,139 @@ void main() {
       }
     });
   });
+
+  group('prefixesForParada (Spec 19 BR3, AD.3)', () {
+    // R1 rows of the manzana, by npn.
+    final r1 = <String, FaceAddress>{
+      'n303': _face('CALLE', '13', '3', '03'),
+      'n405': _face('CALLE', '13', '4', '05'),
+    };
+    Future<FaceAddress?> lookup(Capture c) async => r1[c.npn];
+
+    test('the parada terna applies to every capture', () async {
+      final caps = [
+        _cap('a', 1, placa: 'CALLE 20A # 3-03', npn: 'n303'),
+        _cap('b', 2, placa: '28'),
+        _cap('c', 3, placa: 'CALLE 20A CON CARRERA 4'),
+      ];
+      final p = await prefixesForParada(
+          onStop: caps,
+          tipoVia: 'CALLE',
+          numVia: '20A',
+          numCruce: '3',
+          r1FaceOf: lookup);
+      expect(caps.map((c) => _shown(p, c)), [
+        'CALLE 20A # 3-03',
+        'CALLE 20A # 3-28',
+        'CALLE 20A CON CARRERA 4',
+      ]);
+    });
+
+    test('no terna: a distance composes from the anchor face in force',
+        () async {
+      final caps = [
+        _cap('a', 1, placa: 'CALLE 13 # 3-03', npn: 'n303'),
+        _cap('b', 2, placa: '28'),
+        _cap('c', 3, placa: 'CALLE 13 # 4-05', npn: 'n405'), // Coincide on 4-05
+        _cap('d', 4, placa: '12'),
+      ];
+      final p = await prefixesForParada(onStop: caps, r1FaceOf: lookup);
+      expect(p.containsKey('a'), isFalse,
+          reason: 'the first capture is the anchor itself');
+      expect(caps.map((c) => _shown(p, c)), [
+        'CALLE 13 # 3-03',
+        'CALLE 13 # 3-28',
+        'CALLE 13 # 4-05',
+        'CALLE 13 # 4-12', // the face moved with the new anchor
+      ]);
+    });
+
+    test('a "sin placa a la vista" anchor gives its R1 face', () async {
+      final caps = [
+        _cap('a', 1, npn: 'n303'), // placa null + link
+        _cap('b', 2, placa: '28'),
+      ];
+      final p = await prefixesForParada(onStop: caps, r1FaceOf: lookup);
+      expect(_shown(p, caps[1]), 'CALLE 13 # 3-28');
+    });
+
+    test('a hallazgo anchor (no R1 link) is parsed from its placa', () async {
+      final caps = [
+        _cap('a', 1, placa: 'CALLE 13 # 3-01'), // not in R1
+        _cap('b', 2, placa: '28'),
+      ];
+      final p = await prefixesForParada(onStop: caps, r1FaceOf: lookup);
+      expect(_shown(p, caps[1]), 'CALLE 13 # 3-28');
+    });
+
+    test('a linked anchor wins over a later unlinked capture', () async {
+      final caps = [
+        _cap('a', 1, placa: 'CALLE 13 # 3-03', npn: 'n303'),
+        _cap('b', 2, placa: 'CALLE 20 # 9-99'), // hallazgo, not an anchor
+        _cap('c', 3, placa: '28'),
+      ];
+      final p = await prefixesForParada(onStop: caps, r1FaceOf: lookup);
+      expect(_shown(p, caps[2]), 'CALLE 13 # 3-28');
+    });
+
+    test('no anchor face available → shown as stored (BR4)', () async {
+      final caps = [
+        _cap('a', 1, placa: 'FINCA CANAÁN'),
+        _cap('b', 2, placa: '28'),
+      ];
+      expect(
+          _shown(
+              await prefixesForParada(onStop: caps, r1FaceOf: lookup), caps[1]),
+          '28');
+      // No manzana / tenant: the anchor path is skipped altogether.
+      final linked = [
+        _cap('a', 1, placa: 'CALLE 13 # 3-03', npn: 'n303'),
+        _cap('b', 2, placa: '28'),
+      ];
+      expect(_shown(await prefixesForParada(onStop: linked), linked[1]), '28');
+    });
+
+    test('the parada cardinal rides on the anchor face', () async {
+      final caps = [
+        _cap('a', 1, placa: 'CALLE 13 # 3-03', npn: 'n303'),
+        _cap('b', 2, placa: '28'),
+      ];
+      final p = await prefixesForParada(
+          onStop: caps,
+          cardinal: 'SUR',
+          cardinalPosicion: 'placa',
+          r1FaceOf: lookup);
+      expect(_shown(p, caps[1]), 'CALLE 13 # 3-28 SUR');
+    });
+  });
 }
+
+Capture _cap(String id, int pos,
+        {String? placa, String? npn, String? direccionNorm}) =>
+    Capture(
+      clientId: id,
+      routeId: 'r',
+      posicion: pos,
+      stopId: 's',
+      placa: placa,
+      npn: npn,
+      direccionNorm: direccionNorm,
+      sinR1: false,
+      esLote: false,
+      syncStatus: AppConfig.syncPending,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+    );
+
+FaceAddress _face(String via, String numVia, String numCruce, String placa) =>
+    FaceAddress(
+      direccionNorm: '$via $numVia # $numCruce-$placa',
+      via: via,
+      numVia: numVia,
+      numCruce: numCruce,
+      placa: placa,
+      placaNum: int.parse(placa.replaceAll(RegExp(r'\D'), '')),
+    );
+
+String? _shown(Map<String, AddressPrefix> p, Capture c) =>
+    displayPlaca(c.placa, prefix: p[c.clientId]);
