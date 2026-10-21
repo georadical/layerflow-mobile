@@ -11,6 +11,7 @@ import '../../core/address/manzana_label.dart';
 import '../../core/config/app_config.dart';
 import '../../core/camera/plate_camera.dart';
 import '../../core/ocr/plate_ocr.dart';
+import '../../core/parada/address_display.dart';
 import '../../core/parada/predio_sequence.dart';
 import '../widgets/predio_number.dart';
 import '../../data/repositories/evidence_repository.dart';
@@ -824,6 +825,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   last: last,
                   total: list.length,
                   predio: last == null ? null : predioDisplayFor(last, list),
+                  // Spec 19: the same text the review lists show.
+                  prefix: last == null
+                      ? null
+                      : ref
+                          .watch(placaPrefixesProvider(widget.routeId))
+                          .valueOrNull?[last.clientId],
                 ),
                 if (assisted) ...[
                   const SizedBox(height: 16),
@@ -1070,9 +1077,13 @@ class _LastCaptureCard extends StatelessWidget {
     required this.last,
     required this.total,
     this.predio,
+    this.prefix,
   });
   final Capture? last;
   final int total;
+
+  /// Spec 19: the face prefix a bare distance is composed with (null = none).
+  final AddressPrefix? prefix;
 
   /// Spec 11: the per-parada number of [last] (null when there is none yet).
   final PredioDisplay? predio;
@@ -1089,7 +1100,7 @@ class _LastCaptureCard extends StatelessWidget {
         ),
       );
     }
-    final placa = last!.placa?.trim();
+    final placa = displayPlaca(last!.placa, prefix: prefix);
     return Card(
       color: Theme.of(context).colorScheme.primaryContainer,
       child: Padding(

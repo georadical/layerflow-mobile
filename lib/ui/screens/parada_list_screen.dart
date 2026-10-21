@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/address/manzana_label.dart';
 import '../../core/config/app_config.dart';
+import '../../core/parada/address_display.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
@@ -196,8 +197,11 @@ class _ParadaCapturesScreen extends ConsumerWidget {
         if (n.stopId == parada.stopId) n
     ];
 
+    // Spec 19: the same display text as the review list and the last card.
+    final prefixes =
+        ref.watch(placaPrefixesProvider(routeId)).valueOrNull ?? const {};
     final rows = <Widget>[
-      for (final c in caps) _captureTile(theme, c),
+      for (final c in caps) _captureTile(theme, c, prefixes[c.clientId]),
       for (final n in notFound) _notFoundTile(context, ref, theme, n),
     ];
 
@@ -225,7 +229,7 @@ class _ParadaCapturesScreen extends ConsumerWidget {
     );
   }
 
-  Widget _captureTile(ThemeData theme, Capture c) {
+  Widget _captureTile(ThemeData theme, Capture c, AddressPrefix? prefix) {
     // Spec 18 BR10: linked to R1 with no placa read — reads apart, never as a
     // missing address nor as an observed placa.
     if (isSinPlaca(c)) {
@@ -236,10 +240,11 @@ class _ParadaCapturesScreen extends ConsumerWidget {
             suffix: ' · loc ${CaptureRepository.anchorLoc(c)}'),
       );
     }
-    final hasAddress = c.placa != null && c.placa!.trim().isNotEmpty;
+    final placa = displayPlaca(c.placa, prefix: prefix);
+    final hasAddress = placa != null;
     return ListTile(
       title: Text(
-        hasAddress ? c.placa! : 'Sin dirección aún',
+        placa ?? 'Sin dirección aún',
         style: TextStyle(
           fontStyle: hasAddress ? FontStyle.normal : FontStyle.italic,
           color: hasAddress
