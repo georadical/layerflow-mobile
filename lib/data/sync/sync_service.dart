@@ -372,11 +372,20 @@ class SyncService {
       pFail += r.failed;
     }
 
+    // A parada's photos are staged by ALL its units, not just the ones pending
+    // now: a photo whose upload was held after its placa landed (transport
+    // died, routine photo without WiFi) must retry on the next Enviar — keyed
+    // on this round's pending placas it was never retried (SE.7 E2E finding).
+    final unitsByStop = <String?, Set<String>>{};
+    for (final c in await _repo.capturesForRoute(routeId)) {
+      (unitsByStop[c.stopId] ??= {}).add(c.clientId);
+    }
+
     var chainBroken = false;
     for (final stop in stops) {
       final group = byStop[stop.stopId] ?? const <Capture>[];
       await stagePlacas(group);
-      await stageEvidence({for (final c in group) c.clientId});
+      await stageEvidence(unitsByStop[stop.stopId] ?? const {});
       await stageNoEncontrados(neByStop[stop.stopId] ?? const []);
       if (!stop.sweptSynced) {
         final outcome = await _pushSweepRow(routeId, stop);
@@ -400,7 +409,7 @@ class SyncService {
     if (!chainBroken) {
       final loose = byStop[null] ?? const <Capture>[];
       await stagePlacas(loose);
-      await stageEvidence({for (final c in loose) c.clientId});
+      await stageEvidence(unitsByStop[null] ?? const {});
       await stageNoEncontrados(neByStop[null] ?? const []);
     }
 

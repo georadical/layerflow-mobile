@@ -7,6 +7,7 @@ import 'package:layerflow_capture/data/api/dtos.dart';
 import 'package:layerflow_capture/data/api/sync_dtos.dart';
 import 'package:layerflow_capture/data/db/database.dart';
 import 'package:layerflow_capture/data/repositories/capture_repository.dart';
+import 'package:layerflow_capture/data/repositories/evidence_repository.dart';
 import 'package:layerflow_capture/data/repositories/parada_repository.dart';
 import 'package:layerflow_capture/data/sync/sync_service.dart';
 
@@ -54,8 +55,16 @@ class _FakeApi implements ApiClient {
     required String soporte,
     required String filePath,
     String proposito = 'placa',
-  }) =>
-      throw UnimplementedError();
+  }) async {
+    callLog.add('evidence:$clientId');
+    final behavior = evidenceBehavior;
+    if (behavior == null) throw UnimplementedError();
+    return behavior();
+  }
+
+  /// What the wire does for a photo upload. Absent = UnimplementedError (tests
+  /// that never touch the evidence leg).
+  Future<void> Function()? evidenceBehavior;
 
   @override
   Future<SyncPushResponse> pushSync(SyncPushRequest req) =>
@@ -707,6 +716,46 @@ void main() {
       await service.pushRoute(routeId, wifiAvailable: true);
 
       expect(api.callLog, ['placa:$onFace', 'sweep:s1', 'placa:$loose']);
+    });
+
+    test(
+        'a photo held after its placa landed retries on the next Enviar '
+        '(SE.7 E2E finding)', () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      await seedParadaWithSweep(db, 's1', 1);
+      final repo = CaptureRepository(db);
+      final evidence = EvidenceRepository(db);
+      final unit =
+          await repo.appendCapture(routeId: routeId, placa: 'A', stopId: 's1');
+      await evidence.enqueue(
+          clientId: unit,
+          routeId: routeId,
+          filePath: '/nonexistent/$unit.jpg',
+          soporte: AppConfig.soporteDivergencia);
+      final api = _FakeApi(
+        respond: (b) => _response(
+            [for (final i in b.items) _ok(i.clientId, (i.posicion ?? 0) * 5)]),
+      )
+        ..sweptBehavior['s1'] = () async {}
+        // First Enviar: the photo upload dies in transport.
+        ..evidenceBehavior = () async => throw ApiException('sin conexión');
+      final service = SyncService(api, repo,
+          evidence: evidence, parada: ParadaRepository(db, api));
+
+      var r = await service.pushRoute(routeId, wifiAvailable: true);
+      expect(r.evidence.held, 1);
+      expect((await repo.captureOf(unit))!.syncStatus, AppConfig.syncSynced);
+      expect(await evidence.pendingForRoute(routeId), hasLength(1));
+
+      // Next Enviar: no placa is pending any more, yet the photo still goes.
+      api.callLog.clear();
+      api.evidenceBehavior = () async {};
+      r = await service.pushRoute(routeId, wifiAvailable: true);
+      expect(api.callLog, ['evidence:$unit']);
+      expect(r.evidence.uploaded, 1);
+      expect(await evidence.pendingForRoute(routeId), isEmpty);
     });
   });
 
