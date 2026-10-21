@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/config/app_config.dart';
 import '../../core/jwt.dart';
 import '../../data/api/api_client.dart';
 import '../providers.dart';
@@ -265,7 +266,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onPressed: () => showAboutDialog(
                     context: context,
                     applicationName: 'LayerFlow — Captura',
-                    applicationVersion: '0.1.0',
+                    applicationVersion: AppConfig.appVersion,
                     children: const [
                       Text(
                           'App de captura de placas (censo, coordinate-free).'),
@@ -276,6 +277,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const Text(
                   'El token se guarda en el almacenamiento seguro del sistema. '
                   'La URL no debe llevar barra final.',
+                  style: TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                // Visible without opening "Acerca de": the office asks which
+                // build a phone runs before blaming a field bug on the app.
+                const Text(
+                  'Versión ${AppConfig.appVersion}',
                   style: TextStyle(color: Colors.grey),
                 ),
               ],

@@ -8,6 +8,11 @@ library;
 class AppConfig {
   const AppConfig._();
 
+  /// The app version shown in Ajustes, as `name+build` — mirrors `version:` in
+  /// pubspec.yaml (a test keeps them in sync). Lets the office tell which build a
+  /// surveyor's phone runs.
+  static const String appVersion = '0.2.0+2';
+
   /// Logical name of the local SQLite file.
   static const String dbName = 'layerflow_capture';
 
