@@ -374,6 +374,40 @@ void main() {
       expect(row.syncStatus, AppConfig.syncPending);
     });
 
+    test(
+        'setR1Link: npn OR direccion_norm, writing one clears the other '
+        '(Spec 15 v4)', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id = await repo.appendCapture(routeId: routeId, placa: 'X');
+      await repo.setSinR1(clientId: id, sinR1: true);
+
+      // A multi-unit placa: linked by its direccion_norm; the finding retracts.
+      await repo.setR1Link(clientId: id, direccionNorm: 'CALLE 13 # 3-20');
+      var row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.direccionNorm, 'CALLE 13 # 3-20');
+      expect(row.npn, isNull);
+      expect(row.sinR1, isFalse);
+      expect(row.syncStatus, AppConfig.syncPending);
+
+      // Re-linked to a single-unit placa: the placa-level half is cleared.
+      await repo.setR1Link(clientId: id, npn: 'npn-1');
+      row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, 'npn-1');
+      expect(row.direccionNorm, isNull);
+
+      // Unlinked: both halves cleared.
+      await repo.setR1Link(clientId: id);
+      row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, isNull);
+      expect(row.direccionNorm, isNull);
+    });
+
     test('mergeFrame: the frame is the source of truth for the link', () async {
       final db = await _tryMemoryDb();
       if (db == null) {

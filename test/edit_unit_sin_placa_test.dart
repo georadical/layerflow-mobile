@@ -1,4 +1,5 @@
 import 'package:drift/native.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,7 +35,11 @@ void main() {
     WidgetTester tester, {
     String? placa,
     String? npn,
+    String? direccionNorm,
+    String? manzana,
     bool esLote = false,
+    int? tenantId,
+    List<R1DirectoryCompanion> r1 = const [],
   }) async {
     final maybe = await tester.runAsync(_tryMemoryDb);
     if (maybe == null) return null;
@@ -42,8 +47,16 @@ void main() {
     addTearDown(() => tester.runAsync(db.close));
     repo = CaptureRepository(db);
     final row = (await tester.runAsync(() async {
+      if (tenantId != null && r1.isNotEmpty) {
+        await db.replaceR1Slice(tenantId, r1);
+      }
       final id = await repo.appendCapture(
-          routeId: 'r1', placa: placa, npn: npn, esLote: esLote);
+          routeId: 'r1',
+          placa: placa,
+          npn: npn,
+          direccionNorm: direccionNorm,
+          manzanaCatastral: manzana,
+          esLote: esLote);
       return repo.captureOf(id);
     }))!;
     // Tall enough that the editor's lazy ListView builds Guardar unscrolled.
@@ -53,7 +66,7 @@ void main() {
     await tester.pumpWidget(ProviderScope(
       overrides: [
         databaseProvider.overrideWithValue(db),
-        activeTenantIdProvider.overrideWithValue(null),
+        activeTenantIdProvider.overrideWithValue(tenantId),
         queueOwnerProvider.overrideWithValue(null),
         routeStopsProvider('r1').overrideWith((ref) => Stream.value([])),
       ],
@@ -166,5 +179,96 @@ void main() {
 
     expect(find.text(_solo), findsNothing);
     expect(placaField(tester).enabled, isTrue);
+  });
+
+  group('placa-level (multi-unit) link — npn null + direccion_norm', () {
+    const mz = '41551010100000005';
+    const edificio = 'CALLE 13 # 3-20';
+
+    testWidgets(
+        'a "sin placa" placa-level capture opens ON, named, and saves '
+        'placa null + direccion_norm', (tester) async {
+      final id = await open(tester, direccionNorm: edificio, manzana: mz);
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      expect(find.text('Enlazada a: $edificio'), findsOneWidget);
+      expect(find.text(_on), findsOneWidget);
+      expect(placaField(tester).enabled, isFalse);
+
+      final saved = await saveAndRead(tester, id);
+      expect(saved.placa, isNull);
+      expect(saved.npn, isNull);
+      expect(saved.direccionNorm, edificio);
+    });
+
+    testWidgets('turning it off keeps the placa-level link with a typed placa',
+        (tester) async {
+      final id = await open(tester, direccionNorm: edificio, manzana: mz);
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      await tester.tap(find.text(_on));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).first, edificio);
+      final saved = await saveAndRead(tester, id);
+      expect(saved.placa, edificio);
+      expect(saved.direccionNorm, edificio);
+      expect(saved.npn, isNull);
+    });
+
+    testWidgets('unlinking clears the placa-level link', (tester) async {
+      final id = await open(tester, direccionNorm: edificio, manzana: mz);
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      await tester.tap(find.byTooltip('Quitar enlace'));
+      await tester.pump();
+      expect(find.text(_solo), findsNothing);
+      final saved = await saveAndRead(tester, id);
+      expect(saved.direccionNorm, isNull);
+      expect(saved.npn, isNull);
+    });
+
+    testWidgets(
+        'linking a multi-unit R1 placa in the editor stores its '
+        'direccion_norm (npn null)', (tester) async {
+      final id = await open(
+        tester,
+        placa: '',
+        manzana: mz,
+        tenantId: 1,
+        r1: [
+          R1DirectoryCompanion.insert(
+            tenantId: 1,
+            direccionNorm: edificio,
+            manzana: const Value(mz),
+            unidades: const Value(3),
+            esConjunto: const Value(true),
+            parseOk: const Value(true),
+          ),
+        ],
+      );
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+      // Let the directory count load (async, real DB).
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, edificio);
+      for (var i = 0; i < 10 && find.text('R1').evaluate().isEmpty; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.text('R1'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enlazada a: $edificio'), findsOneWidget);
+      expect(find.text(_solo), findsOneWidget);
+
+      await tester.tap(find.text(_solo));
+      await tester.pump();
+      final saved = await saveAndRead(tester, id);
+      expect(saved.placa, isNull);
+      expect(saved.npn, isNull);
+      expect(saved.direccionNorm, edificio);
+    });
   });
 }
