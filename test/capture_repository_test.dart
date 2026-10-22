@@ -375,6 +375,69 @@ void main() {
     });
 
     test(
+        'adoptOfficeLink mirrors the office link without re-queuing '
+        '(Spec 21, AO.2)', () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id = await repo.appendCapture(
+          routeId: routeId,
+          placa: 'CALLE 20A # 3-03',
+          npn: 'npn-viejo',
+          tipoAcceso: 'puerta_calle',
+          observacion: 'nota');
+      await repo.markSynced(clientId: id, loc: 5, remoteId: 'r1');
+
+      // Single-unit: npn adopted, direccion_norm cleared, still synced.
+      await repo.adoptOfficeLink(clientId: id, npn: 'npn-oficina');
+      var row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, 'npn-oficina');
+      expect(row.direccionNorm, isNull);
+      expect(row.syncStatus, AppConfig.syncSynced); // nothing re-queued
+      // BR7: the rest of the row is untouched.
+      expect(row.placa, 'CALLE 20A # 3-03');
+      expect(row.tipoAcceso, 'puerta_calle');
+      expect(row.observacion, 'nota');
+
+      // Multi-unit: by direccion_norm, npn cleared.
+      await repo.adoptOfficeLink(
+          clientId: id, direccionNorm: 'CALLE 14 # 2-104');
+      row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, isNull);
+      expect(row.direccionNorm, 'CALLE 14 # 2-104');
+
+      // Both null: the office left it without link (BR3).
+      await repo.adoptOfficeLink(clientId: id);
+      row = (await repo.capturesForRoute(routeId)).single;
+      expect(row.npn, isNull);
+      expect(row.direccionNorm, isNull);
+      expect(row.syncStatus, AppConfig.syncSynced);
+    });
+
+    test('adoptOfficeLink retracts the finding only for a real link (BR6)',
+        () async {
+      final db = await _tryMemoryDb();
+      if (db == null) {
+        markTestSkipped('native sqlite3 not available on the host');
+        return;
+      }
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id = await repo.appendCapture(routeId: routeId, placa: 'X');
+      await repo.setSinR1(clientId: id, sinR1: true);
+
+      await repo.adoptOfficeLink(clientId: id);
+      expect((await repo.capturesForRoute(routeId)).single.sinR1, isTrue);
+
+      await repo.adoptOfficeLink(clientId: id, npn: 'npn-1');
+      expect((await repo.capturesForRoute(routeId)).single.sinR1, isFalse);
+    });
+
+    test(
         'setR1Link: npn OR direccion_norm, writing one clears the other '
         '(Spec 15 v4)', () async {
       final db = await _tryMemoryDb();
