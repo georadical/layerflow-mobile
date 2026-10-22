@@ -326,6 +326,28 @@ class CaptureRepository {
     );
   }
 
+  /// Spec 21 BR1/BR6: mirrors the link the office kept (the server's answer to
+  /// a stale field link) — `npn` OR `direccion_norm`, both null = no link —
+  /// WITHOUT re-queuing: the server already holds it. Unlike [setR1Link] it is
+  /// not a field decision, so the sync state, owner and the rest of the row are
+  /// left alone. A non-empty link retracts the "No está en la lista" finding.
+  Future<void> adoptOfficeLink({
+    required String clientId,
+    String? npn,
+    String? direccionNorm,
+  }) async {
+    final linked = npn != null || direccionNorm != null;
+    await _db.updateCaptureRow(
+      clientId,
+      CapturesCompanion(
+        npn: Value(npn),
+        direccionNorm: Value(direccionNorm),
+        sinR1: linked ? const Value(false) : const Value.absent(),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
   Future<void> markError(String clientId, String error) async {
     await _db.updateCaptureRow(
       clientId,

@@ -149,7 +149,15 @@ class PlacaItemResult {
     this.status,
     this.error,
     this.codigo,
+    this.aviso,
+    this.npn,
+    this.direccionNorm,
   });
+
+  /// Spec 21 (backend GD27, contract §9): the phone sent a link the office had
+  /// already replaced; the server kept the office's link — returned in [npn] /
+  /// [direccionNorm] — and stored everything else.
+  static const avisoEnlaceCambiadoEnOficina = 'enlace_cambiado_en_oficina';
 
   final String clientId;
   final bool ok;
@@ -170,6 +178,20 @@ class PlacaItemResult {
   /// 'barrido_fuera_de_orden'); null otherwise.
   final String? codigo;
 
+  /// Spec 21: a non-blocking notice on an `ok` item (additive). Only
+  /// [avisoEnlaceCambiadoEnOficina] is acted on; any other value is ignored.
+  final String? aviso;
+
+  /// Spec 21: the link the server kept, carried with the aviso — `npn` for a
+  /// single-unit placa, OR `direccion_norm` for a multi-unit one (npn null);
+  /// both null when the office left the predio without link.
+  final String? npn;
+  final String? direccionNorm;
+
+  /// Spec 21 BR1: the office's link must be adopted locally.
+  bool get enlaceCambiadoEnOficina =>
+      ok && aviso == avisoEnlaceCambiadoEnOficina;
+
   factory PlacaItemResult.fromJson(Map<String, dynamic> json) {
     return PlacaItemResult(
       clientId: json['client_id'] as String,
@@ -180,6 +202,9 @@ class PlacaItemResult {
       status: json['status'] as String?,
       error: json['error']?.toString(),
       codigo: json['codigo']?.toString(),
+      aviso: json['aviso'] as String?,
+      npn: json['npn'] as String?,
+      direccionNorm: json['direccion_norm'] as String?,
     );
   }
 }

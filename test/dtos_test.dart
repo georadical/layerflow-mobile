@@ -530,6 +530,47 @@ void main() {
     });
   });
 
+  group('office link aviso (Spec 21, AO.2)', () {
+    test('an ok item with the aviso carries the office npn', () {
+      final r = PlacaItemResult.fromJson({
+        'client_id': 'a',
+        'ok': true,
+        'loc': 5,
+        'status': 'updated',
+        'aviso': 'enlace_cambiado_en_oficina',
+        'npn': '415510101000000050090000000000',
+        'direccion_norm': null,
+      });
+      expect(r.enlaceCambiadoEnOficina, isTrue);
+      expect(r.npn, '415510101000000050090000000000');
+      expect(r.direccionNorm, isNull);
+    });
+
+    test('a multi-unit placa comes back by direccion_norm, npn null', () {
+      final r = PlacaItemResult.fromJson({
+        'client_id': 'a',
+        'ok': true,
+        'aviso': 'enlace_cambiado_en_oficina',
+        'npn': null,
+        'direccion_norm': 'CALLE 14 # 2-104',
+      });
+      expect(r.enlaceCambiadoEnOficina, isTrue);
+      expect(r.npn, isNull);
+      expect(r.direccionNorm, 'CALLE 14 # 2-104');
+    });
+
+    test('an unknown aviso or a plain ok item is not acted on (BR2)', () {
+      expect(
+          PlacaItemResult.fromJson(
+                  {'client_id': 'a', 'ok': true, 'aviso': 'otro_aviso'})
+              .enlaceCambiadoEnOficina,
+          isFalse);
+      final plain = PlacaItemResult.fromJson({'client_id': 'a', 'ok': true});
+      expect(plain.enlaceCambiadoEnOficina, isFalse);
+      expect(plain.aviso, isNull);
+    });
+  });
+
   group('secuencia_parada (Spec 11)', () {
     test('PlacaItemResult parses secuencia_parada on an ok item', () {
       final r = PlacaItemResult.fromJson({

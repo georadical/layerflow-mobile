@@ -454,7 +454,10 @@ class PushNotifier extends FamilyNotifier<bool, String> {
       final sweep = r.sweep;
       final survey = r.survey;
 
+      final officeNote = SyncResult.officeLinksNote(result.officeLinks);
       final extras = <String>[
+        // Spec 21 BR4: links the office had changed were taken from the office.
+        if (officeNote != null) officeNote,
         if (evidence.uploaded > 0 || evidence.failed > 0)
           'fotos: ${evidence.uploaded} subidas'
               '${evidence.failed > 0 ? ', ${evidence.failed} rechazadas' : ''}'
@@ -474,6 +477,7 @@ class PushNotifier extends FamilyNotifier<bool, String> {
         synced: result.synced,
         failed: result.failed,
         message: result.isNoop ? extra : '${result.message} · $extra',
+        officeLinks: result.officeLinks,
       );
     } on ApiException catch (e) {
       // No verdict reached the items (BR3); the attempt itself still counts.
