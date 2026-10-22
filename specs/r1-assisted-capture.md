@@ -279,3 +279,62 @@ to this algorithm is a **contract change**: version-bumped here and announced.
   OCR soft-check + photo triggers + chained evidence upload (their specs).
 - **TI.5 — Office QA sampling screen** (later, own spec): divergences with
   photo + adaptive sample of field_confirmed.
+
+## Amendment — Duplicate R1 link: both link kinds, located, editor too · 2026-10-22
+
+> Status: **Draft**. Branch `feature/duplicado-r1`. Amends **CL-R3 trigger (5)** and its
+> local warning. No new screen (the existing banner changes text); gates are tests +
+> the joint emulator check (LX.9).
+
+### User story
+As a **field surveyor**, when I link an R1 row I already linked on another predio of
+this route, I want a clear warning telling me **where** the other link is, so I can
+check whether I picked the wrong door before the office flags it as an error.
+
+### Why
+The office raises "la misma fila de R1 está enlazada desde 2 paradas" (backend
+corner-lote-dedup v2). The app warned only for **npn** links, only in **capture**,
+without saying where, and justified the duplicate with PH units — which no longer
+appear at this stage (r1-directory v4 groups them under one placa).
+
+### Includes
+- Detection for **npn** and **placa-level** (`direccion_norm`, npn null) links.
+- A located warning; the same check in **editar unidad** when linking/relinking.
+- CL-R3 trigger (5) extended to placa-level links (photo `divergencia`, capture only).
+
+### Does NOT include
+- Blocking; cross-route / cross-device detection (the office alert covers it).
+- A placa previously declared "No encontrada en campo" and later linked.
+- Any backend or contract change.
+
+### Business rules
+- **DR1 — What counts.** Another capture **of this route on this phone** (pending or
+  synced, excluding the one being edited) linked to the **same npn**, or — for a
+  placa-level link — to the **same `direccion_norm`** with npn null.
+- **DR2 — Located warning.** *"Esa placa de R1 ya está enlazada en la parada N ·
+  predio M. Revisa que sea otra puerta."* (the predio number as the lists show it;
+  without a parada: *"…ya está enlazada en otro predio de esta ruta…"*). The PH
+  sentence is removed.
+- **DR3 — Soft.** Never blocks; the surveyor may save.
+- **DR4 — Photo.** A duplicate is `soporte = divergencia` (photo required) — now also
+  for placa-level links. Capture only: the editor takes no photos.
+- **DR5 — Three paths.** R1 suggestion, "Coincide", and editar unidad when linking.
+- **DR6 — Local only.** Detection reads the phone's captures; the office alert is the
+  safety net.
+
+### Acceptance criteria
+- **AC-D1.** Linking an npn already linked in parada 1 · predio 2 → the banner names
+  "parada 1 · predio 2".
+- **AC-D2.** Same for a placa-level link (`direccion_norm`, npn null).
+- **AC-D3.** No banner when the only match is the capture being edited.
+- **AC-D4.** The duplicate photo is `divergencia` for both link kinds.
+- **AC-D5.** editar unidad shows the banner when linking a duplicated R1 row.
+
+### Tickets
+- **DUP.1 — Spec** (this amendment). Gate: approved.
+- **DUP.2 — Lookup.** Repository/DB: the other capture holding the same link (npn or
+  `direccion_norm`), excluding a client id; tests DR1, AC-D3.
+- **DUP.3 — Capture.** Both link kinds, located banner text, photo rule; tests AC-D1,
+  AC-D2, AC-D4.
+- **DUP.4 — Editor.** Banner on linking; test AC-D5.
+- **DUP.5 — Joint emulator check** (LX.9 + this), local only.
