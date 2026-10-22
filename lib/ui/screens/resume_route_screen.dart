@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/address/manzana_label.dart';
 import '../../core/config/app_config.dart';
-import '../../core/parada/face_prediction.dart' show composeParadaAddress;
+import '../../core/parada/address_display.dart' show displayPlaca;
 import '../../core/parada/predio_sequence.dart';
 import '../../data/api/api_client.dart';
 import '../../data/db/database.dart';
@@ -328,12 +328,14 @@ class _UnitTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    // Spec 10: the stored placa is the DISTANCE only on a guided parada; show
-    // the full composed address (vía + generadora + distancia + cardinal),
-    // mirroring the backend's compose-on-read, so the list is readable — not a
-    // column of bare numbers. Rural/classic captures have no terna and show
-    // their stored text verbatim (a topónimo or a full typed address).
-    final rawPlaca = row.placa?.trim();
+    // Spec 19: a bare distance shows composed with its face prefix; a full
+    // address or a cruce shows as stored — never composed twice.
+    final placa = displayPlaca(
+      row.placa,
+      prefix: ref
+          .watch(placaPrefixesProvider(row.routeId))
+          .valueOrNull?[row.clientId],
+    );
     final stops = ref.watch(routeStopsProvider(row.routeId)).valueOrNull;
     Parada? parada;
     if (row.stopId != null && stops != null) {
@@ -344,16 +346,6 @@ class _UnitTile extends ConsumerWidget {
         }
       }
     }
-    final placa = (rawPlaca == null || rawPlaca.isEmpty || parada == null)
-        ? rawPlaca
-        : composeParadaAddress(
-            tipoVia: parada.tipoVia,
-            numVia: parada.numVia,
-            numCruce: parada.numCruce,
-            cardinal: parada.cardinal,
-            cardinalPosicion: parada.cardinalPosicion,
-            distance: rawPlaca,
-          );
     final hasAddress = placa != null && placa.isNotEmpty;
     // Three distinct states, not two: a row the server refused is not a row
     // waiting its turn (Spec 3, BR3).

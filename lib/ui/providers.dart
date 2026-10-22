@@ -7,6 +7,7 @@ import '../core/config/app_config.dart';
 import '../core/jwt.dart';
 import '../core/location/location_source.dart';
 import '../core/address/address_normalizer.dart';
+import '../core/parada/address_display.dart';
 import '../core/parada/face_prediction.dart';
 import '../data/api/api_client.dart';
 import '../data/api/dtos.dart';
@@ -731,6 +732,46 @@ FaceAddress? _faceFromRow(R1DirectoryData r) => FaceAddress.fromColumns(
       numCruce: r.numCruce,
       placa: r.placa,
     );
+
+/// Spec 19 (AD.3): the display prefix of every capture of a route, keyed by
+/// `clientId` — the parada's terna, else the anchor face in force when each
+/// capture was made ([prefixesForParada]). A capture with no entry is shown as
+/// stored. Feeds [displayPlaca] on the resume list, "Última capturada" and the
+/// swept-parada rows, so all three read the same text (BR8).
+final placaPrefixesProvider = FutureProvider.autoDispose
+    .family<Map<String, AddressPrefix>, String>((ref, routeId) async {
+  final stops = ref.watch(routeStopsProvider(routeId)).valueOrNull ?? const [];
+  final caps = ref.watch(capturesProvider(routeId)).valueOrNull ?? const [];
+  final tenantId = ref.watch(activeTenantIdProvider);
+  final r1 = ref.watch(r1DirectoryRepositoryProvider);
+  final out = <String, AddressPrefix>{};
+  for (final parada in stops) {
+    final onStop = caps.where((c) => c.stopId == parada.stopId).toList();
+    if (onStop.isEmpty) continue;
+    final manzana = parada.manzana;
+    // As the prediction: no tenant or no manzana → no anchor face, the
+    // surveyor never saw a composed preview there.
+    final canAnchor = tenantId != null && manzana != null;
+    out.addAll(await prefixesForParada(
+      onStop: onStop,
+      tipoVia: parada.tipoVia,
+      numVia: parada.numVia,
+      numCruce: parada.numCruce,
+      cardinal: parada.cardinal,
+      cardinalPosicion: parada.cardinalPosicion,
+      r1FaceOf: !canAnchor
+          ? null
+          : (c) async {
+              final row = c.npn != null
+                  ? await r1.byNpn(tenantId, c.npn!)
+                  : await r1.byDireccionNorm(
+                      tenantId, manzana, c.direccionNorm!);
+              return row == null ? null : _faceFromRow(row);
+            },
+    ));
+  }
+  return out;
+});
 
 /// Computes [ParadaCaptureContext] for the route's current parada (PC.3). The
 /// prediction is LOCAL and near-instant: it groups the manzana's cached R1 rows

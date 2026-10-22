@@ -17,6 +17,9 @@ Parada _parada(
   required bool swept,
   String? manzana,
   String? sweepError,
+  String? tipoVia,
+  String? numVia,
+  String? numCruce,
 }) =>
     Parada(
       stopId: stopId,
@@ -27,6 +30,9 @@ Parada _parada(
       updatedAt: DateTime(2026),
       manzana: manzana,
       sweepError: sweepError,
+      tipoVia: tipoVia,
+      numVia: numVia,
+      numCruce: numCruce,
     );
 
 Capture _cap(
@@ -311,6 +317,40 @@ void main() {
       expect(
           find.textContaining('enlazada a CALLE 20A # 3-03'), findsOneWidget);
       expect(find.text('Sin dirección aún'), findsNothing);
+    });
+  });
+
+  group('ParadaCapturesScreen display text (Spec 19, AD.4)', () {
+    testWidgets(
+        'a distance is composed once; a full address and a cruce show as stored',
+        (tester) async {
+      final stops = [
+        _parada('s1', 1,
+            swept: true,
+            manzana: '41551010100000005',
+            tipoVia: 'CALLE',
+            numVia: '20A',
+            numCruce: '3'),
+        _parada('s2', 2, swept: false, manzana: '41551010100000005'),
+      ];
+      final caps = [
+        _cap('a', 's1', AppConfig.syncSynced, placa: 'CALLE 20A # 3-03'),
+        _cap('b', 's1', AppConfig.syncSynced, placa: '28', posicion: 2),
+        _cap('c', 's1', AppConfig.syncSynced,
+            placa: 'CALLE 20A CON CARRERA 4', posicion: 3),
+      ];
+      await tester.pumpWidget(_host(stops, caps, extraOverrides: [
+        activeTenantIdProvider.overrideWithValue(null),
+      ]));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Parada 1')); // done → read-only view
+      await tester.pumpAndSettle();
+
+      expect(find.text('CALLE 20A # 3-03'), findsOneWidget);
+      expect(find.text('CALLE 20A # 3-28'), findsOneWidget);
+      expect(find.text('CALLE 20A CON CARRERA 4'), findsOneWidget);
+      expect(find.textContaining('# 3-CALLE'), findsNothing);
     });
   });
 
