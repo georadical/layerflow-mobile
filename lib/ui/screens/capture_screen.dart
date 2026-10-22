@@ -547,8 +547,21 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() => _saving = true);
     final repo = ref.read(captureRepositoryProvider);
     try {
-      // Spec 20 BR2/BR8: a built corner needs its access type — checked first,
-      // before any dialog or the camera, so nothing is asked for in vain.
+      // Spec 12 amendment BR-C4 (+ BR-C4a/b/d, 2026-10-22): catch a corner
+      // typed without CON — lot or built — before it reaches the parser, and
+      // FIRST: once corrected it becomes a built corner and the access type
+      // below applies. Skipped when linked to R1 (the link rules). [Corregir]
+      // keeps the text and refocuses the field.
+      if (_linked == null && looksLikeCruceMissingCon(_placaCtrl.text)) {
+        final saveAnyway = await _confirmMissingCon();
+        if (!mounted) return;
+        if (!saveAnyway) {
+          _placaFocus.requestFocus();
+          return; // abort — the finally resets _saving, the form stays intact
+        }
+      }
+      // Spec 20 BR2/BR8: a built corner needs its access type — checked before
+      // the camera, so no photo is asked for in vain.
       if (tipoAccesoMissing(
         builtCorner: isBuiltCorner(
             esLote: _esLote, placa: _placaCtrl.text, sinPlaca: _sinPlaca),
@@ -556,21 +569,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       )) {
         setState(() => _tipoAccesoError = true);
         final fieldContext = _tipoAccesoKey.currentContext;
-        if (fieldContext != null) {
+        if (fieldContext != null && fieldContext.mounted) {
           await Scrollable.ensureVisible(fieldContext,
               alignment: 0.3, duration: const Duration(milliseconds: 300));
         }
         return; // abort — the finally resets _saving, the form stays intact
-      }
-      // Spec 12 amendment BR-C4: catch a corner lot typed without CON before
-      // it reaches the parser. [Corregir] keeps the text and refocuses the field.
-      if (_esLote && looksLikeCruceMissingCon(_placaCtrl.text)) {
-        final saveAnyway = await _confirmMissingCon();
-        if (!mounted) return;
-        if (!saveAnyway) {
-          _placaFocus.requestFocus();
-          return; // abort — the finally resets _saving, the form stays intact
-        }
       }
       // Spec 13 (Jorge 2026-10-07): a free-typed HALLAZGO chosen as the parada's
       // ANCHOR gets the SAME middle check as an R1 pick — a middle placa (R1

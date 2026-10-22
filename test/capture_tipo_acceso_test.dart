@@ -175,4 +175,74 @@ void main() {
 
     await finish(tester);
   });
+
+  group('"¿Te falta CON?" in both modes (BR-C4 amendment, LX.7)', () {
+    const sinCon = 'CALLE 13 CARRERA 3';
+
+    testWidgets('AC-C6: Construido without CON asks; [Corregir] saves nothing',
+        (tester) async {
+      if (!await open(tester)) return markTestSkipped('no sqlite3');
+
+      await tester.enterText(placaField(), sinCon);
+      await tapSave(tester);
+      expect(find.text('¿Te falta CON?'), findsOneWidget);
+      // Asked BEFORE the access-type check (BR-C4d): no Spec 20 error yet.
+      expect(find.text(tipoAccesoRequiredError), findsNothing);
+
+      await tester.tap(find.text('Corregir'));
+      await settle(tester);
+      expect(await stored(tester), isEmpty);
+      expect(find.text(sinCon), findsOneWidget); // text intact
+
+      await finish(tester);
+    });
+
+    testWidgets(
+        'AC-C7: [Guardar igual] saves as typed, no access type required '
+        '(not a cruce)', (tester) async {
+      if (!await open(tester)) return markTestSkipped('no sqlite3');
+
+      await tester.enterText(placaField(), sinCon);
+      await tapSave(tester);
+      await tester.tap(find.text('Guardar igual'));
+      for (var i = 0; i < 10; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await settle(tester);
+      }
+      final rows = await stored(tester);
+      expect(rows, hasLength(1));
+      expect(rows.single.placa, sinCon);
+      expect(rows.single.tipoAcceso, isNull);
+
+      await finish(tester);
+    });
+
+    testWidgets('AC-C9: with CON there is no dialog — the access type is asked',
+        (tester) async {
+      if (!await open(tester)) return markTestSkipped('no sqlite3');
+
+      await tester.enterText(placaField(), 'CALLE 13 CON CARRERA 3');
+      await tapSave(tester);
+      expect(find.text('¿Te falta CON?'), findsNothing);
+      expect(find.text(tipoAccesoRequiredError), findsOneWidget);
+
+      await finish(tester);
+    });
+
+    testWidgets('a lot without CON still asks (BR-C4 unchanged)',
+        (tester) async {
+      if (!await open(tester)) return markTestSkipped('no sqlite3');
+
+      await tester.tap(find.text('Sin construir'));
+      await settle(tester);
+      await tester.enterText(placaField(), sinCon);
+      await tapSave(tester);
+      expect(find.text('¿Te falta CON?'), findsOneWidget);
+      await tester.tap(find.text('Corregir'));
+      await settle(tester);
+
+      await finish(tester);
+    });
+  });
 }
