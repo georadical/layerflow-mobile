@@ -18,12 +18,22 @@ class SyncResult {
     required this.synced,
     required this.failed,
     this.message,
+    this.officeLinks = 0,
   });
 
   final int attempted;
   final int synced;
   final int failed;
   final String? message;
+
+  /// Spec 21: synced items whose link the office had changed — the app took
+  /// the office's link (aviso "enlace_cambiado_en_oficina").
+  final int officeLinks;
+
+  /// Spec 21 BR4: the summary line for [n] adopted office links; null for 0.
+  static String? officeLinksNote(int n) => n == 0
+      ? null
+      : 'La oficina cambió el enlace de $n predio(s); se tomó el de la oficina.';
 
   bool get isOk => failed == 0;
   bool get isNoop => attempted == 0;
@@ -341,7 +351,7 @@ class SyncService {
       (neByStop[n.stopId] ??= []).add(n);
     }
 
-    var pAtt = 0, pSyn = 0, pFail = 0;
+    var pAtt = 0, pSyn = 0, pFail = 0, pOffice = 0;
     var eUp = 0, eHeld = 0, eFail = 0;
     var sSyn = 0, sHeld = 0, sFail = 0;
 
@@ -351,6 +361,7 @@ class SyncService {
       pAtt += r.attempted;
       pSyn += r.synced;
       pFail += r.failed;
+      pOffice += r.officeLinks;
     }
 
     Future<void> stageEvidence(Set<String> ids) async {
@@ -427,6 +438,7 @@ class SyncService {
         message: pFail == 0
             ? 'Enviadas $pSyn.'
             : '$pSyn enviadas, $pFail con error.',
+        officeLinks: pOffice,
       ),
       evidence: EvidenceResult(uploaded: eUp, held: eHeld, failed: eFail),
       sweep: SweepResult(synced: sSyn, held: sHeld, failed: sFail),
@@ -521,6 +533,7 @@ class SyncService {
 
     var synced = 0;
     var failed = 0;
+    var officeLinks = 0;
     for (final c in pending) {
       final r = byId[c.clientId];
       if (r != null && r.ok) {
@@ -530,6 +543,16 @@ class SyncService {
           secuenciaParada: r.secuenciaParada,
           remoteId: r.id,
         );
+        if (r.enlaceCambiadoEnOficina) {
+          // Spec 21 BR1: the server kept the office's link over our stale one —
+          // mirror it, never re-send it.
+          await _repo.adoptOfficeLink(
+            clientId: c.clientId,
+            npn: r.npn,
+            direccionNorm: r.direccionNorm,
+          );
+          officeLinks++;
+        }
         synced++;
       } else {
         // Includes the case where the response simply omits the item: it is
@@ -546,6 +569,7 @@ class SyncService {
       message: failed == 0
           ? 'Enviadas $synced.'
           : '$synced enviadas, $failed con error.',
+      officeLinks: officeLinks,
     );
   }
 

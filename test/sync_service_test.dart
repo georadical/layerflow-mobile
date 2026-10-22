@@ -759,6 +759,97 @@ void main() {
     });
   });
 
+  group('office link aviso (Spec 21, AO.3)', () {
+    PlacaItemResult aviso(String clientId,
+            {String? npn, String? direccionNorm}) =>
+        PlacaItemResult(
+          clientId: clientId,
+          ok: true,
+          id: 'r-$clientId',
+          loc: 5,
+          status: 'updated',
+          aviso: PlacaItemResult.avisoEnlaceCambiadoEnOficina,
+          npn: npn,
+          direccionNorm: direccionNorm,
+        );
+
+    test('the office link is adopted, the row synced and not re-queued',
+        () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final stale = await repo.appendCapture(
+          routeId: routeId, placa: 'CALLE 20A # 3-03', npn: 'npn-viejo');
+      final plain = await repo.appendCapture(routeId: routeId, placa: 'B');
+      final api = _FakeApi(
+        respond: (b) => _response([
+          aviso(stale, npn: 'npn-oficina'),
+          _ok(plain, 10),
+        ]),
+      );
+      final service = SyncService(api, repo);
+
+      final r = await service.pushRoute(routeId, wifiAvailable: true);
+
+      expect(r.placas.synced, 2);
+      expect(r.placas.officeLinks, 1);
+      final row = await repo.captureOf(stale);
+      expect(row!.npn, 'npn-oficina');
+      expect(row.syncStatus, AppConfig.syncSynced);
+      expect(row.placa, 'CALLE 20A # 3-03'); // BR7
+      expect(await repo.pending(routeId), isEmpty); // nothing re-queued
+      expect((await repo.captureOf(plain))!.npn, isNull);
+    });
+
+    test('a multi-unit placa is adopted by its direccion_norm', () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id = await repo.appendCapture(
+          routeId: routeId, placa: 'X', npn: 'npn-viejo');
+      final api = _FakeApi(
+        respond: (b) =>
+            _response([aviso(id, direccionNorm: 'CALLE 14 # 2-104')]),
+      );
+
+      await SyncService(api, repo).pushPending(routeId);
+
+      final row = await repo.captureOf(id);
+      expect(row!.npn, isNull);
+      expect(row.direccionNorm, 'CALLE 14 # 2-104');
+    });
+
+    test('an unknown aviso is ignored: synced, link unchanged (BR2)', () async {
+      final db = await memoryDb();
+      if (db == null) return markTestSkipped('native sqlite3 not available');
+      addTearDown(db.close);
+      final repo = CaptureRepository(db);
+      final id =
+          await repo.appendCapture(routeId: routeId, placa: 'X', npn: 'npn-1');
+      final api = _FakeApi(
+        respond: (b) => _response([
+          PlacaItemResult(
+              clientId: id, ok: true, id: 'r', loc: 5, aviso: 'otro_aviso'),
+        ]),
+      );
+
+      final r = await SyncService(api, repo).pushPending(routeId);
+
+      expect(r.officeLinks, 0);
+      final row = await repo.captureOf(id);
+      expect(row!.npn, 'npn-1');
+      expect(row.syncStatus, AppConfig.syncSynced);
+    });
+
+    test('the summary line (BR4): only when N >= 1', () {
+      expect(SyncResult.officeLinksNote(0), isNull);
+      expect(SyncResult.officeLinksNote(2),
+          'La oficina cambió el enlace de 2 predio(s); se tomó el de la oficina.');
+    });
+  });
+
   group('parada_ya_barrida guard (PC.6)', () {
     test('a placa rejected onto a swept parada gets the reopen message',
         () async {
