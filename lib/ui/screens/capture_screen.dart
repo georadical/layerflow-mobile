@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/address/address_normalizer.dart';
 import '../../core/address/cruce_guard.dart';
 import '../../core/address/manzana_label.dart';
+import '../../core/address/tipo_acceso.dart';
 import '../../core/config/app_config.dart';
 import '../../core/camera/plate_camera.dart';
 import '../../core/ocr/plate_ocr.dart';
@@ -23,13 +24,6 @@ import 'plate_shot_screen.dart';
 import '../../data/db/database.dart';
 import '../providers.dart';
 import '../widgets/token_warning_banner.dart';
-
-/// tipo_acceso options (optional). The stored value is the key.
-const _tipoAccesoOptions = <String, String>{
-  'puerta_calle': 'Puerta a la calle',
-  'area_comun': 'Área común (hall/escalera/patio)',
-  'otro': 'Otro',
-};
 
 /// Result of an on-demand shot attempt. [cameraAvailable] false means the
 /// camera could not start (the valve → sin foto, never blocks); when true,
@@ -55,6 +49,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   final _placaFocus = FocusNode();
   String? _tipoAcceso;
   bool _saving = false;
+
+  /// Spec 20 BR8: a built corner was saved without access type — the field
+  /// shows the error until a value is picked. The key scrolls to it.
+  bool _tipoAccesoError = false;
+  final _tipoAccesoKey = GlobalKey();
 
   // R1-assisted capture (Spec 7). The typeahead only exists where a
   // directory exists; rural / paste-flow capture stays classic.
@@ -548,6 +547,21 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() => _saving = true);
     final repo = ref.read(captureRepositoryProvider);
     try {
+      // Spec 20 BR2/BR8: a built corner needs its access type — checked first,
+      // before any dialog or the camera, so nothing is asked for in vain.
+      if (tipoAccesoMissing(
+        builtCorner: isBuiltCorner(
+            esLote: _esLote, placa: _placaCtrl.text, sinPlaca: _sinPlaca),
+        tipoAcceso: _tipoAcceso,
+      )) {
+        setState(() => _tipoAccesoError = true);
+        final fieldContext = _tipoAccesoKey.currentContext;
+        if (fieldContext != null) {
+          await Scrollable.ensureVisible(fieldContext,
+              alignment: 0.3, duration: const Duration(milliseconds: 300));
+        }
+        return; // abort — the finally resets _saving, the form stays intact
+      }
       // Spec 12 amendment BR-C4: catch a corner lot typed without CON before
       // it reaches the parser. [Corregir] keeps the text and refocuses the field.
       if (_esLote && looksLikeCruceMissingCon(_placaCtrl.text)) {
@@ -687,6 +701,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       _obsCtrl.clear();
       setState(() {
         _tipoAcceso = null;
+        _tipoAccesoError = false;
         _linked = null;
         _notInList = false;
         _duplicateOfPosicion = null;
@@ -1018,21 +1033,46 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   ),
                 ],
                 const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  // Not migrated to `initialValue`: FormFieldState ignores it
-                  // after the first build, so the reset in _save() would leave
-                  // a stale access type on screen while the stored value is
-                  // null. Revisit if the framework starts honouring it.
-                  // ignore: deprecated_member_use
-                  value: _tipoAcceso,
-                  decoration: const InputDecoration(
-                      labelText: 'Tipo de acceso (opcional)'),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('—')),
-                    for (final e in _tipoAccesoOptions.entries)
-                      DropdownMenuItem(value: e.key, child: Text(e.value)),
-                  ],
-                  onChanged: (v) => setState(() => _tipoAcceso = v),
+                // Spec 20 BR9: the label says it is required while the form is
+                // a built corner — re-read on every keystroke of the placa.
+                ValueListenableBuilder<TextEditingValue>(
+                  key: _tipoAccesoKey,
+                  valueListenable: _placaCtrl,
+                  builder: (context, placa, _) {
+                    final builtCorner = isBuiltCorner(
+                        esLote: _esLote,
+                        placa: placa.text,
+                        sinPlaca: _sinPlaca);
+                    return DropdownButtonFormField<String>(
+                      // Not migrated to `initialValue`: FormFieldState ignores
+                      // it after the first build, so the reset in _save() would
+                      // leave a stale access type on screen while the stored
+                      // value is null. Revisit if the framework starts
+                      // honouring it.
+                      // ignore: deprecated_member_use
+                      value: _tipoAcceso,
+                      decoration: InputDecoration(
+                        labelText: builtCorner
+                            ? tipoAccesoLabelRequired
+                            : tipoAccesoLabelOptional,
+                        errorText: _tipoAccesoError &&
+                                tipoAccesoMissing(
+                                    builtCorner: builtCorner,
+                                    tipoAcceso: _tipoAcceso)
+                            ? tipoAccesoRequiredError
+                            : null,
+                      ),
+                      items: [
+                        const DropdownMenuItem(value: null, child: Text('—')),
+                        for (final e in tipoAccesoOptions.entries)
+                          DropdownMenuItem(value: e.key, child: Text(e.value)),
+                      ],
+                      onChanged: (v) => setState(() {
+                        _tipoAcceso = v;
+                        _tipoAccesoError = false;
+                      }),
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
                 TextField(

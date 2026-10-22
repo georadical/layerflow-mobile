@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/address/address_normalizer.dart';
+import '../../core/address/tipo_acceso.dart';
 import '../../core/config/app_config.dart';
 import '../../core/parada/predio_sequence.dart';
 import '../../data/db/database.dart';
@@ -9,12 +10,6 @@ import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
 import '../widgets/confirm_exact_plate.dart';
 import '../widgets/linked_card.dart';
-
-const _tipoAccesoLabels = <String, String>{
-  'puerta_calle': 'Puerta a la calle',
-  'area_comun': 'Área común',
-  'otro': 'Otro',
-};
 
 /// Human name for a row's anchor: the placa of the unit whose loc matches,
 /// "el inicio de la ruta" for 0, or the bare loc when the anchor is not on
@@ -64,6 +59,11 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
   late final TextEditingController _placa;
   late final TextEditingController _obs;
   String? _tipo;
+
+  /// Spec 20 BR8/BR11: a built corner was saved without access type — the
+  /// field shows the error until a value is picked. The key scrolls to it.
+  bool _tipoError = false;
+  final _tipoKey = GlobalKey();
   int? _insAfter;
   bool _insAfterChanged = false;
 
@@ -232,6 +232,21 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
 
   Future<void> _save() async {
     if (_saving) return;
+    // Spec 20 BR11: the editor enforces the same rule as capture — old
+    // captures included (BR12: nothing is flagged until it is edited).
+    if (tipoAccesoMissing(
+      builtCorner: isBuiltCorner(
+          esLote: _esLote, placa: _placa.text, sinPlaca: _sinPlaca),
+      tipoAcceso: _tipo,
+    )) {
+      setState(() => _tipoError = true);
+      final fieldContext = _tipoKey.currentContext;
+      if (fieldContext != null) {
+        await Scrollable.ensureVisible(fieldContext,
+            alignment: 0.3, duration: const Duration(milliseconds: 300));
+      }
+      return;
+    }
     setState(() => _saving = true);
     try {
       final repo = ref.read(captureRepositoryProvider);
@@ -430,20 +445,40 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            // Not migrated to `initialValue`: FormFieldState ignores it
-            // after the first build, and this rebuilds on every selection.
-            // ignore: deprecated_member_use
-            value: _tipo,
-            decoration: const InputDecoration(
-              labelText: 'Tipo de acceso (opcional)',
-            ),
-            items: [
-              const DropdownMenuItem(value: null, child: Text('—')),
-              for (final e in _tipoAccesoLabels.entries)
-                DropdownMenuItem(value: e.key, child: Text(e.value)),
-            ],
-            onChanged: (v) => setState(() => _tipo = v),
+          // Spec 20 BR9: the label says it is required while the unit is a
+          // built corner — re-read on every keystroke of the placa.
+          ValueListenableBuilder<TextEditingValue>(
+            key: _tipoKey,
+            valueListenable: _placa,
+            builder: (context, placa, _) {
+              final builtCorner = isBuiltCorner(
+                  esLote: _esLote, placa: placa.text, sinPlaca: _sinPlaca);
+              return DropdownButtonFormField<String>(
+                // Not migrated to `initialValue`: FormFieldState ignores it
+                // after the first build, and this rebuilds on every selection.
+                // ignore: deprecated_member_use
+                value: _tipo,
+                decoration: InputDecoration(
+                  labelText: builtCorner
+                      ? tipoAccesoLabelRequired
+                      : tipoAccesoLabelOptional,
+                  errorText: _tipoError &&
+                          tipoAccesoMissing(
+                              builtCorner: builtCorner, tipoAcceso: _tipo)
+                      ? tipoAccesoRequiredError
+                      : null,
+                ),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('—')),
+                  for (final e in tipoAccesoOptions.entries)
+                    DropdownMenuItem(value: e.key, child: Text(e.value)),
+                ],
+                onChanged: (v) => setState(() {
+                  _tipo = v;
+                  _tipoError = false;
+                }),
+              );
+            },
           ),
           const SizedBox(height: 16),
           TextField(
