@@ -3,6 +3,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:layerflow_capture/core/address/tipo_acceso.dart';
 import 'package:layerflow_capture/data/db/database.dart';
 import 'package:layerflow_capture/data/repositories/capture_repository.dart';
 import 'package:layerflow_capture/ui/providers.dart';
@@ -88,6 +89,13 @@ void main() {
   TextField placaField(WidgetTester tester) =>
       tester.widget<TextField>(find.byType(TextField).first);
 
+  Future<void> pickTipo(WidgetTester tester, String label) async {
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(label).last);
+    await tester.pumpAndSettle();
+  }
+
   Future<Capture> saveAndRead(WidgetTester tester, String id) async {
     // A focused field's overlay can sit over the button: drop focus first.
     FocusManager.instance.primaryFocus?.unfocus();
@@ -121,6 +129,8 @@ void main() {
     expect(placaField(tester).controller!.text, isEmpty);
     expect(find.text('Sin placa a la vista'), findsOneWidget); // the label
 
+    // Spec 20: a built corner (sin placa a la vista) needs its access type.
+    await pickTipo(tester, 'Puerta a la calle');
     final saved = await saveAndRead(tester, id);
     expect(saved.placa, isNull);
     expect(saved.npn, '4155');
@@ -195,6 +205,8 @@ void main() {
       expect(find.text(_on), findsOneWidget);
       expect(placaField(tester).enabled, isFalse);
 
+      // Spec 20: a built corner (sin placa a la vista) needs its access type.
+      await pickTipo(tester, 'Puerta a la calle');
       final saved = await saveAndRead(tester, id);
       expect(saved.placa, isNull);
       expect(saved.npn, isNull);
@@ -265,10 +277,55 @@ void main() {
 
       await tester.tap(find.text(_solo));
       await tester.pump();
+      // Spec 20: a built corner (sin placa a la vista) needs its access type.
+      await pickTipo(tester, 'Puerta a la calle');
       final saved = await saveAndRead(tester, id);
       expect(saved.placa, isNull);
       expect(saved.npn, isNull);
       expect(saved.direccionNorm, edificio);
+    });
+  });
+
+  group('access type on built corners (Spec 20, TA.4)', () {
+    testWidgets(
+        'AC7: an old "sin placa" capture without access type cannot be saved '
+        'until one is picked', (tester) async {
+      final id = await open(tester, npn: '4155');
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      expect(find.text(tipoAccesoLabelRequired), findsOneWidget);
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardar'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EditUnitScreen), findsOneWidget); // not saved
+      expect(find.text(tipoAccesoRequiredError), findsOneWidget);
+
+      await pickTipo(tester, 'Sin entrada visible');
+      expect(find.text(tipoAccesoRequiredError), findsNothing);
+      final saved = await saveAndRead(tester, id);
+      expect(saved.tipoAcceso, 'sin_entrada_visible'); // AC5
+    });
+
+    testWidgets('a normal placa stays optional and saves without it',
+        (tester) async {
+      final id = await open(tester, placa: 'CALLE 20A # 3-03');
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      expect(find.text(tipoAccesoLabelOptional), findsOneWidget);
+      final saved = await saveAndRead(tester, id);
+      expect(saved.tipoAcceso, isNull);
+    });
+
+    testWidgets('AC8: the editor shows the same four options', (tester) async {
+      final id = await open(tester, placa: 'CALLE 20A # 3-03');
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      for (final label in tipoAccesoOptions.values) {
+        expect(find.text(label), findsWidgets, reason: label);
+      }
     });
   });
 }
