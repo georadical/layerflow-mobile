@@ -67,10 +67,15 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
   int? _insAfter;
   bool _insAfterChanged = false;
 
-  // Door link (Spec 7). _npn mirrors what WILL be stored; the label names
-  // it for the worker (address, never the npn value).
+  // Door link (Spec 7). _npn / _direccionNorm mirror what WILL be stored —
+  // a single-unit placa by npn, OR a multi-unit placa by its direccion_norm
+  // (Spec 15 v4, npn null); the label names it for the worker (address,
+  // never the npn value).
   String? _npn;
+  String? _direccionNorm;
   String? _linkedLabel;
+
+  bool get _linked => _npn != null || _direccionNorm != null;
 
   /// CL-R7: the finding can also be asserted here — a worker who realises
   /// it later must not be mute. Distinct from UNLINKING, which only means
@@ -97,15 +102,18 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
     _tipo = widget.row.tipoAcceso;
     _insAfter = widget.row.insAfter;
     _npn = widget.row.npn;
+    _direccionNorm = widget.row.npn == null ? widget.row.direccionNorm : null;
+    // A placa-level link carries its own address: no lookup needed.
+    _linkedLabel = _direccionNorm;
     _sinR1 = widget.row.sinR1 ?? false;
     _esLote = widget.row.esLote;
-    _sinPlaca = _npn != null && !_esLote && _placa.text.trim().isEmpty;
+    _sinPlaca = _linked && !_esLote && _placa.text.trim().isEmpty;
     Future.microtask(() async {
       final tenantId = ref.read(activeTenantIdProvider);
       if (tenantId == null) return;
       final repo = ref.read(r1DirectoryRepositoryProvider);
       final count = await repo.countFor(tenantId);
-      String? label;
+      String? label = _linkedLabel;
       final npn = _npn;
       if (npn != null) {
         final hit = await repo.byNpn(tenantId, npn);
@@ -131,7 +139,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
   }
 
   Future<void> _onPlacaChanged(String text) async {
-    if (_npn != null || !_directoryAvailable) return;
+    if (_linked || !_directoryAvailable) return;
     final tenantId = ref.read(activeTenantIdProvider);
     if (tenantId == null) return;
     final seq = ++_searchSeq;
@@ -157,6 +165,8 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
     }
     setState(() {
       _npn = hit.npn;
+      // v4: a multi-unit placa has no npn — the link is its direccion_norm.
+      _direccionNorm = hit.npn == null ? hit.direccionNorm : null;
       _linkedLabel = hit.direccionNorm;
       _sinR1 = false; // linking supersedes the assertion
       _suggestions = [];
@@ -165,6 +175,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
 
   void _unlink() => setState(() {
         _npn = null;
+        _direccionNorm = null;
         _linkedLabel = null;
         _sinPlaca = false; // Spec 18 BR5: no link → no "sin placa" mode
       });
@@ -237,10 +248,15 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
         // Spec 12: the built state (Construido / Sin construir).
         esLote: _esLote,
       );
-      if (_npn != widget.row.npn) {
+      final storedDireccion =
+          widget.row.npn == null ? widget.row.direccionNorm : null;
+      if (_npn != widget.row.npn || _direccionNorm != storedDireccion) {
         // Provenance rule: only a CHANGED link is a field decision.
-        await repo.setNpn(
-            clientId: widget.row.clientId, npn: _npn, owner: owner);
+        await repo.setR1Link(
+            clientId: widget.row.clientId,
+            npn: _npn,
+            direccionNorm: _direccionNorm,
+            owner: owner);
       }
       if (_sinR1 != (widget.row.sinR1 ?? false)) {
         await repo.setSinR1(
@@ -314,7 +330,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
                   ),
             onChanged: _onPlacaChanged,
           ),
-          if (_npn != null) ...[
+          if (_linked) ...[
             const SizedBox(height: 8),
             LinkedCard(
               direccion: _linkedLabel ?? '…',
@@ -364,7 +380,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
               ),
             ),
           ],
-          if (_npn == null && !_sinR1 && _suggestions.isNotEmpty) ...[
+          if (!_linked && !_sinR1 && _suggestions.isNotEmpty) ...[
             const SizedBox(height: 8),
             Card(
               margin: EdgeInsets.zero,
@@ -406,6 +422,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
                   // Spec 18 edge: a lot is never linked — the link and the
                   // mode drop, the field unlocks empty.
                   _npn = null;
+                  _direccionNorm = null;
                   _linkedLabel = null;
                   _sinPlaca = false;
                 }

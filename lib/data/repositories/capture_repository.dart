@@ -165,16 +165,32 @@ class CaptureRepository {
     required String clientId,
     required String? npn,
     String? owner,
+  }) =>
+      setR1Link(clientId: clientId, npn: npn, owner: owner);
+
+  /// Sets (or clears, both null) a capture's R1 link — a single-unit placa by
+  /// [npn], OR a multi-unit placa by its [direccionNorm] (Spec 15 v4: mutually
+  /// exclusive on the wire, npn null on a placa-level link). Writing one always
+  /// clears the other, so a re-link never leaves a stale half behind.
+  Future<void> setR1Link({
+    required String clientId,
+    String? npn,
+    String? direccionNorm,
+    String? owner,
   }) async {
+    assert(npn == null || direccionNorm == null,
+        'an R1 link is by npn OR by direccion_norm, never both');
+    final linked = npn != null || direccionNorm != null;
     await _db.updateCaptureRow(
       clientId,
       CapturesCompanion(
         npn: Value(npn),
+        direccionNorm: Value(direccionNorm),
         // Linking supersedes a previous assertion: an explicit RETRACT
         // (false), not an omission — otherwise the server would preserve
         // the stale finding. Unlinking says nothing about the R1 and so
         // touches this field not at all.
-        sinR1: npn != null ? const Value(false) : const Value.absent(),
+        sinR1: linked ? const Value(false) : const Value.absent(),
         ownerEmail: Value(owner),
         syncStatus: const Value(AppConfig.syncPending),
         syncError: const Value(null),

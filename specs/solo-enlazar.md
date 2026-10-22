@@ -201,3 +201,9 @@ Feature: Link a predio to R1 without an observed placa
 - **SE.7 — Design pass + emulator E2E** (Ruta 20, local, then cleanup).
 - **SE.8 — Guide.** Replace the manual "borra el texto" step with "toca *Solo
   enlazar*".
+- **SE.9 — editar unidad, placa-level links** (gap found after SE.6; Jorge
+  2026-10-22, so the office review also gets these). The editor handled only npn
+  links: a multi-unit placa (Spec 15 v4, `npn = null` + `direccion_norm`) showed no
+  link card, could not be linked nor unlinked. Now the editor shows, links,
+  unlinks and switches "sin placa a la vista" on either link kind; the repository
+  writes npn OR `direccion_norm`, clearing the other.
