@@ -841,16 +841,6 @@ class AppDatabase extends _$AppDatabase {
     ));
   }
 
-  /// Whether [npn] is already linked to a unit of this route; returns that
-  /// unit's posicion (CL-R3 trigger 5 — warn, never block).
-  Future<int?> npnPosicionInRoute(String routeId, String npn) async {
-    final row = await (select(captures)
-          ..where((c) => c.routeId.equals(routeId) & c.npn.equals(npn))
-          ..limit(1))
-        .getSingleOrNull();
-    return row?.posicion;
-  }
-
   /// PLACA-mode lookup (CL-R1 v1.2): contains-match on the cruce-placa
   /// fragment, optionally scoped to the current manzana (suffix match:
   /// short block codes against the R1's full 17-digit ones).

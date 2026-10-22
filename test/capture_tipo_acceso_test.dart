@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,10 +44,20 @@ void main() {
     await settle(tester);
   }
 
-  Future<bool> open(WidgetTester tester) async {
+  /// [tenantId] + [r1] seed the local R1 directory (typeahead); [onRoute] is
+  /// what the route already holds on this phone (the duplicate check reads it).
+  Future<bool> open(
+    WidgetTester tester, {
+    int? tenantId,
+    List<R1DirectoryCompanion> r1 = const [],
+    List<Capture> onRoute = const [],
+  }) async {
     final maybe = await tester.runAsync(_tryMemoryDb);
     if (maybe == null) return false;
     db = maybe;
+    if (tenantId != null && r1.isNotEmpty) {
+      await tester.runAsync(() => db.replaceR1Slice(tenantId, r1));
+    }
     addTearDown(() => tester.runAsync(db.close));
     tester.view.physicalSize = const Size(1080, 4000);
     tester.view.devicePixelRatio = 1.5;
@@ -54,14 +65,14 @@ void main() {
     await tester.pumpWidget(ProviderScope(
       overrides: [
         databaseProvider.overrideWithValue(db),
-        activeTenantIdProvider.overrideWithValue(null),
+        activeTenantIdProvider.overrideWithValue(tenantId),
         queueOwnerProvider.overrideWithValue(null),
         routeStopsProvider('r1').overrideWith((ref) => Stream.value([])),
         fotoObligatoriaProvider('r1').overrideWithValue(false),
         tokenStatusProvider.overrideWith((ref) async => TokenStatus.ok),
         // No live drift queries on screen: their timers outlive the test.
         // What gets saved is read straight from the repository instead.
-        capturesProvider('r1').overrideWith((ref) => Stream.value([])),
+        capturesProvider('r1').overrideWith((ref) => Stream.value(onRoute)),
         noEncontradosProvider('r1').overrideWith((ref) => Stream.value([])),
         pendingEvidenceCountProvider('r1')
             .overrideWith((ref) => Stream.value(0)),
@@ -242,6 +253,94 @@ void main() {
       await tester.tap(find.text('Corregir'));
       await settle(tester);
 
+      await finish(tester);
+    });
+  });
+
+  group('duplicate R1 link, located (DUP.3)', () {
+    final r1 = [
+      R1DirectoryCompanion.insert(
+        tenantId: 1,
+        direccionNorm: 'CALLE 20A # 3-03',
+        npn: const Value('n303'),
+        parseOk: const Value(true),
+      ),
+      R1DirectoryCompanion.insert(
+        tenantId: 1,
+        direccionNorm: 'CALLE 14 # 2-104',
+        unidades: const Value(3),
+        esConjunto: const Value(true),
+        parseOk: const Value(true),
+      ),
+    ];
+    Capture already({String? npn, String? direccionNorm}) => Capture(
+          clientId: 'prev',
+          routeId: 'r1',
+          posicion: 1,
+          placa: 'X',
+          npn: npn,
+          direccionNorm: direccionNorm,
+          sinR1: false,
+          esLote: false,
+          syncStatus: 'pending',
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+        );
+
+    Future<void> pick(WidgetTester tester, String direccion) async {
+      Future<void> wait() async {
+        for (var i = 0; i < 10; i++) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 20)));
+          await settle(tester);
+        }
+      }
+
+      // The screen loads the directory count asynchronously (real DB); a search
+      // fired before it is ignored. Type once to let it load, then again.
+      await tester.enterText(placaField(), direccion);
+      await wait();
+      await tester.enterText(placaField(), '$direccion ');
+      await wait();
+      await tester.tap(find.text(direccion).last);
+      await settle(tester);
+    }
+
+    testWidgets('AC-D1: an npn already linked in the route is warned, located',
+        (tester) async {
+      if (!await open(tester,
+          tenantId: 1, r1: r1, onRoute: [already(npn: 'n303')])) {
+        return markTestSkipped('no sqlite3');
+      }
+      await pick(tester, 'CALLE 20A # 3-03');
+      expect(find.textContaining('Esa placa de R1 ya está enlazada'),
+          findsOneWidget);
+      expect(find.textContaining('otro predio de esta ruta'), findsOneWidget);
+      expect(find.textContaining('(PH)'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('AC-D2: a placa-level (multi-unit) link is warned too',
+        (tester) async {
+      if (!await open(tester,
+          tenantId: 1,
+          r1: r1,
+          onRoute: [already(direccionNorm: 'CALLE 14 # 2-104')])) {
+        return markTestSkipped('no sqlite3');
+      }
+      await pick(tester, 'CALLE 14 # 2-104');
+      expect(find.textContaining('Esa placa de R1 ya está enlazada'),
+          findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('no warning when the R1 row is not linked elsewhere',
+        (tester) async {
+      if (!await open(tester, tenantId: 1, r1: r1)) {
+        return markTestSkipped('no sqlite3');
+      }
+      await pick(tester, 'CALLE 20A # 3-03');
+      expect(find.textContaining('ya está enlazada'), findsNothing);
       await finish(tester);
     });
   });

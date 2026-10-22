@@ -13,6 +13,7 @@ import '../../core/config/app_config.dart';
 import '../../core/camera/plate_camera.dart';
 import '../../core/ocr/plate_ocr.dart';
 import '../../core/parada/address_display.dart';
+import '../../core/parada/duplicate_link.dart';
 import '../../core/parada/predio_sequence.dart';
 import '../widgets/predio_number.dart';
 import '../../data/repositories/evidence_repository.dart';
@@ -61,7 +62,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   List<R1DirectoryData> _suggestions = [];
   R1DirectoryData? _linked;
   bool _notInList = false;
-  int? _duplicateOfPosicion;
+
+  /// R1 duplicate amendment (DR2): where the same R1 link already is in this
+  /// route — the located warning text; null when there is no duplicate.
+  String? _duplicateMessage;
   bool _directoryAvailable = false;
   int _searchSeq = 0;
 
@@ -308,16 +312,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     // the canonical "CALLE 13 # 3A-02" (the npn carries identity). Only an
     // explicit divergence keeps the typed text.
     if (!keepTyped) _placaCtrl.text = hit.direccionNorm;
-    // v4: a multi-unit placa has no npn — no per-npn duplicate to check.
-    final dup = hit.npn == null
-        ? null
-        : await ref
-            .read(captureRepositoryProvider)
-            .npnPosicionInRoute(widget.routeId, hit.npn!);
-    if (!mounted) return;
+    final dup = _duplicateFor(hit);
     setState(() {
       _linked = hit;
-      _duplicateOfPosicion = dup;
+      _duplicateMessage = dup;
       _suggestions = [];
     });
   }
@@ -348,7 +346,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
 
   void _unlink() => setState(() {
         _linked = null;
-        _duplicateOfPosicion = null;
+        _duplicateMessage = null;
         _sinPlaca = false; // Spec 18 BR5: no link → no "sin placa" mode
       });
 
@@ -375,9 +373,29 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   void _markNotInList() => setState(() {
         _notInList = true;
         _linked = null;
-        _duplicateOfPosicion = null;
+        _duplicateMessage = null;
         _suggestions = [];
       });
+
+  /// R1 duplicate amendment (DR1/DR2/DR5): the located warning when [hit] is
+  /// already linked on another predio of this route — by npn, or by its
+  /// direccion_norm for a placa-level (multi-unit, npn null) link. Local only.
+  String? _duplicateFor(R1DirectoryData hit) {
+    final route =
+        ref.read(capturesProvider(widget.routeId)).valueOrNull ?? const [];
+    final other = duplicateLinkOf(
+      routeCaptures: route,
+      npn: hit.npn,
+      direccionNorm: hit.npn == null ? hit.direccionNorm : null,
+    );
+    if (other == null) return null;
+    int? faceSequence;
+    for (final p in ref.read(routeStopsProvider(widget.routeId)).valueOrNull ??
+        const []) {
+      if (p.stopId == other.stopId) faceSequence = p.faceSequence;
+    }
+    return duplicateLinkMessage(other, route, faceSequence: faceSequence);
+  }
 
   /// Spec 10 / AM.8: the predicted door matches — link it in one tap. The worker
   /// never typed the full address (a distance shortcut, or nothing at all before
@@ -385,15 +403,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   /// the identity.
   Future<void> _coincide(R1DirectoryData expected) async {
     _placaCtrl.text = expected.direccionNorm;
-    final dup = expected.npn == null
-        ? null
-        : await ref
-            .read(captureRepositoryProvider)
-            .npnPosicionInRoute(widget.routeId, expected.npn!);
-    if (!mounted) return;
+    final dup = _duplicateFor(expected);
     setState(() {
       _linked = expected;
-      _duplicateOfPosicion = dup;
+      _duplicateMessage = dup;
       _notInList = false;
       _suggestions = [];
       _predictionDismissed = false;
@@ -491,7 +504,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() {
       _linked = null;
       _notInList = false;
-      _duplicateOfPosicion = null;
+      _duplicateMessage = null;
       _suggestions = [];
       _predictionDismissed = false;
       _placaCtrl.clear();
@@ -578,7 +591,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       // Snapshot the divergence state BEFORE the form resets (CL-R3).
       final soporte = EvidenceRepository.classifySoporte(
         notInList: _notInList,
-        duplicateNpn: _duplicateOfPosicion != null,
+        duplicateNpn: _duplicateMessage != null,
         typedPlaca: _placaCtrl.text,
         linkedDireccionNorm: _linked?.direccionNorm,
       );
@@ -680,7 +693,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         _tipoAccesoError = false;
         _linked = null;
         _notInList = false;
-        _duplicateOfPosicion = null;
+        _duplicateMessage = null;
         _suggestions = [];
         _deliberateShot = null;
         _predictionDismissed = false; // the next door predicts again
@@ -872,7 +885,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                         _sinPlaca = false;
                         _notInList = false;
                         _suggestions = [];
-                        _duplicateOfPosicion = null;
+                        _duplicateMessage = null;
                         _predictionDismissed = false;
                       }
                     }),
@@ -983,9 +996,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   const SizedBox(height: 8),
                   _ParityWarningBanner(faceParity: faceParity),
                 ],
-                if (_duplicateOfPosicion != null) ...[
+                if (_duplicateMessage != null) ...[
                   const SizedBox(height: 8),
-                  const _DuplicateBanner(),
+                  _DuplicateBanner(message: _duplicateMessage!),
                 ],
                 if (_linked != null) ...[
                   const SizedBox(height: 8),
@@ -1257,9 +1270,12 @@ class _NotInListCard extends StatelessWidget {
   }
 }
 
-/// CL-R3 trigger 5: warns, never blocks (PH legitimately share an NPN).
+/// CL-R3 trigger 5 (R1 duplicate amendment, DR2/DR3): warns where the same R1
+/// link already is in the route; never blocks.
 class _DuplicateBanner extends StatelessWidget {
-  const _DuplicateBanner();
+  const _DuplicateBanner({required this.message});
+
+  final String message;
 
   @override
   Widget build(BuildContext context) {
@@ -1275,10 +1291,7 @@ class _DuplicateBanner extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                // Spec 11: no posición locator; the duplicate is findable in the
-                // resume list. The warning still conveys "already used, can go on".
-                'Esa dirección ya se usó en esta ruta. '
-                'Puedes continuar — varias unidades pueden compartirla (PH).',
+                message,
                 style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
               ),
             ),
