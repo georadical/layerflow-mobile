@@ -17,6 +17,7 @@ import '../../core/parada/predio_sequence.dart';
 import '../widgets/predio_number.dart';
 import '../../data/repositories/evidence_repository.dart';
 import '../widgets/confirm_exact_plate.dart';
+import '../widgets/confirm_missing_con.dart';
 import '../widgets/linked_card.dart';
 import '../widgets/sin_placa.dart';
 import 'plate_shot_screen.dart';
@@ -345,34 +346,6 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     );
   }
 
-  /// Spec 12 amendment BR-C4 (LX.3b): a lot written as two streets WITHOUT
-  /// `CON` parses as a door on a fake face and corrupts the sweep. Soft check —
-  /// true = save anyway, false = go back and fix (the heuristic can misfire).
-  Future<bool> _confirmMissingCon() async {
-    final saveAnyway = await showDialog<bool>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('¿Te falta CON?'),
-        content: const Text(
-          'Parece una esquina escrita sin la palabra CON. Escríbela así: '
-          'CALLE 13 CON CARRERA 3. Sin CON, la app la confunde con una '
-          'dirección y desordena la parada.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(true),
-            child: const Text('Guardar igual'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(false),
-            child: const Text('Corregir'),
-          ),
-        ],
-      ),
-    );
-    return saveAnyway ?? false;
-  }
-
   void _unlink() => setState(() {
         _linked = null;
         _duplicateOfPosicion = null;
@@ -553,7 +526,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       // below applies. Skipped when linked to R1 (the link rules). [Corregir]
       // keeps the text and refocuses the field.
       if (_linked == null && looksLikeCruceMissingCon(_placaCtrl.text)) {
-        final saveAnyway = await _confirmMissingCon();
+        final saveAnyway = await confirmMissingCon(context);
         if (!mounted) return;
         if (!saveAnyway) {
           _placaFocus.requestFocus();

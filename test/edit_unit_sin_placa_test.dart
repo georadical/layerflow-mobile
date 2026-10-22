@@ -328,4 +328,54 @@ void main() {
       }
     });
   });
+
+  group('"¿Te falta CON?" in the editor (BR-C4e, LX.8)', () {
+    const sinCon = 'CALLE 13 CARRERA 3';
+
+    testWidgets('AC-C10: Guardar asks; [Corregir] keeps the editor open',
+        (tester) async {
+      final id = await open(tester, placa: sinCon);
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardar'));
+      await tester.pumpAndSettle();
+      expect(find.text('¿Te falta CON?'), findsOneWidget);
+
+      await tester.tap(find.text('Corregir'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EditUnitScreen), findsOneWidget); // not saved
+    });
+
+    testWidgets('[Guardar igual] saves as typed', (tester) async {
+      final id = await open(tester, placa: sinCon);
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardar igual'));
+      for (var i = 0;
+          i < 20 && find.byType(EditUnitScreen).evaluate().isNotEmpty;
+          i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pumpAndSettle();
+      }
+      expect(find.byType(EditUnitScreen), findsNothing);
+      final row = await tester.runAsync(() => repo.captureOf(id));
+      expect(row!.placa, sinCon);
+    });
+
+    testWidgets('AC-C8: a capture linked to R1 is never asked', (tester) async {
+      final id = await open(tester, placa: sinCon, npn: '4155');
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      final saved = await saveAndRead(tester, id);
+      expect(find.text('¿Te falta CON?'), findsNothing);
+      expect(saved.placa, sinCon);
+    });
+  });
 }

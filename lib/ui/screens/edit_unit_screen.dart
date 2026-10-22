@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/address/address_normalizer.dart';
+import '../../core/address/cruce_guard.dart';
 import '../../core/address/tipo_acceso.dart';
 import '../../core/config/app_config.dart';
 import '../../core/parada/predio_sequence.dart';
@@ -9,6 +10,7 @@ import '../../data/db/database.dart';
 import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
 import '../widgets/confirm_exact_plate.dart';
+import '../widgets/confirm_missing_con.dart';
 import '../widgets/linked_card.dart';
 
 /// Human name for a row's anchor: the placa of the unit whose loc matches,
@@ -232,6 +234,15 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
 
   Future<void> _save() async {
     if (_saving) return;
+    // Spec 12 amendment BR-C4e: the same "¿Te falta CON?" check as capture —
+    // first, and skipped when linked to R1 (the link rules).
+    if (!_linked && looksLikeCruceMissingCon(_placa.text)) {
+      final saveAnyway = await confirmMissingCon(context);
+      if (!mounted || !saveAnyway) {
+        if (mounted) _placaFocus.requestFocus();
+        return;
+      }
+    }
     // Spec 20 BR11: the editor enforces the same rule as capture — old
     // captures included (BR12: nothing is flagged until it is edited).
     if (tipoAccesoMissing(
@@ -241,7 +252,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
     )) {
       setState(() => _tipoError = true);
       final fieldContext = _tipoKey.currentContext;
-      if (fieldContext != null) {
+      if (fieldContext != null && fieldContext.mounted) {
         await Scrollable.ensureVisible(fieldContext,
             alignment: 0.3, duration: const Duration(milliseconds: 300));
       }
