@@ -378,3 +378,60 @@ Feature: Corner lot recorded by its cruce
   "first token is a via" check; a non-via start is a geographic reference
   (`VEREDA X CON CARRERA 3`, `13 CON CARRERA 3` → not a cruce). The app's cut is in
   the same place; pinned by tests.
+
+## Amendment — "¿Te falta CON?" in Construido · 2026-10-22
+
+> Status: **Draft**. Branch `feature/falta-con-construido`. Amends **BR-C4** (lot-only
+> until now). No new layout: the existing dialog is reused; gates are tests + an
+> emulator check. Relates to **Spec 20** (access type required on built corners).
+
+### User story
+As a **field surveyor** registering a **built** corner by writing its cruce, I want the
+app to warn me when I forgot `CON` (`CALLE 13 CARRERA 3`), as it already does for
+lots, so the corner is not stored as a fake door address that corrupts the parada's
+sweep and skips the mandatory access type.
+
+### Why
+Without `CON` the pinned normalizer reads `CALLE 13 CARRERA 3` as a door on a fake
+face (corrupting the sweep) and it is not detected as a cruce — so Spec 20 does not
+require the access type either.
+
+### Includes
+- BR-C4 in **both** modes, in **capture** and in **editar unidad**.
+- Check order on save: missing-`CON` first, then the Spec 20 access-type check.
+- Guide v1.3 note (bundled with Spec 20 TA.6).
+
+### Does NOT include
+- Auto-inserting `CON`; any change to the normalizer, the detector or the contract.
+
+### Business rules
+- **BR-C4a — Both modes.** The BR-C4 detector (two multi-letter street words, no
+  `CON`) now also fires in **Construido**.
+- **BR-C4b — Not when linked.** Skipped when the capture is linked to R1 (incl. "sin
+  placa a la vista"): the link rules, and R1 text never triggers it.
+- **BR-C4c — Same soft dialog.** *"¿Te falta CON?"* — **[Corregir]** (back to the field,
+  text intact) / **[Guardar igual]** (saves as typed; not a cruce, so no access type
+  required by Spec 20).
+- **BR-C4d — Order.** On save: "¿Te falta CON?" first, then the Spec 20 access-type
+  check — after [Corregir] + adding `CON` the form becomes a built corner and the
+  access type is then required.
+- **BR-C4e — Editor.** editar unidad runs the same guard on **Guardar**.
+- **BR-C4f — Rural paradas.** Same rule (a place name rarely has two via words).
+
+### Acceptance criteria
+- **AC-C6.** Construido + `CALLE 13 CARRERA 3`, not linked → the dialog shows;
+  [Corregir] saves nothing and keeps the text.
+- **AC-C7.** Construido + `CALLE 13 CARRERA 3` → [Guardar igual] saves as typed without
+  asking for an access type.
+- **AC-C8.** Construido + a linked capture whose text has two via words → no dialog.
+- **AC-C9.** Construido + `CALLE 13 CON CARRERA 3` without access type → no dialog,
+  the Spec 20 error shows.
+- **AC-C10.** editar unidad + `CALLE 13 CARRERA 3` → the dialog shows on Guardar.
+
+### Tickets
+- **LX.6 — Spec** (this amendment). Gate: approved.
+- **LX.7 — Capture.** Guard in both modes, skipped when linked, before the access-type
+  check; widget tests AC-C6–AC-C9.
+- **LX.8 — Editor.** Same guard on Guardar; widget test AC-C10.
+- **LX.9 — Emulator check** (local only) together with the next ticket; guide note
+  with Spec 20 TA.6.

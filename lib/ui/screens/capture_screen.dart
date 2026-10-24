@@ -13,10 +13,13 @@ import '../../core/config/app_config.dart';
 import '../../core/camera/plate_camera.dart';
 import '../../core/ocr/plate_ocr.dart';
 import '../../core/parada/address_display.dart';
+import '../../core/parada/duplicate_link.dart';
 import '../../core/parada/predio_sequence.dart';
 import '../widgets/predio_number.dart';
 import '../../data/repositories/evidence_repository.dart';
 import '../widgets/confirm_exact_plate.dart';
+import '../widgets/confirm_missing_con.dart';
+import '../widgets/duplicate_link_banner.dart';
 import '../widgets/linked_card.dart';
 import '../widgets/sin_placa.dart';
 import 'plate_shot_screen.dart';
@@ -60,7 +63,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   List<R1DirectoryData> _suggestions = [];
   R1DirectoryData? _linked;
   bool _notInList = false;
-  int? _duplicateOfPosicion;
+
+  /// R1 duplicate amendment (DR2): where the same R1 link already is in this
+  /// route — the located warning text; null when there is no duplicate.
+  String? _duplicateMessage;
   bool _directoryAvailable = false;
   int _searchSeq = 0;
 
@@ -307,16 +313,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     // the canonical "CALLE 13 # 3A-02" (the npn carries identity). Only an
     // explicit divergence keeps the typed text.
     if (!keepTyped) _placaCtrl.text = hit.direccionNorm;
-    // v4: a multi-unit placa has no npn — no per-npn duplicate to check.
-    final dup = hit.npn == null
-        ? null
-        : await ref
-            .read(captureRepositoryProvider)
-            .npnPosicionInRoute(widget.routeId, hit.npn!);
-    if (!mounted) return;
+    final dup = _duplicateFor(hit);
     setState(() {
       _linked = hit;
-      _duplicateOfPosicion = dup;
+      _duplicateMessage = dup;
       _suggestions = [];
     });
   }
@@ -345,37 +345,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     );
   }
 
-  /// Spec 12 amendment BR-C4 (LX.3b): a lot written as two streets WITHOUT
-  /// `CON` parses as a door on a fake face and corrupts the sweep. Soft check —
-  /// true = save anyway, false = go back and fix (the heuristic can misfire).
-  Future<bool> _confirmMissingCon() async {
-    final saveAnyway = await showDialog<bool>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('¿Te falta CON?'),
-        content: const Text(
-          'Parece una esquina escrita sin la palabra CON. Escríbela así: '
-          'CALLE 13 CON CARRERA 3. Sin CON, la app la confunde con una '
-          'dirección y desordena la parada.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(true),
-            child: const Text('Guardar igual'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(false),
-            child: const Text('Corregir'),
-          ),
-        ],
-      ),
-    );
-    return saveAnyway ?? false;
-  }
-
   void _unlink() => setState(() {
         _linked = null;
-        _duplicateOfPosicion = null;
+        _duplicateMessage = null;
         _sinPlaca = false; // Spec 18 BR5: no link → no "sin placa" mode
       });
 
@@ -402,9 +374,29 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   void _markNotInList() => setState(() {
         _notInList = true;
         _linked = null;
-        _duplicateOfPosicion = null;
+        _duplicateMessage = null;
         _suggestions = [];
       });
+
+  /// R1 duplicate amendment (DR1/DR2/DR5): the located warning when [hit] is
+  /// already linked on another predio of this route — by npn, or by its
+  /// direccion_norm for a placa-level (multi-unit, npn null) link. Local only.
+  String? _duplicateFor(R1DirectoryData hit) {
+    final route =
+        ref.read(capturesProvider(widget.routeId)).valueOrNull ?? const [];
+    final other = duplicateLinkOf(
+      routeCaptures: route,
+      npn: hit.npn,
+      direccionNorm: hit.npn == null ? hit.direccionNorm : null,
+    );
+    if (other == null) return null;
+    int? faceSequence;
+    for (final p in ref.read(routeStopsProvider(widget.routeId)).valueOrNull ??
+        const []) {
+      if (p.stopId == other.stopId) faceSequence = p.faceSequence;
+    }
+    return duplicateLinkMessage(other, route, faceSequence: faceSequence);
+  }
 
   /// Spec 10 / AM.8: the predicted door matches — link it in one tap. The worker
   /// never typed the full address (a distance shortcut, or nothing at all before
@@ -412,15 +404,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
   /// the identity.
   Future<void> _coincide(R1DirectoryData expected) async {
     _placaCtrl.text = expected.direccionNorm;
-    final dup = expected.npn == null
-        ? null
-        : await ref
-            .read(captureRepositoryProvider)
-            .npnPosicionInRoute(widget.routeId, expected.npn!);
-    if (!mounted) return;
+    final dup = _duplicateFor(expected);
     setState(() {
       _linked = expected;
-      _duplicateOfPosicion = dup;
+      _duplicateMessage = dup;
       _notInList = false;
       _suggestions = [];
       _predictionDismissed = false;
@@ -518,7 +505,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() {
       _linked = null;
       _notInList = false;
-      _duplicateOfPosicion = null;
+      _duplicateMessage = null;
       _suggestions = [];
       _predictionDismissed = false;
       _placaCtrl.clear();
@@ -547,8 +534,21 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
     setState(() => _saving = true);
     final repo = ref.read(captureRepositoryProvider);
     try {
-      // Spec 20 BR2/BR8: a built corner needs its access type — checked first,
-      // before any dialog or the camera, so nothing is asked for in vain.
+      // Spec 12 amendment BR-C4 (+ BR-C4a/b/d, 2026-10-22): catch a corner
+      // typed without CON — lot or built — before it reaches the parser, and
+      // FIRST: once corrected it becomes a built corner and the access type
+      // below applies. Skipped when linked to R1 (the link rules). [Corregir]
+      // keeps the text and refocuses the field.
+      if (_linked == null && looksLikeCruceMissingCon(_placaCtrl.text)) {
+        final saveAnyway = await confirmMissingCon(context);
+        if (!mounted) return;
+        if (!saveAnyway) {
+          _placaFocus.requestFocus();
+          return; // abort — the finally resets _saving, the form stays intact
+        }
+      }
+      // Spec 20 BR2/BR8: a built corner needs its access type — checked before
+      // the camera, so no photo is asked for in vain.
       if (tipoAccesoMissing(
         builtCorner: isBuiltCorner(
             esLote: _esLote, placa: _placaCtrl.text, sinPlaca: _sinPlaca),
@@ -556,21 +556,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       )) {
         setState(() => _tipoAccesoError = true);
         final fieldContext = _tipoAccesoKey.currentContext;
-        if (fieldContext != null) {
+        if (fieldContext != null && fieldContext.mounted) {
           await Scrollable.ensureVisible(fieldContext,
               alignment: 0.3, duration: const Duration(milliseconds: 300));
         }
         return; // abort — the finally resets _saving, the form stays intact
-      }
-      // Spec 12 amendment BR-C4: catch a corner lot typed without CON before
-      // it reaches the parser. [Corregir] keeps the text and refocuses the field.
-      if (_esLote && looksLikeCruceMissingCon(_placaCtrl.text)) {
-        final saveAnyway = await _confirmMissingCon();
-        if (!mounted) return;
-        if (!saveAnyway) {
-          _placaFocus.requestFocus();
-          return; // abort — the finally resets _saving, the form stays intact
-        }
       }
       // Spec 13 (Jorge 2026-10-07): a free-typed HALLAZGO chosen as the parada's
       // ANCHOR gets the SAME middle check as an R1 pick — a middle placa (R1
@@ -602,7 +592,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
       // Snapshot the divergence state BEFORE the form resets (CL-R3).
       final soporte = EvidenceRepository.classifySoporte(
         notInList: _notInList,
-        duplicateNpn: _duplicateOfPosicion != null,
+        duplicateNpn: _duplicateMessage != null,
         typedPlaca: _placaCtrl.text,
         linkedDireccionNorm: _linked?.direccionNorm,
       );
@@ -704,7 +694,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
         _tipoAccesoError = false;
         _linked = null;
         _notInList = false;
-        _duplicateOfPosicion = null;
+        _duplicateMessage = null;
         _suggestions = [];
         _deliberateShot = null;
         _predictionDismissed = false; // the next door predicts again
@@ -896,7 +886,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                         _sinPlaca = false;
                         _notInList = false;
                         _suggestions = [];
-                        _duplicateOfPosicion = null;
+                        _duplicateMessage = null;
                         _predictionDismissed = false;
                       }
                     }),
@@ -1007,9 +997,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                   const SizedBox(height: 8),
                   _ParityWarningBanner(faceParity: faceParity),
                 ],
-                if (_duplicateOfPosicion != null) ...[
+                if (_duplicateMessage != null) ...[
                   const SizedBox(height: 8),
-                  const _DuplicateBanner(),
+                  DuplicateLinkBanner(message: _duplicateMessage!),
                 ],
                 if (_linked != null) ...[
                   const SizedBox(height: 8),
@@ -1275,38 +1265,6 @@ class _NotInListCard extends StatelessWidget {
           icon: Icon(Icons.close, color: theme.colorScheme.onErrorContainer),
           tooltip: 'Deshacer',
           onPressed: onUndo,
-        ),
-      ),
-    );
-  }
-}
-
-/// CL-R3 trigger 5: warns, never blocks (PH legitimately share an NPN).
-class _DuplicateBanner extends StatelessWidget {
-  const _DuplicateBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      color: theme.colorScheme.tertiaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Icon(Icons.copy_all, color: theme.colorScheme.onTertiaryContainer),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                // Spec 11: no posición locator; the duplicate is findable in the
-                // resume list. The warning still conveys "already used, can go on".
-                'Esa dirección ya se usó en esta ruta. '
-                'Puedes continuar — varias unidades pueden compartirla (PH).',
-                style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
-              ),
-            ),
-          ],
         ),
       ),
     );

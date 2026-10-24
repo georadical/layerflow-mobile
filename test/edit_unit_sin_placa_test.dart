@@ -41,6 +41,7 @@ void main() {
     bool esLote = false,
     int? tenantId,
     List<R1DirectoryCompanion> r1 = const [],
+    List<String> otherNpns = const [],
   }) async {
     final maybe = await tester.runAsync(_tryMemoryDb);
     if (maybe == null) return null;
@@ -60,6 +61,16 @@ void main() {
           esLote: esLote);
       return repo.captureOf(id);
     }))!;
+    // Other units of the route (the editor's allRows), e.g. a duplicate link.
+    final others = <Capture>[];
+    for (final n in otherNpns) {
+      final other = await tester.runAsync(() async {
+        final id = await repo.appendCapture(
+            routeId: 'r1', placa: 'Y', npn: n, manzanaCatastral: manzana);
+        return repo.captureOf(id);
+      });
+      others.add(other!);
+    }
     // Tall enough that the editor's lazy ListView builds Guardar unscrolled.
     tester.view.physicalSize = const Size(1080, 3200);
     tester.view.devicePixelRatio = 1.5;
@@ -75,7 +86,8 @@ void main() {
         home: Builder(
           builder: (context) => TextButton(
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => EditUnitScreen(row: row, allRows: [row]))),
+                builder: (_) =>
+                    EditUnitScreen(row: row, allRows: [row, ...others]))),
             child: const Text('abrir'),
           ),
         ),
@@ -326,6 +338,110 @@ void main() {
       for (final label in tipoAccesoOptions.values) {
         expect(find.text(label), findsWidgets, reason: label);
       }
+    });
+  });
+
+  group('"¿Te falta CON?" in the editor (BR-C4e, LX.8)', () {
+    const sinCon = 'CALLE 13 CARRERA 3';
+
+    testWidgets('AC-C10: Guardar asks; [Corregir] keeps the editor open',
+        (tester) async {
+      final id = await open(tester, placa: sinCon);
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardar'));
+      await tester.pumpAndSettle();
+      expect(find.text('¿Te falta CON?'), findsOneWidget);
+
+      await tester.tap(find.text('Corregir'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EditUnitScreen), findsOneWidget); // not saved
+    });
+
+    testWidgets('[Guardar igual] saves as typed', (tester) async {
+      final id = await open(tester, placa: sinCon);
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardar igual'));
+      for (var i = 0;
+          i < 20 && find.byType(EditUnitScreen).evaluate().isNotEmpty;
+          i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pumpAndSettle();
+      }
+      expect(find.byType(EditUnitScreen), findsNothing);
+      final row = await tester.runAsync(() => repo.captureOf(id));
+      expect(row!.placa, sinCon);
+    });
+
+    testWidgets('AC-C8: a capture linked to R1 is never asked', (tester) async {
+      final id = await open(tester, placa: sinCon, npn: '4155');
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      final saved = await saveAndRead(tester, id);
+      expect(find.text('¿Te falta CON?'), findsNothing);
+      expect(saved.placa, sinCon);
+    });
+  });
+
+  group('duplicate R1 link in the editor (DUP.4)', () {
+    const mz = '41551010100000005';
+    final r1 = [
+      R1DirectoryCompanion.insert(
+        tenantId: 1,
+        direccionNorm: 'CALLE 20A # 3-03',
+        npn: const Value('n303'),
+        manzana: const Value(mz),
+        parseOk: const Value(true),
+      ),
+    ];
+
+    Future<void> linkTyped(WidgetTester tester) async {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'CALLE 20A # 3-03');
+      for (var i = 0; i < 10 && find.text('R1').evaluate().isEmpty; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.text('R1'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('AC-D5: linking an R1 row already linked elsewhere warns',
+        (tester) async {
+      final id = await open(tester,
+          placa: '', manzana: mz, tenantId: 1, r1: r1, otherNpns: ['n303']);
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      await linkTyped(tester);
+      expect(find.textContaining('Esa placa de R1 ya está enlazada'),
+          findsOneWidget);
+
+      // Unlinking clears the warning.
+      await tester.tap(find.byTooltip('Quitar enlace'));
+      await tester.pump();
+      expect(find.textContaining('ya está enlazada'), findsNothing);
+    });
+
+    testWidgets('no warning when the row is linked nowhere else',
+        (tester) async {
+      final id =
+          await open(tester, placa: '', manzana: mz, tenantId: 1, r1: r1);
+      if (id == null) return markTestSkipped('native sqlite3 not available');
+
+      await linkTyped(tester);
+      expect(find.text('Enlazada a: CALLE 20A # 3-03'), findsOneWidget);
+      expect(find.textContaining('ya está enlazada'), findsNothing);
     });
   });
 }

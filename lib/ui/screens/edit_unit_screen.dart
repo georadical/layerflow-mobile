@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/address/address_normalizer.dart';
+import '../../core/address/cruce_guard.dart';
 import '../../core/address/tipo_acceso.dart';
 import '../../core/config/app_config.dart';
+import '../../core/parada/duplicate_link.dart';
 import '../../core/parada/predio_sequence.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/capture_repository.dart';
 import '../providers.dart';
 import '../widgets/confirm_exact_plate.dart';
+import '../widgets/confirm_missing_con.dart';
+import '../widgets/duplicate_link_banner.dart';
 import '../widgets/linked_card.dart';
 
 /// Human name for a row's anchor: the placa of the unit whose loc matches,
@@ -76,6 +80,10 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
   String? _linkedLabel;
 
   bool get _linked => _npn != null || _direccionNorm != null;
+
+  /// R1 duplicate amendment (DR5): where the R1 row just linked here is already
+  /// linked in the route; null when it is not (or nothing was linked here).
+  String? _duplicateMessage;
 
   /// CL-R7: the finding can also be asserted here — a worker who realises
   /// it later must not be mute. Distinct from UNLINKING, which only means
@@ -163,11 +171,31 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
       if (saysExactly == null || !mounted) return;
       if (saysExactly) _placa.text = hit.direccionNorm;
     }
+    // DR1/DR5: the same check as capture, over the route this editor holds,
+    // never counting the unit being edited. The editor takes no photo (DR4).
+    final other = duplicateLinkOf(
+      routeCaptures: widget.allRows,
+      npn: hit.npn,
+      direccionNorm: hit.npn == null ? hit.direccionNorm : null,
+      excludeClientId: widget.row.clientId,
+    );
+    int? faceSequence;
+    if (other != null) {
+      for (final p
+          in ref.read(routeStopsProvider(widget.row.routeId)).valueOrNull ??
+              const <Parada>[]) {
+        if (p.stopId == other.stopId) faceSequence = p.faceSequence;
+      }
+    }
     setState(() {
       _npn = hit.npn;
       // v4: a multi-unit placa has no npn — the link is its direccion_norm.
       _direccionNorm = hit.npn == null ? hit.direccionNorm : null;
       _linkedLabel = hit.direccionNorm;
+      _duplicateMessage = other == null
+          ? null
+          : duplicateLinkMessage(other, widget.allRows,
+              faceSequence: faceSequence);
       _sinR1 = false; // linking supersedes the assertion
       _suggestions = [];
     });
@@ -177,6 +205,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
         _npn = null;
         _direccionNorm = null;
         _linkedLabel = null;
+        _duplicateMessage = null;
         _sinPlaca = false; // Spec 18 BR5: no link → no "sin placa" mode
       });
 
@@ -232,6 +261,15 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
 
   Future<void> _save() async {
     if (_saving) return;
+    // Spec 12 amendment BR-C4e: the same "¿Te falta CON?" check as capture —
+    // first, and skipped when linked to R1 (the link rules).
+    if (!_linked && looksLikeCruceMissingCon(_placa.text)) {
+      final saveAnyway = await confirmMissingCon(context);
+      if (!mounted || !saveAnyway) {
+        if (mounted) _placaFocus.requestFocus();
+        return;
+      }
+    }
     // Spec 20 BR11: the editor enforces the same rule as capture — old
     // captures included (BR12: nothing is flagged until it is edited).
     if (tipoAccesoMissing(
@@ -241,7 +279,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
     )) {
       setState(() => _tipoError = true);
       final fieldContext = _tipoKey.currentContext;
-      if (fieldContext != null) {
+      if (fieldContext != null && fieldContext.mounted) {
         await Scrollable.ensureVisible(fieldContext,
             alignment: 0.3, duration: const Duration(milliseconds: 300));
       }
@@ -346,6 +384,10 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
             onChanged: _onPlacaChanged,
           ),
           if (_linked) ...[
+            if (_duplicateMessage != null) ...[
+              const SizedBox(height: 8),
+              DuplicateLinkBanner(message: _duplicateMessage!),
+            ],
             const SizedBox(height: 8),
             LinkedCard(
               direccion: _linkedLabel ?? '…',
@@ -439,6 +481,7 @@ class _EditUnitScreenState extends ConsumerState<EditUnitScreen> {
                   _npn = null;
                   _direccionNorm = null;
                   _linkedLabel = null;
+                  _duplicateMessage = null;
                   _sinPlaca = false;
                 }
               }),
