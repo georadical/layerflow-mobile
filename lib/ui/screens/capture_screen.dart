@@ -19,6 +19,7 @@ import '../widgets/predio_number.dart';
 import '../../data/repositories/evidence_repository.dart';
 import '../widgets/confirm_exact_plate.dart';
 import '../widgets/confirm_missing_con.dart';
+import '../widgets/duplicate_link_banner.dart';
 import '../widgets/linked_card.dart';
 import '../widgets/sin_placa.dart';
 import 'plate_shot_screen.dart';
@@ -998,7 +999,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen> {
                 ],
                 if (_duplicateMessage != null) ...[
                   const SizedBox(height: 8),
-                  _DuplicateBanner(message: _duplicateMessage!),
+                  DuplicateLinkBanner(message: _duplicateMessage!),
                 ],
                 if (_linked != null) ...[
                   const SizedBox(height: 8),
@@ -1264,38 +1265,6 @@ class _NotInListCard extends StatelessWidget {
           icon: Icon(Icons.close, color: theme.colorScheme.onErrorContainer),
           tooltip: 'Deshacer',
           onPressed: onUndo,
-        ),
-      ),
-    );
-  }
-}
-
-/// CL-R3 trigger 5 (R1 duplicate amendment, DR2/DR3): warns where the same R1
-/// link already is in the route; never blocks.
-class _DuplicateBanner extends StatelessWidget {
-  const _DuplicateBanner({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      color: theme.colorScheme.tertiaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Icon(Icons.copy_all, color: theme.colorScheme.onTertiaryContainer),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
-              ),
-            ),
-          ],
         ),
       ),
     );
