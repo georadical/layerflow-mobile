@@ -35,3 +35,6 @@ Thumbs.db
 
 # Claude Code (estado local de sesión)
 .claude/
+
+# Release APKs named with the version (scripts/build_release.sh)
+dist/
